@@ -152,10 +152,16 @@ export function getInterpolatedAnnotations(
     const first = sorted[0];
     const last = sorted[sorted.length - 1];
     const interpBox = lerpBoundingBox(first.bbox, last.bbox, progress);
+    const dx = interpBox.cx - first.bbox.cx;
+    const dy = interpBox.cy - first.bbox.cy;
     return [
       {
         ...first,
         bbox: interpBox,
+        points: first.points.map((p) => ({
+          x: Math.min(1, Math.max(0, p.x + dx)),
+          y: Math.min(1, Math.max(0, p.y + dy)),
+        })),
       },
     ];
   }

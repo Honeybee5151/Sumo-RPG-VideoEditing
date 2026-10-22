@@ -32,6 +32,8 @@ import {
   VolumeX,
   Compass,
   Zap,
+  BookOpen,
+  Music,
 } from 'lucide-react';
 import {
   BuiltInSceneId,
@@ -64,6 +66,11 @@ import {
   resolveExportDimensions,
 } from '@/lib/hdExporter';
 import { computeTrackedKeyframe } from '@/lib/autoTracker';
+import {
+  extractAudioPeaksFromFile,
+  generateProceduralWaveform,
+  playAiEffectSoundCue,
+} from '@/lib/audioEngine';
 import type { SuggestedInterval } from '@/app/api/ai-analyze/route';
 
 const DEFAULT_DURATION = 12;
@@ -126,9 +133,14 @@ export default function VideoEditorStudio() {
     'Select an interval [ ], mark screen regions with Red, Blue, Green, or Yellow, and tell AI what to edit!'
   );
 
-  // Modals: Cloud Settings & HD Export Studio
+  // Modals: Cloud Settings, HD Export Studio, & AI Prompt Grimoire
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const [showGrimoireModal, setShowGrimoireModal] = useState<boolean>(false);
+  const [sfxEnabled, setSfxEnabled] = useState<boolean>(true);
+  const [waveformPeaks, setWaveformPeaks] = useState<number[]>(() =>
+    generateProceduralWaveform('scenic_valley', 96)
+  );
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [falApiKey, setFalApiKey] = useState<string>('');
 
@@ -355,6 +367,7 @@ export default function VideoEditorStudio() {
     setVideoFileName(file.name);
     setIsPlaying(false);
     setCurrentTime(0);
+    extractAudioPeaksFromFile(file, 96).then((peaks) => setWaveformPeaks(peaks));
     setStatusMessage(`Imported HD video "${file.name}". Select an interval and mark areas on screen!`);
   };
 
@@ -684,6 +697,9 @@ export default function VideoEditorStudio() {
         setSelectedEditId(data.edits[0].id);
         setCurrentTime(intervalStart);
         setIsPlaying(true);
+        if (sfxEnabled) {
+          playAiEffectSoundCue(data.edits[0].effectType);
+        }
         setStatusMessage(
           `Applied ${data.edits.length} edit(s) in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s] via ${data.provider}`
         );
@@ -976,6 +992,9 @@ export default function VideoEditorStudio() {
               if (val !== 'custom') {
                 setVideoUrl(null);
                 setSceneId(val as BuiltInSceneId);
+                setWaveformPeaks(
+                  generateProceduralWaveform(val as BuiltInSceneId, 96)
+                );
                 const labels: Record<BuiltInSceneId, string> = {
                   scenic_valley: 'Scenic Valley (1080p HD)',
                   night_express: 'Twilight Express Train (1080p HD)',
@@ -999,6 +1018,15 @@ export default function VideoEditorStudio() {
             <option value="street_market">Scene: Festival Market</option>
             {videoUrl && <option value="custom">Imported: {videoFileName}</option>}
           </select>
+
+          <button
+            onClick={() => setShowGrimoireModal(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-[#234c7a] hover:bg-[#4479a8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-[#f5f2e8] text-xs font-bold transition cursor-pointer"
+            title="Open AI Prompt Recipes, Relational Multi-Color Techniques & Shortcuts"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-[#fbf09c]" />
+            <span>✦ AI Grimoire</span>
+          </button>
 
           <button
             onClick={loadShowcasePreset}
@@ -1236,11 +1264,10 @@ export default function VideoEditorStudio() {
                     return (
                       <g key={ann.id}>
                         {ann.tool === 'brush' && ann.points.length > 1 ? (
-                          <polyline
+                          <polygon
                             fill={cfg.fillRgba}
                             stroke={cfg.hex}
-                            strokeWidth={6}
-                            strokeLinecap="round"
+                            strokeWidth={5}
                             strokeLinejoin="round"
                             points={ann.points
                               .map((p) => `${p.x * 1000},${p.y * 562.5}`)
@@ -1519,6 +1546,19 @@ export default function VideoEditorStudio() {
                   <Compass className="w-3.5 h-3.5 text-[#fbf09c]" />
                   <span>✦ AI Suggest Intervals</span>
                 </button>
+
+                <button
+                  onClick={() => setSfxEnabled((s) => !s)}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold border-2 border-[#1d1a16] transition cursor-pointer ${
+                    sfxEnabled
+                      ? 'bg-[#c6923a] text-[#1d1a16] shadow-[2px_2px_0px_#1d1a16]'
+                      : 'bg-[#ece5d3] text-[#837a6d]'
+                  }`}
+                  title="Toggle Procedural WebAudio AI Sound Effects"
+                >
+                  <Music className="w-3.5 h-3.5" />
+                  <span>SFX {sfxEnabled ? 'ON' : 'OFF'}</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2 text-xs font-bold">
@@ -1589,8 +1629,26 @@ export default function VideoEditorStudio() {
               }}
               className="relative flex-1 bg-[#ece5d3] border-2 border-[#1d1a16] shadow-inner overflow-hidden select-none cursor-pointer flex flex-col justify-between p-2"
             >
+              {/* Background Audio Waveform Envelope */}
+              <div className="pointer-events-none absolute inset-x-2 bottom-1 h-8 flex items-end justify-between gap-[2px] opacity-25">
+                {waveformPeaks.map((peak, idx) => {
+                  const barTime = (idx / waveformPeaks.length) * duration;
+                  const inActiveInterval =
+                    barTime >= intervalStart && barTime <= intervalEnd;
+                  return (
+                    <div
+                      key={idx}
+                      style={{ height: `${Math.round(peak * 100)}%` }}
+                      className={`flex-1 rounded-t-xs ${
+                        inActiveInterval ? 'bg-[#b82d23]' : 'bg-[#1d1a16]'
+                      }`}
+                    />
+                  );
+                })}
+              </div>
+
               {/* Time Ruler Ticks */}
-              <div className="flex justify-between text-[10px] font-mono font-bold text-[#544b43] px-1 pointer-events-none">
+              <div className="relative z-10 flex justify-between text-[10px] font-mono font-bold text-[#544b43] px-1 pointer-events-none">
                 {Array.from({ length: 13 }).map((_, i) => {
                   const tickTime = ((duration / 12) * i).toFixed(1);
                   return <span key={i}>{tickTime}s</span>;
@@ -2314,6 +2372,142 @@ export default function VideoEditorStudio() {
               >
                 ▶ Save &amp; Continue
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI PROMPT GRIMOIRE & TECHNIQUE EXPLORER MODAL */}
+      {showGrimoireModal && (
+        <div className="fixed inset-0 z-50 bg-[#1d1a16]/65 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-2xl bg-[#ece5d3] border-3 border-[#1d1a16] p-6 space-y-4 shadow-[6px_6px_0px_#1d1a16] max-h-[85vh] overflow-y-auto">
+            <CornerRivets />
+            <div className="flex items-center justify-between border-b-2 border-[#1d1a16] pb-3">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-[#234c7a]" />
+                <h3 className="text-base font-bold text-[#1d1a16]">
+                  AI Visual Prompting Grimoire &amp; Technique Recipes
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowGrimoireModal(false)}
+                className="text-xs font-bold text-[#544b43] hover:text-[#1d1a16] cursor-pointer"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <p className="text-xs text-[#544b43]">
+              Click any recipe below to immediately compile &amp; apply it to your
+              selected interval{' '}
+              <strong>
+                [{intervalStart.toFixed(1)}s – {intervalEnd.toFixed(1)}s]
+              </strong>
+              :
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                {
+                  title: 'Anime Impact (Multi-Layer Recipe)',
+                  badge: '4 LAYERS',
+                  badgeColor: 'bg-[#b82d23] text-[#f5f2e8]',
+                  desc: 'Expands into Halftone Manga Ink + 1.85x Zoom + Camera Shake + Action Flash.',
+                  promptText: `Anime impact on the ${primaryColor} area`,
+                },
+                {
+                  title: 'Bokeh Portrait Depth-of-Field',
+                  badge: 'INVERT MASK',
+                  badgeColor: 'bg-[#234c7a] text-[#f5f2e8]',
+                  desc: 'Keeps your marked subject razor-sharp while Gaussian-blurring the rest of the frame.',
+                  promptText: `Blur outside the ${primaryColor} area for bokeh depth-of-field`,
+                },
+                {
+                  title: 'Sin City Selective Color Splash',
+                  badge: 'COLOR SPLASH',
+                  badgeColor: 'bg-[#50793e] text-[#f5f2e8]',
+                  desc: 'Preserves full color inside your marked region and turns the background black & white.',
+                  promptText: `Keep the ${primaryColor} area in color and make the background black and white`,
+                },
+                {
+                  title: 'Generative V2V Inpainting Preview',
+                  badge: 'V2V SYNTH',
+                  badgeColor: 'bg-[#c6923a] text-[#1d1a16]',
+                  desc: 'Applies procedural generative synthesis inside your region + prepares SAM 2 / Wan VACE masks.',
+                  promptText: `Replace the ${primaryColor} area with fire synthesis`,
+                },
+                {
+                  title: 'Multi-Color Relational Clause',
+                  badge: 'MULTI-COLOR',
+                  badgeColor: 'bg-[#1d1a16] text-[#ece5d3]',
+                  desc: 'Targets two distinct color masks simultaneously in a single natural language sentence.',
+                  promptText: `Manga halftone ink on the ${primaryColor} area and blur the ${secondaryColor} area`,
+                },
+                {
+                  title: 'Cyberpunk Chromatic Glitch',
+                  badge: 'SHADER FX',
+                  badgeColor: 'bg-[#234c7a] text-[#f5f2e8]',
+                  desc: 'RGB stereo channel split + scanline wave + 2x smooth camera zoom.',
+                  promptText: `Chromatic aberration on the ${primaryColor} area and zoom 2x into the ${primaryColor} area`,
+                },
+              ].map((item, i) => (
+                <div
+                  key={i}
+                  className="bg-[#f5f2e8] border-2 border-[#1d1a16] p-3 flex flex-col justify-between gap-2 shadow-[2px_2px_0px_#1d1a16]"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1">
+                      <span className="text-xs font-bold text-[#1d1a16]">
+                        {item.title}
+                      </span>
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 border border-[#1d1a16] ${item.badgeColor}`}
+                      >
+                        {item.badge}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#544b43] leading-snug">
+                      {item.desc}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setPrompt(item.promptText);
+                      setShowGrimoireModal(false);
+                      handleApplyAiPrompt(item.promptText);
+                    }}
+                    className="w-full py-1.5 bg-[#ece5d3] hover:bg-[#c6923a] border-2 border-[#1d1a16] text-[11px] font-bold text-[#1d1a16] transition cursor-pointer"
+                  >
+                    ▶ Apply: &ldquo;{item.promptText}&rdquo;
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-3 bg-[#d9ceb4] border-2 border-[#1d1a16] text-xs space-y-1">
+              <div className="font-bold text-[#1d1a16]">
+                Studio Keyboard Shortcuts &amp; Motion Tracking Tips:
+              </div>
+              <div className="grid grid-cols-2 gap-1 text-[11px] text-[#544b43]">
+                <span>
+                  • <strong>Space</strong>: Play / Pause Video
+                </span>
+                <span>
+                  • <strong>[ / ]</strong>: Set Interval Start / End at Playhead
+                </span>
+                <span>
+                  • <strong>1 / 2 / 3 / 4</strong>: Select Red / Blue / Green / Yellow
+                </span>
+                <span>
+                  • <strong>Ctrl + Z</strong>: Undo Last Timeline Edit
+                </span>
+                <span>
+                  • <strong>AI Track Button</strong>: Optical-flow track color across [start, end]
+                </span>
+                <span>
+                  • <strong>Motion Path Tool</strong>: Draw arrow to glide mask along vector
+                </span>
+              </div>
             </div>
           </div>
         </div>

@@ -45,7 +45,17 @@ function buildMaskPath(
     } else if (ann.tool === 'circle') {
       ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     } else if (ann.tool === 'brush' && ann.points.length > 2) {
-      ctx.roundRect(x, y, w, h, Math.min(w, h) * 0.35);
+      // Smooth closed freehand polygon / lasso mask path
+      const pts = ann.points;
+      ctx.moveTo(pts[0].x * width, pts[0].y * height);
+      for (let i = 1; i < pts.length - 1; i++) {
+        const xc = ((pts[i].x + pts[i + 1].x) / 2) * width;
+        const yc = ((pts[i].y + pts[i + 1].y) / 2) * height;
+        ctx.quadraticCurveTo(pts[i].x * width, pts[i].y * height, xc, yc);
+      }
+      const last = pts[pts.length - 1];
+      ctx.lineTo(last.x * width, last.y * height);
+      ctx.closePath();
     } else {
       ctx.roundRect(x, y, w, h, 10 * scale);
     }
