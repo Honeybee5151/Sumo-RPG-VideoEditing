@@ -146,6 +146,57 @@ export function exportHighDefinitionSnapshotPng(options: {
   }, 'image/png');
 }
 
+/**
+ * Exports a binary black/white segmentation mask PNG for AI V2V Inpainting pipelines
+ * (such as Wan 2.1 VACE, SAM 2, or ComfyUI) from the user's drawn screen markings.
+ */
+export function exportBinaryMaskPng(options: {
+  preset: ExportResolutionPreset;
+  videoMeta: VideoMetadataInfo;
+  annotations: ScreenAnnotation[];
+}) {
+  const { preset, videoMeta, annotations } = options;
+  const { width, height } = resolveExportDimensions(preset, videoMeta);
+
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = width;
+  maskCanvas.height = height;
+  const ctx = maskCanvas.getContext('2d');
+  if (!ctx) return;
+
+  // Black background = untouched video region
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, width, height);
+
+  // White foreground = AI inpainting target zone
+  ctx.fillStyle = '#ffffff';
+  for (const ann of annotations) {
+    const b = ann.bbox;
+    const x = b.x * width;
+    const y = b.y * height;
+    const w = b.width * width;
+    const h = b.height * height;
+
+    ctx.beginPath();
+    if (ann.tool === 'circle') {
+      ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+    } else {
+      ctx.roundRect(x, y, w, h, 8 * (width / 960));
+    }
+    ctx.fill();
+  }
+
+  maskCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ai-inpaint-mask-${width}x${height}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, 'image/png');
+}
+
 export function exportProjectFile(data: {
   sceneId: BuiltInSceneId;
   intervalStart: number;

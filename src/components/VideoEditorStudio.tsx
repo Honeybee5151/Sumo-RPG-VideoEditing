@@ -57,11 +57,13 @@ import {
   renderProceduralDemoScene,
 } from '@/lib/canvasCompositor';
 import {
+  exportBinaryMaskPng,
   exportHighDefinitionSnapshotPng,
   exportProjectFile,
   getOptimalVideoMimeType,
   resolveExportDimensions,
 } from '@/lib/hdExporter';
+import { computeTrackedKeyframe } from '@/lib/autoTracker';
 import type { SuggestedInterval } from '@/app/api/ai-analyze/route';
 
 const DEFAULT_DURATION = 12;
@@ -525,6 +527,53 @@ export default function VideoEditorStudio() {
     } catch {
       setStatusMessage('Could not analyze intervals.');
     }
+  };
+
+  // AI Optical Patch Auto-Tracker across [intervalStart, intervalEnd]
+  const handleAutoTrackActiveColor = () => {
+    const colorAnns = annotations.filter((a) => a.color === activeColor);
+    if (colorAnns.length === 0 || !sourceCanvasRef.current) {
+      setStatusMessage(
+        `Draw a ${activeColor.toUpperCase()} box around an object first, then click Auto-Track!`
+      );
+      return;
+    }
+
+    const baseAnn = colorAnns[colorAnns.length - 1];
+    const startCanvas = document.createElement('canvas');
+    startCanvas.width = 640;
+    startCanvas.height = 360;
+    const endCanvas = document.createElement('canvas');
+    endCanvas.width = 640;
+    endCanvas.height = 360;
+
+    const sCtx = startCanvas.getContext('2d');
+    const eCtx = endCanvas.getContext('2d');
+    if (!sCtx || !eCtx) return;
+
+    if (videoUrl && videoRef.current && videoRef.current.readyState >= 2) {
+      sCtx.drawImage(videoRef.current, 0, 0, 640, 360);
+      eCtx.drawImage(videoRef.current, 0, 0, 640, 360);
+    } else {
+      renderProceduralDemoScene(sCtx, 640, 360, intervalStart, sceneId);
+      renderProceduralDemoScene(eCtx, 640, 360, intervalEnd, sceneId);
+    }
+
+    const trackedEndAnn = computeTrackedKeyframe(
+      startCanvas,
+      endCanvas,
+      { ...baseAnn, createdAtTime: intervalStart },
+      intervalEnd
+    );
+
+    setAnnotations((prev) => [
+      ...prev.filter((a) => a.color !== activeColor),
+      { ...baseAnn, createdAtTime: intervalStart },
+      trackedEndAnn,
+    ]);
+    setStatusMessage(
+      `AI Auto-Tracked ${activeColor.toUpperCase()} region from ${intervalStart.toFixed(1)}s to ${intervalEnd.toFixed(1)}s!`
+    );
   };
 
   const getNormalizedPoint = (
@@ -1080,6 +1129,15 @@ export default function VideoEditorStudio() {
 
             {/* Canvas & Comparison Controls */}
             <div className="flex items-center gap-1.5">
+              <button
+                onClick={handleAutoTrackActiveColor}
+                className="flex items-center gap-1 px-2.5 py-1 bg-[#c6923a] hover:bg-[#dfc992] border-2 border-[#1d1a16] text-xs font-bold text-[#1d1a16] transition cursor-pointer"
+                title="AI Auto-Track Selected Color Across Interval [start, end]"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#1d1a16]" />
+                <span>AI Track</span>
+              </button>
+
               <button
                 onClick={() => setSplitCompareEnabled((v) => !v)}
                 className={`flex items-center gap-1 px-2.5 py-1 border-2 border-[#1d1a16] text-xs font-bold transition cursor-pointer ${
@@ -1937,6 +1995,73 @@ export default function VideoEditorStudio() {
                   />
                 </div>
               )}
+
+              {selectedEdit.effectType === 'generative_replace' && (
+                <div>
+                  <label className="text-[10px] font-bold text-[#544b43] block mb-1">
+                    Generative V2V Synthesis Style
+                  </label>
+                  <select
+                    value={selectedEdit.params.generativeStyle ?? 'gold_aura'}
+                    onChange={(e) => {
+                      const generativeStyle = e.target.value as
+                        | 'fire'
+                        | 'hologram'
+                        | 'watercolor'
+                        | 'cyber'
+                        | 'gold_aura';
+                      setEdits((prev) =>
+                        prev.map((it) =>
+                          it.id === selectedEdit.id
+                            ? {
+                                ...it,
+                                summary: `AI V2V (${generativeStyle.toUpperCase()})`,
+                                params: { ...it.params, generativeStyle },
+                              }
+                            : it
+                        )
+                      );
+                    }}
+                    className="w-full px-2.5 py-1.5 bg-[#f5f2e8] border-2 border-[#1d1a16] text-xs font-bold text-[#1d1a16]"
+                  >
+                    <option value="fire">Fire &amp; Ember Synthesis</option>
+                    <option value="hologram">Sci-Fi Hologram Projection</option>
+                    <option value="watercolor">Ukiyo-e Watercolor Wash</option>
+                    <option value="cyber">Cyber Matrix Pulse</option>
+                    <option value="gold_aura">Golden Kitsune Aura</option>
+                  </select>
+                </div>
+              )}
+
+              {selectedEdit.effectType === 'speed' && (
+                <div>
+                  <label className="text-[10px] font-bold text-[#544b43] block">
+                    Playback Speed ({(selectedEdit.params.playbackRate ?? 1.0).toFixed(2)}x)
+                  </label>
+                  <input
+                    type="range"
+                    min={0.25}
+                    max={3.0}
+                    step={0.25}
+                    value={selectedEdit.params.playbackRate ?? 1.0}
+                    onChange={(e) => {
+                      const playbackRate = parseFloat(e.target.value);
+                      setEdits((prev) =>
+                        prev.map((it) =>
+                          it.id === selectedEdit.id
+                            ? {
+                                ...it,
+                                summary: `Speed ${playbackRate}x`,
+                                params: { ...it.params, playbackRate },
+                              }
+                            : it
+                        )
+                      );
+                    }}
+                    className="w-full accent-[#b82d23]"
+                  />
+                </div>
+              )}
             </div>
           )}
         </aside>
@@ -2074,25 +2199,43 @@ export default function VideoEditorStudio() {
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-2 border-t-2 border-[#1d1a16]">
-              <button
-                onClick={() =>
-                  exportHighDefinitionSnapshotPng({
-                    preset: exportConfig.resolution,
-                    videoMeta,
-                    videoElement: videoRef.current,
-                    videoUrl,
-                    sceneId,
-                    currentTime,
-                    edits,
-                  })
-                }
-                disabled={isExporting}
-                className="flex items-center gap-1.5 px-3 py-2 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#1d1a16] cursor-pointer"
-              >
-                <Camera className="w-3.5 h-3.5 text-[#234c7a]" />
-                <span>Export Frame PNG ({exportConfig.resolution.toUpperCase()})</span>
-              </button>
+            <div className="flex items-center justify-between gap-2 pt-2 border-t-2 border-[#1d1a16]">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    exportHighDefinitionSnapshotPng({
+                      preset: exportConfig.resolution,
+                      videoMeta,
+                      videoElement: videoRef.current,
+                      videoUrl,
+                      sceneId,
+                      currentTime,
+                      edits,
+                    })
+                  }
+                  disabled={isExporting}
+                  className="flex items-center gap-1 px-2.5 py-2 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#1d1a16] cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5 text-[#234c7a]" />
+                  <span>Frame PNG</span>
+                </button>
+
+                <button
+                  onClick={() =>
+                    exportBinaryMaskPng({
+                      preset: exportConfig.resolution,
+                      videoMeta,
+                      annotations,
+                    })
+                  }
+                  disabled={isExporting}
+                  title="Export Binary Black/White AI Inpainting Mask PNG"
+                  className="flex items-center gap-1 px-2.5 py-2 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#1d1a16] cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-[#50793e]" />
+                  <span>AI Mask PNG</span>
+                </button>
+              </div>
 
               <button
                 onClick={startHighDefinitionExport}
