@@ -30,7 +30,6 @@ export async function POST(req: NextRequest) {
     const activeKey = (geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
     const colorSummary = summarizeColorGroups(annotations);
 
-    // If a free Google AI Studio (Gemini) API key is provided, use multimodal vision + structured JSON!
     if (activeKey) {
       try {
         const systemInstruction = `You are an expert AI Video Editor Compiler.
@@ -40,7 +39,7 @@ ${
     ? colorSummary
         .map(
           (c) =>
-            `- ${c.color.toUpperCase()}: ${c.count} stroke(s) (${c.tools.join(', ')}), bbox=[x:${c.combinedBbox.x.toFixed(2)}, y:${c.combinedBbox.y.toFixed(2)}, w:${c.combinedBbox.width.toFixed(2)}, h:${c.combinedBbox.height.toFixed(2)}]`
+            `- ${c.color.toUpperCase()}: ${c.count} stroke(s) (${c.tools.join(', ')}), motionTracked=${c.isMotionTracked}, bbox=[x:${c.combinedBbox.x.toFixed(2)}, y:${c.combinedBbox.y.toFixed(2)}, w:${c.combinedBbox.width.toFixed(2)}, h:${c.combinedBbox.height.toFixed(2)}]`
         )
         .join('\n')
     : '- No color markings drawn (apply to full frame or default region).'
@@ -49,11 +48,14 @@ ${
 Translate the user's instruction into a JSON array of edit operations.
 Allowed effectType values:
 - "zoom": params { zoomScale: number (1.2-3.5), zoomEasing: "smooth" | "instant" }
-- "blur": params { blurRadius: number (8-30), invertMask?: boolean }
+- "blur": params { blurRadius: number (8-32), invertMask?: boolean }
 - "pixelate": params { pixelBlockSize: number (8-28), invertMask?: boolean }
 - "spotlight": params { dimOpacity: number (0.4-0.88) }
 - "color_grade": params { saturation?: number (0-250), brightness?: number (50-160), contrast?: number (50-200), sepia?: number (0-100), invert?: number (0-100), hueRotate?: number (0-360), tintColor?: string (hex), tintOpacity?: number (0.2-0.8), invertMask?: boolean }
 - "neon_glow": params { glowColor: string (hex), glowIntensity: number (12-40), pulse: boolean }
+- "halftone_ink": params { dotSpacing: number (5-12), inkColor: string (hex), paperColor: string (hex), invertMask?: boolean }
+- "chromatic_aberration": params { aberrationOffset: number (4-18), invertMask?: boolean }
+- "generative_replace": params { generativePrompt: string, generativeStyle: "fire" | "hologram" | "watercolor" | "cyber" | "gold_aura" }
 - "text_overlay": params { text: string, textStyle: "impact" | "callout" | "neon", textColor: string (hex), fontSize: number (24-48) }
 - "callout_shape": params { shapeType: "ring" | "brackets" | "arrow", shapeColor: string (hex) }
 - "speed": params { playbackRate: number (0.25-4.0), freezeFrame?: boolean }
@@ -61,8 +63,8 @@ Allowed effectType values:
 
 Each item in the returned JSON array MUST have:
 {
-  "summary": "Short human-readable label (e.g. 'Zoom 2.0x -> RED', 'Blur BLUE region')",
-  "effectType":EffectType,
+  "summary": "Short human-readable label (e.g. 'Zoom 2.0x -> RED', 'Manga Ink -> GREEN')",
+  "effectType": EffectType,
   "targetColor": "red" | "blue" | "green" | "yellow" | "all",
   "params": { ... }
 }
@@ -148,7 +150,6 @@ Return ONLY valid JSON array.`;
       }
     }
 
-    // Built-in Zero-Key Semantic Multi-Color Compiler
     const edits = compilePromptLocally(
       prompt,
       startTime,

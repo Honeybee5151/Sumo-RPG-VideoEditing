@@ -29,7 +29,6 @@ export function computeBoundingBox(
     if (pt.y > maxY) maxY = pt.y;
   }
 
-  // If it's a single point or very thin brush stroke, give it sensible padding
   const pad = tool === 'brush' || points.length === 1 ? Math.max(strokePadding, 0.03) : 0.005;
   minX = Math.max(0, minX - pad);
   minY = Math.max(0, minY - pad);
@@ -77,6 +76,93 @@ export function mergeBoundingBoxes(boxes: BoundingBox[]): BoundingBox {
   };
 }
 
+export function lerpBoundingBox(a: BoundingBox, b: BoundingBox, t: number): BoundingBox {
+  const clamped = Math.min(1, Math.max(0, t));
+  // Smoothstep interpolation
+  const s = clamped * clamped * (3 - 2 * clamped);
+  const x = a.x + (b.x - a.x) * s;
+  const y = a.y + (b.y - a.y) * s;
+  const width = a.width + (b.width - a.width) * s;
+  const height = a.height + (b.height - a.height) * s;
+  return {
+    x,
+    y,
+    width,
+    height,
+    cx: x + width / 2,
+    cy: y + height / 2,
+  };
+}
+
+/**
+ * Evaluates time-interpolated annotations for a given timestamp inside [startTime, endTime].
+ * Supports:
+ * 1. Trajectory Arrow Vectors: If a color group includes a shape + an 'arrow' stroke, the shape translates along the arrow vector over [startTime, endTime].
+ * 2. Multi-Keyframe Boxes: If a color has annotations drawn at distinct timestamps (|t2 - t1| >= 0.35s), smoothly interpolates between keyframes over time.
+ */
+export function getInterpolatedAnnotations(
+  annotations: ScreenAnnotation[],
+  currentTime: number,
+  startTime: number,
+  endTime: number
+): ScreenAnnotation[] {
+  if (annotations.length <= 1) return annotations;
+
+  const duration = Math.max(0.1, endTime - startTime);
+  const progress = Math.min(1, Math.max(0, (currentTime - startTime) / duration));
+
+  // Case 1: Trajectory Arrow + Base Shape(s)
+  const arrows = annotations.filter((a) => a.tool === 'arrow' && a.points.length >= 2);
+  const nonArrows = annotations.filter((a) => a.tool !== 'arrow');
+
+  if (arrows.length > 0 && nonArrows.length > 0) {
+    const arrow = arrows[arrows.length - 1];
+    const startPt = arrow.points[0];
+    const endPt = arrow.points[arrow.points.length - 1];
+    const dx = (endPt.x - startPt.x) * progress;
+    const dy = (endPt.y - startPt.y) * progress;
+
+    return nonArrows.map((ann) => {
+      const nx = Math.min(1 - ann.bbox.width, Math.max(0, ann.bbox.x + dx));
+      const ny = Math.min(1 - ann.bbox.height, Math.max(0, ann.bbox.y + dy));
+      return {
+        ...ann,
+        bbox: {
+          x: nx,
+          y: ny,
+          width: ann.bbox.width,
+          height: ann.bbox.height,
+          cx: nx + ann.bbox.width / 2,
+          cy: ny + ann.bbox.height / 2,
+        },
+        points: ann.points.map((p) => ({
+          x: Math.min(1, Math.max(0, p.x + dx)),
+          y: Math.min(1, Math.max(0, p.y + dy)),
+        })),
+      };
+    });
+  }
+
+  // Case 2: Temporal Keyframes (drawn at timestamps >= 0.35s apart)
+  const sorted = [...annotations].sort((a, b) => a.createdAtTime - b.createdAtTime);
+  const timeSpan = sorted[sorted.length - 1].createdAtTime - sorted[0].createdAtTime;
+
+  if (timeSpan >= 0.35) {
+    // Interpolate between first and last keyframe across the interval
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const interpBox = lerpBoundingBox(first.bbox, last.bbox, progress);
+    return [
+      {
+        ...first,
+        bbox: interpBox,
+      },
+    ];
+  }
+
+  return annotations;
+}
+
 export function summarizeColorGroups(annotations: ScreenAnnotation[]): ColorGroupSummary[] {
   const colors: MarkColor[] = ['red', 'blue', 'green', 'yellow'];
   const summaries: ColorGroupSummary[] = [];
@@ -84,11 +170,19 @@ export function summarizeColorGroups(annotations: ScreenAnnotation[]): ColorGrou
   for (const color of colors) {
     const matching = annotations.filter((a) => a.color === color);
     if (matching.length > 0) {
+      const sorted = [...matching].sort((a, b) => a.createdAtTime - b.createdAtTime);
+      const timeSpan =
+        sorted.length > 1
+          ? sorted[sorted.length - 1].createdAtTime - sorted[0].createdAtTime
+          : 0;
+      const hasArrow = matching.some((m) => m.tool === 'arrow');
+
       summaries.push({
         color,
         count: matching.length,
         combinedBbox: mergeBoundingBoxes(matching.map((m) => m.bbox)),
         tools: Array.from(new Set(matching.map((m) => m.tool))),
+        isMotionTracked: timeSpan >= 0.35 || (hasArrow && matching.length > 1),
       });
     }
   }
@@ -96,22 +190,25 @@ export function summarizeColorGroups(annotations: ScreenAnnotation[]): ColorGrou
 }
 
 const COLOR_HEX_LOOKUP: Record<string, string> = {
-  red: '#ef4444',
-  crimson: '#dc2626',
-  blue: '#3b82f6',
-  cyan: '#06b6d4',
-  aqua: '#06b6d4',
-  green: '#10b981',
-  emerald: '#10b981',
-  lime: '#84cc16',
-  yellow: '#eab308',
-  gold: '#f59e0b',
-  orange: '#f97316',
-  purple: '#a855f7',
-  violet: '#8b5cf6',
-  pink: '#ec4899',
-  magenta: '#d946ef',
-  white: '#ffffff',
+  red: '#b82d23',
+  crimson: '#a64147',
+  vermilion: '#b82d23',
+  blue: '#234c7a',
+  indigo: '#234c7a',
+  cyan: '#4479a8',
+  aqua: '#84adc4',
+  green: '#50793e',
+  matcha: '#50793e',
+  emerald: '#27513b',
+  sage: '#85b296',
+  yellow: '#c6923a',
+  gold: '#c6923a',
+  ochre: '#9a6c24',
+  orange: '#c6923a',
+  purple: '#7a5133',
+  violet: '#48586b',
+  pink: '#a64147',
+  white: '#f5f2e8',
 };
 
 function detectTargetColorInClause(
@@ -119,7 +216,6 @@ function detectTargetColorInClause(
   availableColors: MarkColor[]
 ): MarkColor | 'all' {
   const lower = clause.toLowerCase();
-  // Look for explicit "red area", "blue mark", "green box", "yellow circle", or standalone color references
   for (const c of ['red', 'blue', 'green', 'yellow'] as MarkColor[]) {
     const regex = new RegExp(
       `\\b${c}\\s*(area|region|zone|mark|marking|drawing|box|circle|spot|object|part|selection|stroke|arrow|line|one|target)?\\b`,
@@ -134,16 +230,14 @@ function detectTargetColorInClause(
       return c;
     }
   }
-  // If user didn't name a color, but drew exactly one color on screen, bind to that drawn color!
   if (availableColors.length === 1) {
     return availableColors[0];
   }
   return availableColors[0] ?? 'all';
 }
 
-function extractTargetToneHex(clause: string, fallback = '#a855f7'): string {
+function extractTargetToneHex(clause: string, fallback = '#c6923a'): string {
   const lower = clause.toLowerCase();
-  // Prefer color mentioned after "into", "to", "with", "glow", "neon", "tint"
   const afterKeyword = lower.match(/(?:into|to|with|glow|neon|tint|color)\s+([a-z]+)/i);
   if (afterKeyword && COLOR_HEX_LOOKUP[afterKeyword[1]]) {
     return COLOR_HEX_LOOKUP[afterKeyword[1]];
@@ -158,17 +252,16 @@ function extractTargetToneHex(clause: string, fallback = '#a855f7'): string {
 
 /**
  * Compiles a natural-language user prompt + multi-color screen annotations into
- * one or more structured parametric TimelineEditItems for the [startTime, endTime] interval.
+ * one or more structured parametric or generative TimelineEditItems for [startTime, endTime].
  */
 export function compilePromptLocally(
   prompt: string,
   startTime: number,
   endTime: number,
   annotations: ScreenAnnotation[],
-  aiProviderLabel = 'Smart Semantic Compiler'
+  aiProviderLabel = 'Built-in Semantic Compiler'
 ): TimelineEditItem[] {
   const availableColors = Array.from(new Set(annotations.map((a) => a.color)));
-  // Split compound prompts ("zoom into red and blur blue, then add text 'WOW' on green")
   const rawClauses = prompt
     .split(/(?:,|;|\band\b|\bthen\b|\balso\b|\bwhile\b)/i)
     .map((s) => s.trim())
@@ -187,12 +280,139 @@ export function compilePromptLocally(
 
     const id = `edit-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
 
-    // 1. ZOOM / PAN / FOCUS / CROP
+    // 0. COMPOSITE RECIPE: ANIME IMPACT / DRAMATIC FOCUS
+    if (/\b(anime\s+impact|dramatic\s+impact|action\s+impact|hero\s+moment)\b/i.test(lower)) {
+      results.push(
+        {
+          id: `${id}-zoom`,
+          prompt: clause,
+          summary: `Impact Zoom 2.1x → ${targetColor !== 'all' ? targetColor.toUpperCase() : 'Center'}`,
+          startTime,
+          endTime,
+          effectType: 'zoom',
+          targetColor,
+          annotations: matchingAnnotations,
+          params: { zoomScale: 2.1, zoomEasing: 'smooth' },
+          enabled: true,
+          aiProvider: aiProviderLabel,
+        },
+        {
+          id: `${id}-rgb`,
+          prompt: clause,
+          summary: `Chromatic RGB Split → ${targetColor !== 'all' ? targetColor.toUpperCase() : 'Frame'}`,
+          startTime,
+          endTime,
+          effectType: 'chromatic_aberration',
+          targetColor,
+          annotations: matchingAnnotations,
+          params: { aberrationOffset: 9, invertMask: false },
+          enabled: true,
+          aiProvider: aiProviderLabel,
+        },
+        {
+          id: `${id}-spot`,
+          prompt: clause,
+          summary: `Dramatic Spotlight → ${targetColor !== 'all' ? targetColor.toUpperCase() : 'Center'}`,
+          startTime,
+          endTime,
+          effectType: 'spotlight',
+          targetColor,
+          annotations: matchingAnnotations,
+          params: { dimOpacity: 0.65 },
+          enabled: true,
+          aiProvider: aiProviderLabel,
+        }
+      );
+      return;
+    }
+
+    // 1. HALFTONE / MANGA INK / WOODBLOCK SHADER
+    if (/\b(manga|halftone|ink|comic|woodblock|stipple|sketch|ukiyo)\b/i.test(lower)) {
+      const invertMask = /\b(outside|background|except|around)\b/i.test(lower);
+      results.push({
+        id,
+        prompt: clause,
+        summary: `Manga Halftone Ink ${invertMask ? '(Background) ' : ''}${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : ''}`,
+        startTime,
+        endTime,
+        effectType: 'halftone_ink',
+        targetColor,
+        annotations: matchingAnnotations,
+        params: {
+          dotSpacing: 6,
+          inkColor: '#1d1a16',
+          paperColor: '#ece5d3',
+          invertMask,
+        },
+        enabled: true,
+        aiProvider: aiProviderLabel,
+      });
+      return;
+    }
+
+    // 2. CHROMATIC ABERRATION / RGB SPLIT / PRISM
+    if (/\b(chromatic|aberration|rgb\s*split|3d\s*glitch|prism|color\s*fringe)\b/i.test(lower)) {
+      const invertMask = /\b(outside|background|except|around)\b/i.test(lower);
+      results.push({
+        id,
+        prompt: clause,
+        summary: `Chromatic RGB Split ${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : '(Full)'}`,
+        startTime,
+        endTime,
+        effectType: 'chromatic_aberration',
+        targetColor,
+        annotations: matchingAnnotations,
+        params: {
+          aberrationOffset: 10,
+          invertMask,
+        },
+        enabled: true,
+        aiProvider: aiProviderLabel,
+      });
+      return;
+    }
+
+    // 3. GENERATIVE V2V / INPAINTING SYNTHESIS
+    if (/\b(replace|inpaint|regenerate|synthesize|v2v|hologram|fire|flames|watercolor|transform\s+into)\b/i.test(lower)) {
+      const generativeStyle = /\b(fire|flame|burn)\b/i.test(lower)
+        ? 'fire'
+        : /\b(hologram|holo|sci-fi)\b/i.test(lower)
+        ? 'hologram'
+        : /\b(watercolor|paint)\b/i.test(lower)
+        ? 'watercolor'
+        : /\b(cyber|neon|matrix)\b/i.test(lower)
+        ? 'cyber'
+        : 'gold_aura';
+
+      results.push({
+        id,
+        prompt: clause,
+        summary: `AI V2V Inpaint (${generativeStyle.toUpperCase()}) ${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : ''}`,
+        startTime,
+        endTime,
+        effectType: 'generative_replace',
+        targetColor,
+        annotations: matchingAnnotations,
+        params: {
+          generativePrompt: clause,
+          generativeStyle,
+        },
+        enabled: true,
+        aiProvider: aiProviderLabel,
+      });
+      return;
+    }
+
+    // 4. ZOOM / PAN / FOCUS / CROP
     if (/\b(zoom|focus|close\s*up|punch\s*in|pan|crop|magnify|reframe)\b/i.test(lower)) {
       const isStrong = /\b(super|extreme|close|tight|2\.5x|3x|hard)\b/i.test(lower);
       const isInstant = /\b(instant|cut|punch|snap|jump)\b/i.test(lower);
       const scaleMatch = lower.match(/(\d+(?:\.\d+)?)\s*x/);
-      const zoomScale = scaleMatch ? Math.min(3.5, Math.max(1.2, parseFloat(scaleMatch[1]))) : isStrong ? 2.3 : 1.75;
+      const zoomScale = scaleMatch
+        ? Math.min(3.5, Math.max(1.2, parseFloat(scaleMatch[1])))
+        : isStrong
+        ? 2.3
+        : 1.75;
 
       results.push({
         id,
@@ -213,7 +433,7 @@ export function compilePromptLocally(
       return;
     }
 
-    // 2. PIXELATE / MOSAIC / CENSOR
+    // 5. PIXELATE / MOSAIC / CENSOR
     if (/\b(pixel|pixelate|mosaic|censor|8-bit|blocky)\b/i.test(lower)) {
       const invertMask = /\b(outside|background|except|around)\b/i.test(lower);
       results.push({
@@ -235,7 +455,7 @@ export function compilePromptLocally(
       return;
     }
 
-    // 3. BLUR / DEFOCUS / BOKEH
+    // 6. BLUR / DEFOCUS / BOKEH
     if (/\b(blur|defocus|bokeh|obscure|hide|smooth|fog)\b/i.test(lower)) {
       const invertMask = /\b(outside|background|except|around|bokeh|portrait)\b/i.test(lower);
       results.push({
@@ -257,7 +477,7 @@ export function compilePromptLocally(
       return;
     }
 
-    // 4. SPOTLIGHT / HIGHLIGHT / DARKEN BACKGROUND
+    // 7. SPOTLIGHT / HIGHLIGHT / DARKEN BACKGROUND
     if (/\b(spotlight|darken\s+background|dim\s+background|isolate|focus\s+light)\b/i.test(lower)) {
       results.push({
         id,
@@ -277,16 +497,16 @@ export function compilePromptLocally(
       return;
     }
 
-    // 5. NEON / GLOW / AURA / CYBERPUNK OUTLINE
+    // 8. NEON / GLOW / AURA
     if (/\b(neon|glow|aura|laser|electric|cyber|beam|shine|radiate)\b/i.test(lower)) {
       const glowColor = extractTargetToneHex(
         clause,
-        targetColor !== 'all' ? COLOR_HEX_LOOKUP[targetColor] : '#a855f7'
+        targetColor !== 'all' ? COLOR_HEX_LOOKUP[targetColor] : '#c6923a'
       );
       results.push({
         id,
         prompt: clause,
-        summary: `Neon Glow (${glowColor}) ${targetColor !== 'all' ? `on ${targetColor.toUpperCase()}` : ''}`,
+        summary: `Warm Glow (${glowColor}) ${targetColor !== 'all' ? `on ${targetColor.toUpperCase()}` : ''}`,
         startTime,
         endTime,
         effectType: 'neon_glow',
@@ -303,19 +523,24 @@ export function compilePromptLocally(
       return;
     }
 
-    // 6. TEXT / CAPTION / SUBTITLE / LABEL OVERLAY
-    if (/\b(text|caption|title|subtitle|write|say|label|word|quote)\b/i.test(lower) || /["']([^"']+)["']/.test(clause)) {
+    // 9. TEXT / CAPTION / SUBTITLE / LABEL OVERLAY
+    if (
+      /\b(text|caption|title|subtitle|write|say|label|word|quote|plaque)\b/i.test(lower) ||
+      /["']([^"']+)["']/.test(clause)
+    ) {
       const quoted = clause.match(/["']([^"']+)["']/);
       let extractedText = quoted ? quoted[1] : '';
       if (!extractedText) {
-        const afterWord = clause.match(/(?:text|caption|title|label|write|say)\s+(.+)/i);
-        extractedText = afterWord ? afterWord[1].replace(/^(?:as|to|saying)\s+/i, '').trim() : 'LOOK HERE!';
+        const afterWord = clause.match(/(?:text|caption|title|label|write|say|plaque)\s+(.+)/i);
+        extractedText = afterWord
+          ? afterWord[1].replace(/^(?:as|to|saying)\s+/i, '').trim()
+          : 'LOOK HERE!';
       }
       const isNeon = /\b(neon|glow)\b/i.test(lower);
       results.push({
         id,
         prompt: clause,
-        summary: `Text "${extractedText}" ${targetColor !== 'all' ? `@ ${targetColor.toUpperCase()}` : ''}`,
+        summary: `Callout "${extractedText}" ${targetColor !== 'all' ? `@ ${targetColor.toUpperCase()}` : ''}`,
         startTime,
         endTime,
         effectType: 'text_overlay',
@@ -324,8 +549,8 @@ export function compilePromptLocally(
         params: {
           text: extractedText,
           textStyle: isNeon ? 'neon' : targetColor !== 'all' ? 'callout' : 'impact',
-          textColor: '#ffffff',
-          fontSize: 34,
+          textColor: '#1d1a16',
+          fontSize: 32,
         },
         enabled: true,
         aiProvider: aiProviderLabel,
@@ -333,7 +558,7 @@ export function compilePromptLocally(
       return;
     }
 
-    // 7. CALLOUT SHAPE / CIRCLE / BOX / ARROW / POINTER
+    // 10. CALLOUT SHAPE / CIRCLE / BOX / ARROW / POINTER
     if (/\b(circle|ring|box|bracket|frame|outline|pointer|arrow|callout|target|highlight\s+box)\b/i.test(lower)) {
       const shapeType = /\b(bracket|box|frame|square)\b/i.test(lower)
         ? 'brackets'
@@ -342,7 +567,7 @@ export function compilePromptLocally(
         : 'ring';
       const shapeColor = extractTargetToneHex(
         clause,
-        targetColor !== 'all' ? COLOR_HEX_LOOKUP[targetColor] : '#ef4444'
+        targetColor !== 'all' ? COLOR_HEX_LOOKUP[targetColor] : '#b82d23'
       );
       results.push({
         id,
@@ -363,7 +588,7 @@ export function compilePromptLocally(
       return;
     }
 
-    // 8. SPEED / SLOW-MO / FAST-FORWARD / FREEZE
+    // 11. SPEED / SLOW-MO / FAST-FORWARD / FREEZE
     if (/\b(slow|slomo|slow-mo|fast|speed|timelapse|freeze|pause|2x|0\.5x|half\s+speed|double\s+speed)\b/i.test(lower)) {
       const isFreeze = /\b(freeze|pause|stop|hold)\b/i.test(lower);
       const isSlow = /\b(slow|slomo|slow-mo|half|0\.5|0\.25)\b/i.test(lower);
@@ -393,7 +618,7 @@ export function compilePromptLocally(
       return;
     }
 
-    // 9. CAMERA FX (SHAKE / GLITCH / VHS / CINEMA BARS / VIGNETTE / FLASH)
+    // 12. CAMERA FX (SHAKE / GLITCH / VHS / CINEMA BARS / VIGNETTE / FLASH)
     if (/\b(shake|earthquake|vibrate|glitch|vhs|retro|cinema|letterbox|bars|vignette|flash|strobe)\b/i.test(lower)) {
       const cameraEffect = /\b(shake|earthquake|vibrate)\b/i.test(lower)
         ? 'shake'
@@ -424,7 +649,7 @@ export function compilePromptLocally(
       return;
     }
 
-    // 10. COLOR GRADING / B&W / SATURATION / HUE / INVERT / TINT (DEFAULT OR EXPLICIT)
+    // 13. COLOR GRADING / B&W / SATURATION / HUE / INVERT / TINT
     const isGrayscale = /\b(black\s*and\s*white|b&w|bw|grayscale|monochrome|desaturate|noir)\b/i.test(lower);
     const isInvert = /\b(invert|negative|x-ray|xray)\b/i.test(lower);
     const isSepia = /\b(sepia|vintage|old\s+film|warm)\b/i.test(lower);

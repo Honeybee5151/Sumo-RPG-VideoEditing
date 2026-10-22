@@ -14,7 +14,7 @@ import {
   Square,
   Circle,
   Brush,
-  MousePointerClick,
+  MoveUpRight,
   Repeat,
   Sliders,
   Clock,
@@ -24,24 +24,48 @@ import {
   Film,
   RotateCcw,
   Wand2,
+  Camera,
+  FolderOpen,
+  Save,
+  SplitSquareHorizontal,
+  Volume2,
+  VolumeX,
+  Compass,
+  Zap,
 } from 'lucide-react';
 import {
+  BuiltInSceneId,
   DrawingTool,
+  EXPORT_RESOLUTION_MAP,
+  ExportConfig,
+  ExportResolutionPreset,
   MARK_COLORS,
   MarkColor,
   NormalizedPoint,
+  ProjectFileSchema,
   ScreenAnnotation,
   TimelineEditItem,
+  VideoMetadataInfo,
 } from '@/types/editor';
-import { computeBoundingBox, summarizeColorGroups } from '@/lib/editCompiler';
+import {
+  computeBoundingBox,
+  getInterpolatedAnnotations,
+  summarizeColorGroups,
+} from '@/lib/editCompiler';
 import {
   renderCompositedFrame,
   renderProceduralDemoScene,
 } from '@/lib/canvasCompositor';
+import {
+  exportHighDefinitionSnapshotPng,
+  exportProjectFile,
+  getOptimalVideoMimeType,
+  resolveExportDimensions,
+} from '@/lib/hdExporter';
+import type { SuggestedInterval } from '@/app/api/ai-analyze/route';
 
 const DEFAULT_DURATION = 12;
 
-/** Clean 4-Corner Riveted Frame Decorator */
 function CornerRivets() {
   return (
     <>
@@ -55,16 +79,28 @@ function CornerRivets() {
 
 export default function VideoEditorStudio() {
   // Video playback & source state
+  const [sceneId, setSceneId] = useState<BuiltInSceneId>('scenic_valley');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoFileName, setVideoFileName] = useState<string>('Scenic Studio Demo (12s)');
+  const [videoFileName, setVideoFileName] = useState<string>('Scenic Valley (1080p HD)');
   const [duration, setDuration] = useState<number>(DEFAULT_DURATION);
   const [currentTime, setCurrentTime] = useState<number>(1.5);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [loopIntervalOnly, setLoopIntervalOnly] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(true);
+  const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
+
+  const [videoMeta, setVideoMeta] = useState<VideoMetadataInfo>({
+    width: 1920,
+    height: 1080,
+    duration: DEFAULT_DURATION,
+    aspectRatioLabel: '16:9 HD',
+    hasAudio: false,
+    isCustomVideo: false,
+  });
 
   // Interval selection [startTime, endTime]
   const [intervalStart, setIntervalStart] = useState<number>(1.0);
-  const [intervalEnd, setIntervalEnd] = useState<number>(6.0);
+  const [intervalEnd, setIntervalEnd] = useState<number>(6.5);
 
   // Screen Drawing / Multi-Color Annotation state
   const [activeColor, setActiveColor] = useState<MarkColor>('red');
@@ -73,19 +109,37 @@ export default function VideoEditorStudio() {
   const [currentStroke, setCurrentStroke] = useState<NormalizedPoint[] | null>(null);
   const [showMarkingsOverlay, setShowMarkingsOverlay] = useState<boolean>(true);
 
-  // AI Prompt & Timeline Edits state
+  // Before / After Comparison Split Wipe
+  const [splitCompareEnabled, setSplitCompareEnabled] = useState<boolean>(false);
+  const [splitCompareX, setSplitCompareX] = useState<number>(0.5);
+
+  // AI Prompt, Timeline Edits, & Smart Interval Suggestions
   const [prompt, setPrompt] = useState<string>('');
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [edits, setEdits] = useState<TimelineEditItem[]>([]);
+  const [undoStack, setUndoStack] = useState<TimelineEditItem[][]>([]);
   const [selectedEditId, setSelectedEditId] = useState<string | null>(null);
+  const [suggestedIntervals, setSuggestedIntervals] = useState<SuggestedInterval[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(
-    'Select a time interval [ ], mark screen regions with Red, Blue, Green, or Yellow, and tell AI what to edit!'
+    'Select an interval [ ], mark screen regions with Red, Blue, Green, or Yellow, and tell AI what to edit!'
   );
 
-  // Cloud Settings & Export state
+  // Modals: Cloud Settings & HD Export Studio
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
+  const [falApiKey, setFalApiKey] = useState<string>('');
+
+  // High-Definition Export Configuration & Progress
+  const [exportConfig, setExportConfig] = useState<ExportConfig>({
+    resolution: '1080p',
+    fps: 60,
+    bitrateMbps: 24,
+    range: 'full',
+    includeAudio: true,
+  });
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportProgress, setExportProgress] = useState<number>(0);
 
   // Refs for rendering loop & interaction
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -95,6 +149,55 @@ export default function VideoEditorStudio() {
   const timelineTrackRef = useRef<HTMLDivElement | null>(null);
   const draggingHandleRef = useRef<'start' | 'end' | 'playhead' | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
+
+  const pushEditsWithUndo = useCallback(
+    (updater: (prev: TimelineEditItem[]) => TimelineEditItem[]) => {
+      setEdits((prev) => {
+        setUndoStack((stack) => [...stack.slice(-15), prev]);
+        return updater(prev);
+      });
+    },
+    []
+  );
+
+  const handleUndoEdit = useCallback(() => {
+    setUndoStack((stack) => {
+      if (stack.length === 0) return stack;
+      const previous = stack[stack.length - 1];
+      setEdits(previous);
+      return stack.slice(0, -1);
+    });
+  }, []);
+
+  // Keyboard shortcuts (Space, [, ], 1-4, Ctrl+Z)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        setIsPlaying((p) => !p);
+      } else if (e.key === '[') {
+        setIntervalStart(Math.min(currentTime, intervalEnd - 0.3));
+      } else if (e.key === ']') {
+        setIntervalEnd(Math.max(currentTime, intervalStart + 0.3));
+      } else if (e.key === '1') {
+        setActiveColor('red');
+      } else if (e.key === '2') {
+        setActiveColor('blue');
+      } else if (e.key === '3') {
+        setActiveColor('green');
+      } else if (e.key === '4') {
+        setActiveColor('yellow');
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        handleUndoEdit();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [currentTime, intervalStart, intervalEnd, handleUndoEdit]);
 
   const getActivePlaybackRate = useCallback(
     (t: number) => {
@@ -126,7 +229,7 @@ export default function VideoEditorStudio() {
       const dt = Math.min(0.1, (now - lastFrameTimeRef.current) / 1000);
       lastFrameTimeRef.current = now;
 
-      if (isPlaying) {
+      if (isPlaying && !isExporting) {
         setCurrentTime((prev) => {
           const { rate, freeze } = getActivePlaybackRate(prev);
           const effectiveRate = freeze ? 1.0 : rate;
@@ -150,13 +253,13 @@ export default function VideoEditorStudio() {
       }
 
       const displayCanvas = displayCanvasRef.current;
-      if (displayCanvas) {
+      if (displayCanvas && !isExporting) {
         if (!sourceCanvasRef.current) {
           sourceCanvasRef.current = document.createElement('canvas');
         }
         const srcCanvas = sourceCanvasRef.current;
-        const width = 960;
-        const height = 540;
+        const width = 1280;
+        const height = 720;
         if (srcCanvas.width !== width) srcCanvas.width = width;
         if (srcCanvas.height !== height) srcCanvas.height = height;
         if (displayCanvas.width !== width) displayCanvas.width = width;
@@ -172,7 +275,7 @@ export default function VideoEditorStudio() {
           if (videoUrl && videoRef.current && videoRef.current.readyState >= 2) {
             srcCtx.drawImage(videoRef.current, 0, 0, width, height);
           } else {
-            renderProceduralDemoScene(srcCtx, width, height, renderTime);
+            renderProceduralDemoScene(srcCtx, width, height, renderTime, sceneId);
           }
 
           renderCompositedFrame(
@@ -181,7 +284,8 @@ export default function VideoEditorStudio() {
             width,
             height,
             currentTime,
-            edits
+            edits,
+            splitCompareEnabled ? splitCompareX : undefined
           );
         }
       }
@@ -193,13 +297,17 @@ export default function VideoEditorStudio() {
     return () => cancelAnimationFrame(animationFrameId);
   }, [
     isPlaying,
+    isExporting,
     currentTime,
     duration,
     intervalStart,
     intervalEnd,
     loopIntervalOnly,
     videoUrl,
+    sceneId,
     edits,
+    splitCompareEnabled,
+    splitCompareX,
     getActivePlaybackRate,
   ]);
 
@@ -208,26 +316,59 @@ export default function VideoEditorStudio() {
     if (!vid || !videoUrl) return;
     const { rate, freeze } = getActivePlaybackRate(currentTime);
     vid.playbackRate = freeze ? 0.0625 : rate;
+    vid.muted = isMuted;
 
     if (isPlaying && vid.paused) {
       vid.play().catch(() => {});
     } else if (!isPlaying && !vid.paused) {
       vid.pause();
     }
-  }, [isPlaying, videoUrl, currentTime, getActivePlaybackRate]);
+  }, [isPlaying, videoUrl, currentTime, isMuted, getActivePlaybackRate]);
 
-  const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Universal File Import Handler (Video Files OR .chromacut.json Project Files)
+  const processImportedFile = (file: File) => {
+    if (file.name.endsWith('.json')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(String(reader.result)) as ProjectFileSchema;
+          if (parsed.edits && Array.isArray(parsed.edits)) {
+            if (parsed.sceneId) setSceneId(parsed.sceneId);
+            setIntervalStart(parsed.intervalStart ?? 1.0);
+            setIntervalEnd(parsed.intervalEnd ?? 6.0);
+            setAnnotations(parsed.annotations ?? []);
+            setEdits(parsed.edits);
+            setStatusMessage(`Imported project file "${file.name}" (${parsed.edits.length} edits).`);
+          }
+        } catch {
+          setStatusMessage('Invalid project JSON file.');
+        }
+      };
+      reader.readAsText(file);
+      return;
+    }
+
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
     setVideoFileName(file.name);
     setIsPlaying(false);
     setCurrentTime(0);
-    setStatusMessage(`Loaded "${file.name}". Select an interval and mark areas on screen!`);
+    setStatusMessage(`Imported HD video "${file.name}". Select an interval and mark areas on screen!`);
   };
 
-  // Load 1-click Multi-Color Demo
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processImportedFile(file);
+  };
+
+  const handleStageDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingFile(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processImportedFile(file);
+  };
+
+  // Load 1-click Multi-Color Showcase Preset
   const loadShowcasePreset = () => {
     const sampleAnnotations: ScreenAnnotation[] = [
       {
@@ -273,7 +414,7 @@ export default function VideoEditorStudio() {
     setIntervalEnd(6.5);
     setCurrentTime(2.0);
     setPrompt(
-      'Add text "VINTAGE COUPE" on the red area, make the green area glow gold, and blur the blue area'
+      'Add text "VINTAGE COUPE" on the red area, make the green area glow gold, and manga ink on the blue area'
     );
 
     const demoEdits: TimelineEditItem[] = [
@@ -326,38 +467,64 @@ export default function VideoEditorStudio() {
       },
       {
         id: 'demo-edit-4',
-        prompt: 'Blur the blue area',
-        summary: 'Gaussian Blur → BLUE',
+        prompt: 'Manga halftone ink on the blue area',
+        summary: 'Manga Halftone Ink → BLUE',
         startTime: 1.0,
         endTime: 6.5,
-        effectType: 'blur',
+        effectType: 'halftone_ink',
         targetColor: 'blue',
         annotations: [sampleAnnotations[1]],
-        params: { blurRadius: 14, invertMask: false },
+        params: {
+          dotSpacing: 6,
+          inkColor: '#1d1a16',
+          paperColor: '#ece5d3',
+          invertMask: false,
+        },
         enabled: true,
         aiProvider: 'Demo Preset',
       },
       {
         id: 'demo-edit-5',
         prompt: 'Zoom into the red area from 7s to 10.5s',
-        summary: 'Zoom 1.8x → RED',
+        summary: 'Zoom 1.85x → RED',
         startTime: 7.0,
         endTime: 10.5,
         effectType: 'zoom',
         targetColor: 'red',
         annotations: [sampleAnnotations[0]],
-        params: { zoomScale: 1.8, zoomEasing: 'smooth' },
+        params: { zoomScale: 1.85, zoomEasing: 'smooth' },
         enabled: true,
         aiProvider: 'Demo Preset',
       },
     ];
 
-    setEdits(demoEdits);
+    pushEditsWithUndo(() => demoEdits);
     setSelectedEditId(demoEdits[0].id);
     setIsPlaying(true);
     setStatusMessage(
-      'Loaded Multi-Color Demo! Watch how Red, Blue, and Green screen markings control localized edits across intervals.'
+      'Loaded Multi-Color Sample Edits! Red, Blue, and Green regions are active across [1.0s – 6.5s] and [7.0s – 10.5s].'
     );
+  };
+
+  // AI Smart Interval Discovery
+  const handleSuggestIntervals = async () => {
+    try {
+      setStatusMessage('AI scanning timeline for optimal editing intervals...');
+      const res = await fetch('/api/ai-analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration }),
+      });
+      const data = await res.json();
+      if (data.suggestions) {
+        setSuggestedIntervals(data.suggestions);
+        setStatusMessage(
+          `AI discovered ${data.suggestions.length} recommended editing intervals! Click any badge below the timeline to jump & apply.`
+        );
+      }
+    } catch {
+      setStatusMessage('Could not analyze intervals.');
+    }
   };
 
   const getNormalizedPoint = (
@@ -435,7 +602,7 @@ export default function VideoEditorStudio() {
       ctx.fillText(ann.color.toUpperCase(), bx + 4, Math.max(14, by - 4));
       ctx.restore();
     }
-    return offscreen.toDataURL('image/png', 0.8);
+    return offscreen.toDataURL('image/png', 0.85);
   };
 
   const handleApplyAiPrompt = async (customPrompt?: string) => {
@@ -464,12 +631,12 @@ export default function VideoEditorStudio() {
 
       const data = await response.json();
       if (data.edits && Array.isArray(data.edits) && data.edits.length > 0) {
-        setEdits((prev) => [...prev, ...data.edits]);
+        pushEditsWithUndo((prev) => [...prev, ...data.edits]);
         setSelectedEditId(data.edits[0].id);
         setCurrentTime(intervalStart);
         setIsPlaying(true);
         setStatusMessage(
-          `Applied ${data.edits.length} edit(s) in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]`
+          `Applied ${data.edits.length} edit(s) in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s] via ${data.provider}`
         );
         if (!customPrompt) setPrompt('');
       }
@@ -522,47 +689,137 @@ export default function VideoEditorStudio() {
     };
   }, [getTimeFromTimelineEvent, intervalStart, intervalEnd, videoUrl]);
 
-  const handleExportVideo = () => {
-    const canvas = displayCanvasRef.current;
-    if (!canvas || isExporting) return;
+  // TRUE HIGH-DEFINITION EXPORT ENGINE (720p, 1080p, 1440p, 4K UHD)
+  const startHighDefinitionExport = async () => {
+    if (isExporting) return;
+    const { width, height, label } = resolveExportDimensions(
+      exportConfig.resolution,
+      videoMeta
+    );
+    const { mimeType, extension } = getOptimalVideoMimeType();
+
+    const startT = exportConfig.range === 'interval' ? intervalStart : 0;
+    const endT = exportConfig.range === 'interval' ? intervalEnd : duration;
+    const totalExportSeconds = Math.max(1, endT - startT);
 
     setIsExporting(true);
-    setLoopIntervalOnly(false);
-    setCurrentTime(0);
-    if (videoRef.current && videoUrl) {
-      videoRef.current.currentTime = 0;
+    setExportProgress(0);
+    setIsPlaying(false);
+    setStatusMessage(
+      `Rendering ${label} @ ${exportConfig.fps}fps (${exportConfig.bitrateMbps} Mbps)...`
+    );
+
+    const hdSourceCanvas = document.createElement('canvas');
+    hdSourceCanvas.width = width;
+    hdSourceCanvas.height = height;
+    const hdOutCanvas = document.createElement('canvas');
+    hdOutCanvas.width = width;
+    hdOutCanvas.height = height;
+
+    const srcCtx = hdSourceCanvas.getContext('2d');
+    const outCtx = hdOutCanvas.getContext('2d');
+    if (!srcCtx || !outCtx) {
+      setIsExporting(false);
+      return;
     }
-    setIsPlaying(true);
-    setStatusMessage('Recording edited video stream for export...');
 
-    const stream = canvas.captureStream(30);
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-      ? 'video/webm;codecs=vp9'
-      : 'video/webm';
-    const recorder = new MediaRecorder(stream, { mimeType });
+    const stream = hdOutCanvas.captureStream(exportConfig.fps);
+
+    // Attach source video audio track if enabled and available
+    if (exportConfig.includeAudio && videoRef.current && videoUrl) {
+      try {
+        const vidWithCapture = videoRef.current as HTMLVideoElement & {
+          captureStream?: () => MediaStream;
+          mozCaptureStream?: () => MediaStream;
+        };
+        const vidStream =
+          vidWithCapture.captureStream?.() || vidWithCapture.mozCaptureStream?.();
+        const audioTracks = vidStream?.getAudioTracks() || [];
+        if (audioTracks.length > 0) {
+          stream.addTrack(audioTracks[0]);
+        }
+      } catch {
+        // Ignore audio capture errors on cross-origin or muted streams
+      }
+    }
+
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: exportConfig.bitrateMbps * 1_000_000,
+        audioBitsPerSecond: 192_000,
+      });
+    } catch {
+      recorder = new MediaRecorder(stream);
+    }
+
     const chunks: BlobPart[] = [];
-
     recorder.ondataavailable = (ev) => {
-      if (ev.data.size > 0) chunks.push(ev.data);
+      if (ev.data && ev.data.size > 0) {
+        chunks.push(ev.data);
+      }
     };
+
     recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: 'video/webm' });
+      const blob = new Blob(chunks, { type: mimeType.split(';')[0] });
       const dlUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = dlUrl;
-      a.download = `chromacut-edit-${Date.now()}.webm`;
+      a.download = `chromacut-${exportConfig.resolution}-${width}x${height}-${Date.now()}.${extension}`;
       a.click();
+      setTimeout(() => URL.revokeObjectURL(dlUrl), 3000);
       setIsExporting(false);
-      setIsPlaying(false);
-      setStatusMessage('Export complete! Saved edited video.');
+      setExportProgress(100);
+      setShowExportModal(false);
+      setStatusMessage(
+        `Exported ${label} (${width}×${height} @ ${exportConfig.bitrateMbps} Mbps) successfully!`
+      );
     };
 
-    recorder.start();
-    setTimeout(() => {
-      if (recorder.state === 'recording') {
-        recorder.stop();
+    if (videoRef.current && videoUrl) {
+      videoRef.current.currentTime = startT;
+      await videoRef.current.play().catch(() => {});
+    }
+
+    recorder.start(250);
+    const exportStartWall = performance.now();
+
+    const stepFrame = (now: number) => {
+      const elapsedSec = (now - exportStartWall) / 1000;
+      const simTime = Math.min(endT, startT + elapsedSec);
+      const pct = Math.min(99, Math.round((elapsedSec / totalExportSeconds) * 100));
+      setExportProgress(pct);
+      setCurrentTime(simTime);
+
+      if (videoUrl && videoRef.current && videoRef.current.readyState >= 2) {
+        srcCtx.drawImage(videoRef.current, 0, 0, width, height);
+      } else {
+        renderProceduralDemoScene(srcCtx, width, height, simTime, sceneId);
       }
-    }, Math.min(duration, 6) * 1000);
+
+      renderCompositedFrame(outCtx, hdSourceCanvas, width, height, simTime, edits);
+
+      // Also mirror onto displayCanvas so user watches the live HD render
+      const disp = displayCanvasRef.current;
+      if (disp) {
+        const dCtx = disp.getContext('2d');
+        dCtx?.drawImage(hdOutCanvas, 0, 0, disp.width, disp.height);
+      }
+
+      if (elapsedSec < totalExportSeconds && recorder.state === 'recording') {
+        requestAnimationFrame(stepFrame);
+      } else {
+        if (videoRef.current && videoUrl) {
+          videoRef.current.pause();
+        }
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }
+    };
+
+    requestAnimationFrame(stepFrame);
   };
 
   const colorSummaries = summarizeColorGroups(annotations);
@@ -573,28 +830,66 @@ export default function VideoEditorStudio() {
     colorSummaries[1]?.color ?? (primaryColor === 'red' ? 'blue' : 'red');
 
   const quickChips = [
-    `Zoom into the ${primaryColor} area smoothly`,
-    `Blur the ${primaryColor} area and spotlight the ${secondaryColor} area`,
-    `Make the ${primaryColor} area glow gold`,
+    `Anime impact on the ${primaryColor} area`,
+    `Manga halftone ink on the ${primaryColor} area`,
     `Keep the ${primaryColor} area in color and make the background black and white`,
-    `Pixelate the ${primaryColor} area and add text "CENSORED" on the ${primaryColor} area`,
-    `Slow motion 0.5x and add cinema bars`,
+    `Blur outside the ${primaryColor} area for bokeh depth-of-field`,
+    `Replace the ${primaryColor} area with fire synthesis and blur the ${secondaryColor} area`,
+    `Chromatic RGB split on the ${primaryColor} area and zoom 2x into the ${primaryColor} area`,
   ];
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#ece5d3] text-[#1d1a16] overflow-hidden">
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDraggingFile(true);
+      }}
+      onDragLeave={() => setIsDraggingFile(false)}
+      onDrop={handleStageDrop}
+      className="flex flex-col h-screen w-screen bg-[#ece5d3] text-[#1d1a16] overflow-hidden"
+    >
+      {/* Drag-and-Drop Fullscreen Import Overlay */}
+      {isDraggingFile && (
+        <div className="fixed inset-0 z-50 bg-[#1d1a16]/75 flex items-center justify-center p-8 pointer-events-none">
+          <div className="relative bg-[#ece5d3] border-4 border-[#1d1a16] shadow-[8px_8px_0px_#b82d23] p-10 text-center space-y-3">
+            <CornerRivets />
+            <Upload className="w-12 h-12 mx-auto text-[#b82d23]" />
+            <h2 className="text-xl font-bold text-[#1d1a16]">
+              Drop High-Definition Video or Project File (.json)
+            </h2>
+            <p className="text-sm text-[#544b43]">
+              Supports MP4, WebM, MOV, and .chromacut.json project timelines
+            </p>
+          </div>
+        </div>
+      )}
+
       {videoUrl && (
         <video
           ref={videoRef}
           src={videoUrl}
           className="hidden"
           playsInline
-          muted
+          muted={isMuted}
           onLoadedMetadata={(e) => {
-            const vidDuration = e.currentTarget.duration || 10;
+            const v = e.currentTarget;
+            const vidDuration = v.duration || 10;
+            const vw = v.videoWidth || 1920;
+            const vh = v.videoHeight || 1080;
+            const ratio =
+              vw > vh ? '16:9 Widescreen' : vh > vw ? '9:16 Vertical' : '1:1 Square';
+
             setDuration(vidDuration);
             setIntervalStart(0);
             setIntervalEnd(Math.min(5, vidDuration));
+            setVideoMeta({
+              width: vw,
+              height: vh,
+              duration: vidDuration,
+              aspectRatioLabel: `${vw}×${vh} (${ratio})`,
+              hasAudio: true,
+              isCustomVideo: true,
+            });
           }}
         />
       )}
@@ -606,12 +901,15 @@ export default function VideoEditorStudio() {
             <Wand2 className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <h1 className="font-bold text-lg tracking-tight text-[#1d1a16]">
                 ChromaCut Studio
               </h1>
               <span className="text-[11px] px-2 py-0.5 bg-[#ece5d3] border border-[#1d1a16] text-[#1d1a16] font-semibold">
-                Interval &amp; Visual Prompt Editor
+                AI Interval &amp; Visual Prompt Editor
+              </span>
+              <span className="text-[11px] px-2 py-0.5 bg-[#234c7a] text-[#f5f2e8] border border-[#1d1a16] font-mono font-bold">
+                {videoMeta.aspectRatioLabel}
               </span>
             </div>
             <p className="text-xs text-[#544b43] truncate max-w-lg">
@@ -620,40 +918,88 @@ export default function VideoEditorStudio() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          {/* Built-in Scene Switcher (when no custom file or to switch back) */}
+          <select
+            value={videoUrl ? 'custom' : sceneId}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val !== 'custom') {
+                setVideoUrl(null);
+                setSceneId(val as BuiltInSceneId);
+                const labels: Record<BuiltInSceneId, string> = {
+                  scenic_valley: 'Scenic Valley (1080p HD)',
+                  night_express: 'Twilight Express Train (1080p HD)',
+                  street_market: 'Festival Market Boulevard (1080p HD)',
+                };
+                setVideoFileName(labels[val as BuiltInSceneId]);
+                setVideoMeta({
+                  width: 1920,
+                  height: 1080,
+                  duration: DEFAULT_DURATION,
+                  aspectRatioLabel: '1920×1080 (16:9 HD)',
+                  hasAudio: false,
+                  isCustomVideo: false,
+                });
+              }
+            }}
+            className="px-2.5 py-1.5 bg-[#ece5d3] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#1d1a16] cursor-pointer"
+          >
+            <option value="scenic_valley">Scene: Scenic Valley</option>
+            <option value="night_express">Scene: Night Express</option>
+            <option value="street_market">Scene: Festival Market</option>
+            {videoUrl && <option value="custom">Imported: {videoFileName}</option>}
+          </select>
+
           <button
             onClick={loadShowcasePreset}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#c6923a] hover:bg-[#dfc992] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] active:translate-y-0.5 text-[#1d1a16] text-xs font-bold transition cursor-pointer"
+            className="flex items-center gap-1 px-3 py-1.5 bg-[#c6923a] hover:bg-[#dfc992] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] active:translate-y-0.5 text-[#1d1a16] text-xs font-bold transition cursor-pointer"
           >
-            <span>▶ Load Sample Edits</span>
+            <span>▶ Sample Edits</span>
           </button>
 
-          <label className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer">
+          <label className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#1d1a16] transition cursor-pointer">
             <Upload className="w-3.5 h-3.5 text-[#234c7a]" />
-            <span>Open Video File</span>
+            <span>Import Video / JSON</span>
             <input
               type="file"
-              accept="video/*"
-              onChange={handleVideoUpload}
+              accept="video/*,.json"
+              onChange={handleFileInputChange}
               className="hidden"
             />
           </label>
 
           <button
-            onClick={() => setShowSettingsModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer"
+            onClick={() =>
+              exportProjectFile({
+                sceneId,
+                intervalStart,
+                intervalEnd,
+                annotations,
+                edits,
+              })
+            }
+            title="Save Project Timeline (.chromacut.json)"
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#1d1a16] transition cursor-pointer"
           >
-            <Settings className="w-3.5 h-3.5 text-[#544b43]" />
-            <span>{geminiApiKey ? 'Gemini Active' : 'AI Settings'}</span>
+            <Save className="w-3.5 h-3.5 text-[#50793e]" />
+            <span>Save</span>
           </button>
 
           <button
-            onClick={handleExportVideo}
-            disabled={isExporting}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#b82d23] hover:bg-[#a64147] disabled:opacity-50 border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#f5f2e8] transition cursor-pointer"
+            onClick={() => setShowSettingsModal(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#1d1a16] transition cursor-pointer"
+          >
+            <Settings className="w-3.5 h-3.5 text-[#544b43]" />
+            <span>AI Setup</span>
+          </button>
+
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#b82d23] hover:bg-[#a64147] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#f5f2e8] transition cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>{isExporting ? 'Recording (6s)...' : 'Export Video'}</span>
+            <span>HD / 4K Export</span>
           </button>
         </div>
       </header>
@@ -663,23 +1009,23 @@ export default function VideoEditorStudio() {
         {/* LEFT / CENTER: STAGE, DRAWING TOOLBAR, PROMPT CARD, TIMELINE */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#ece5d3]">
           {/* SCREEN MARKING TOOLBAR */}
-          <div className="h-12 border-b-2 border-[#1d1a16] bg-[#f5f2e8] px-4 flex items-center justify-between gap-4 shrink-0">
+          <div className="h-12 border-b-2 border-[#1d1a16] bg-[#f5f2e8] px-4 flex items-center justify-between gap-3 shrink-0">
             {/* Color Palette Selector */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <span className="text-xs font-bold text-[#544b43] mr-1">
                 1. Mark Color:
               </span>
               {(['red', 'blue', 'green', 'yellow'] as MarkColor[]).map(
-                (color) => {
+                (color, idx) => {
                   const cfg = MARK_COLORS[color];
                   const isSelected = activeColor === color;
-                  const count = annotations.filter(
-                    (a) => a.color === color
-                  ).length;
+                  const summary = colorSummaries.find((c) => c.color === color);
+                  const count = summary?.count ?? 0;
                   return (
                     <button
                       key={color}
                       onClick={() => setActiveColor(color)}
+                      title={`Shortcut: Press ${idx + 1}. Draw at 2 timestamps or use Motion Arrow to track moving objects!`}
                       className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold border-2 border-[#1d1a16] transition cursor-pointer ${
                         isSelected
                           ? `${cfg.badgeBg} ${cfg.badgeText} shadow-[2px_2px_0px_#1d1a16] -translate-y-0.5`
@@ -695,6 +1041,7 @@ export default function VideoEditorStudio() {
                       {count > 0 && (
                         <span className="px-1.5 rounded-sm bg-[#1d1a16] text-[#ece5d3] text-[10px]">
                           {count}
+                          {summary?.isMotionTracked ? '↗' : ''}
                         </span>
                       )}
                     </button>
@@ -706,14 +1053,14 @@ export default function VideoEditorStudio() {
             {/* Drawing Tools */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-bold text-[#544b43] mr-1">
-                Shape Tool:
+                Tool:
               </span>
               {(
                 [
                   { id: 'rect', label: 'Box', icon: Square },
                   { id: 'circle', label: 'Circle', icon: Circle },
                   { id: 'brush', label: 'Brush', icon: Brush },
-                  { id: 'arrow', label: 'Point', icon: MousePointerClick },
+                  { id: 'arrow', label: 'Motion Path', icon: MoveUpRight },
                 ] as const
               ).map(({ id, label, icon: Icon }) => (
                 <button
@@ -731,11 +1078,24 @@ export default function VideoEditorStudio() {
               ))}
             </div>
 
-            {/* Canvas Actions */}
+            {/* Canvas & Comparison Controls */}
             <div className="flex items-center gap-1.5">
               <button
+                onClick={() => setSplitCompareEnabled((v) => !v)}
+                className={`flex items-center gap-1 px-2.5 py-1 border-2 border-[#1d1a16] text-xs font-bold transition cursor-pointer ${
+                  splitCompareEnabled
+                    ? 'bg-[#234c7a] text-[#f5f2e8] shadow-[2px_2px_0px_#1d1a16]'
+                    : 'bg-[#ece5d3] text-[#1d1a16] hover:bg-[#d9ceb4]'
+                }`}
+                title="Compare Before vs. After AI Edits"
+              >
+                <SplitSquareHorizontal className="w-3.5 h-3.5" />
+                <span>Compare</span>
+              </button>
+
+              <button
                 onClick={() => setShowMarkingsOverlay((v) => !v)}
-                className="flex items-center gap-1 px-2.5 py-1 bg-[#ece5d3] hover:bg-[#d9ceb4] border-2 border-[#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer"
+                className="flex items-center gap-1 px-2 py-1 bg-[#ece5d3] hover:bg-[#d9ceb4] border-2 border-[#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer"
               >
                 {showMarkingsOverlay ? (
                   <Eye className="w-3.5 h-3.5 text-[#50793e]" />
@@ -744,27 +1104,27 @@ export default function VideoEditorStudio() {
                 )}
                 <span>Marks</span>
               </button>
+
               <button
                 onClick={() => setAnnotations((prev) => prev.slice(0, -1))}
                 disabled={annotations.length === 0}
-                className="flex items-center gap-1 px-2.5 py-1 bg-[#ece5d3] hover:bg-[#d9ceb4] disabled:opacity-40 border-2 border-[#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer"
+                className="flex items-center gap-1 px-2 py-1 bg-[#ece5d3] hover:bg-[#d9ceb4] disabled:opacity-40 border-2 border-[#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer"
               >
                 <Undo2 className="w-3.5 h-3.5" />
-                <span>Undo</span>
               </button>
+
               <button
                 onClick={() => setAnnotations([])}
                 disabled={annotations.length === 0}
-                className="flex items-center gap-1 px-2.5 py-1 bg-[#b82d23]/15 hover:bg-[#b82d23]/30 disabled:opacity-40 border-2 border-[#1d1a16] text-xs font-bold text-[#b82d23] transition cursor-pointer"
+                className="flex items-center gap-1 px-2 py-1 bg-[#b82d23]/15 hover:bg-[#b82d23]/30 disabled:opacity-40 border-2 border-[#1d1a16] text-xs font-bold text-[#b82d23] transition cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>Clear</span>
               </button>
             </div>
           </div>
 
           {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY */}
-          <div className="flex-1 relative flex items-center justify-center p-4 min-h-0 overflow-hidden bg-[#e2d9c3]">
+          <div className="flex-1 relative flex flex-col items-center justify-center p-4 min-h-0 overflow-hidden bg-[#e2d9c3]">
             <div className="relative aspect-video max-h-full max-w-full border-3 border-[#1d1a16] shadow-[6px_6px_0px_#1d1a16] bg-[#ece5d3] overflow-hidden">
               <canvas
                 ref={displayCanvasRef}
@@ -788,6 +1148,32 @@ export default function VideoEditorStudio() {
                     const by = ann.bbox.y * 562.5;
                     const bw = ann.bbox.width * 1000;
                     const bh = ann.bbox.height * 562.5;
+
+                    if (ann.tool === 'arrow' && ann.points.length >= 2) {
+                      const p1 = ann.points[0];
+                      const p2 = ann.points[ann.points.length - 1];
+                      return (
+                        <g key={ann.id}>
+                          <line
+                            x1={p1.x * 1000}
+                            y1={p1.y * 562.5}
+                            x2={p2.x * 1000}
+                            y2={p2.y * 562.5}
+                            stroke={cfg.hex}
+                            strokeWidth={5}
+                            strokeDasharray="10 5"
+                          />
+                          <circle
+                            cx={p2.x * 1000}
+                            cy={p2.y * 562.5}
+                            r={8}
+                            fill={cfg.hex}
+                            stroke="#1d1a16"
+                            strokeWidth={2}
+                          />
+                        </g>
+                      );
+                    }
 
                     return (
                       <g key={ann.id}>
@@ -828,21 +1214,21 @@ export default function VideoEditorStudio() {
                         <rect
                           x={bx}
                           y={Math.max(4, by - 24)}
-                          width={78}
+                          width={96}
                           height={20}
                           fill={cfg.hex}
                           stroke="#1d1a16"
                           strokeWidth={2}
                         />
                         <text
-                          x={bx + 39}
+                          x={bx + 48}
                           y={Math.max(18, by - 10)}
                           fill="#f5f2e8"
-                          fontSize="11"
+                          fontSize="10"
                           fontWeight="bold"
                           textAnchor="middle"
                         >
-                          {ann.color.toUpperCase()}
+                          {ann.color.toUpperCase()} @{ann.createdAtTime.toFixed(1)}s
                         </text>
                       </g>
                     );
@@ -852,6 +1238,21 @@ export default function VideoEditorStudio() {
                   currentStroke.length > 0 &&
                   (() => {
                     const cfg = MARK_COLORS[activeColor];
+                    if (activeTool === 'arrow' && currentStroke.length >= 2) {
+                      const p1 = currentStroke[0];
+                      const p2 = currentStroke[currentStroke.length - 1];
+                      return (
+                        <line
+                          x1={p1.x * 1000}
+                          y1={p1.y * 562.5}
+                          x2={p2.x * 1000}
+                          y2={p2.y * 562.5}
+                          stroke={cfg.hex}
+                          strokeWidth={5}
+                          strokeDasharray="8 4"
+                        />
+                      );
+                    }
                     const previewBox = computeBoundingBox(
                       currentStroke,
                       activeTool
@@ -914,12 +1315,28 @@ export default function VideoEditorStudio() {
                   </span>
                 )}
               </div>
+
+              {/* Split-Screen Wipe Slider Bar if Compare is enabled */}
+              {splitCompareEnabled && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-[#ece5d3] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] px-3 py-1 flex items-center gap-2">
+                  <span className="text-[11px] font-bold">Before/After Wipe:</span>
+                  <input
+                    type="range"
+                    min={0.05}
+                    max={0.95}
+                    step={0.01}
+                    value={splitCompareX}
+                    onChange={(e) => setSplitCompareX(parseFloat(e.target.value))}
+                    className="w-32 accent-[#b82d23]"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
           {/* AI INTERVAL PROMPT BAR */}
-          <div className="border-t-2 border-[#1d1a16] bg-[#d9ceb4] px-4 py-3 shrink-0">
-            <div className="max-w-5xl mx-auto relative bg-[#ece5d3] border-2 border-[#1d1a16] shadow-[3px_3px_0px_#1d1a16] p-3 flex flex-col gap-2">
+          <div className="border-t-2 border-[#1d1a16] bg-[#d9ceb4] px-4 py-2.5 shrink-0">
+            <div className="max-w-5xl mx-auto relative bg-[#ece5d3] border-2 border-[#1d1a16] shadow-[3px_3px_0px_#1d1a16] p-2.5 flex flex-col gap-2">
               <CornerRivets />
 
               <div className="flex items-center gap-2">
@@ -942,6 +1359,7 @@ export default function VideoEditorStudio() {
                       title={`Click to insert "the ${cs.color} area"`}
                     >
                       +{cs.color.toUpperCase()}
+                      {cs.isMotionTracked ? ' (Tracked)' : ''}
                     </button>
                   );
                 })}
@@ -954,7 +1372,7 @@ export default function VideoEditorStudio() {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleApplyAiPrompt();
                     }}
-                    placeholder='Tell AI what to do in this interval (e.g., "Zoom into the red area, blur the blue area, and make the green area glow gold")'
+                    placeholder='Describe edits for this interval (e.g., "Anime impact on the red area, manga ink on green, and blur blue")'
                     className="w-full px-3.5 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] focus:outline-none text-sm font-medium text-[#1d1a16] placeholder-[#837a6d]"
                   />
                 </div>
@@ -970,8 +1388,9 @@ export default function VideoEditorStudio() {
 
               {/* Quick Suggestion Chips */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                <span className="text-[11px] font-bold text-[#544b43] shrink-0 mr-1">
-                  Presets:
+                <span className="text-[11px] font-bold text-[#544b43] shrink-0 mr-1 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-[#b82d23]" />
+                  AI Recipes:
                 </span>
                 {quickChips.map((chip, idx) => (
                   <button
@@ -990,12 +1409,13 @@ export default function VideoEditorStudio() {
           </div>
 
           {/* TIMELINE & INTERVAL SCRUBBER */}
-          <div className="h-44 border-t-2 border-[#1d1a16] bg-[#d9ceb4] px-4 py-2.5 flex flex-col gap-2 shrink-0">
+          <div className="h-48 border-t-2 border-[#1d1a16] bg-[#d9ceb4] px-4 py-2 flex flex-col gap-1.5 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setIsPlaying((p) => !p)}
                   className="h-8 w-8 bg-[#b82d23] hover:bg-[#a64147] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] flex items-center justify-center text-[#f5f2e8] transition cursor-pointer"
+                  title="Play / Pause (Space)"
                 >
                   {isPlaying ? (
                     <Pause className="w-4 h-4" />
@@ -1003,6 +1423,21 @@ export default function VideoEditorStudio() {
                     <Play className="w-4 h-4 ml-0.5" />
                   )}
                 </button>
+
+                {videoUrl && (
+                  <button
+                    onClick={() => setIsMuted((m) => !m)}
+                    className="h-8 w-8 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] flex items-center justify-center text-[#1d1a16] cursor-pointer"
+                    title="Mute / Unmute Imported Video Audio"
+                  >
+                    {isMuted ? (
+                      <VolumeX className="w-4 h-4 text-[#b82d23]" />
+                    ) : (
+                      <Volume2 className="w-4 h-4 text-[#50793e]" />
+                    )}
+                  </button>
+                )}
+
                 <span className="font-mono text-xs font-bold text-[#1d1a16] bg-[#ece5d3] px-2.5 py-1 border-2 border-[#1d1a16]">
                   {currentTime.toFixed(2)}s / {duration.toFixed(2)}s
                 </span>
@@ -1018,17 +1453,33 @@ export default function VideoEditorStudio() {
                   <Repeat className="w-3.5 h-3.5" />
                   <span>Loop Interval</span>
                 </button>
+
+                <button
+                  onClick={handleSuggestIntervals}
+                  className="flex items-center gap-1 px-2.5 py-1 bg-[#234c7a] hover:bg-[#4479a8] border-2 border-[#1d1a16] text-xs font-bold text-[#f5f2e8] transition cursor-pointer"
+                >
+                  <Compass className="w-3.5 h-3.5 text-[#fbf09c]" />
+                  <span>✦ AI Suggest Intervals</span>
+                </button>
               </div>
 
               <div className="flex items-center gap-2 text-xs font-bold">
-                <span className="text-[#544b43]">2. Interval Range:</span>
+                <button
+                  onClick={handleUndoEdit}
+                  disabled={undoStack.length === 0}
+                  className="px-2 py-1 bg-[#ece5d3] hover:bg-[#f5f2e8] disabled:opacity-40 border-2 border-[#1d1a16] text-[#1d1a16] cursor-pointer"
+                  title="Undo Last Timeline Edit (Ctrl+Z)"
+                >
+                  ↶ Undo Edit
+                </button>
+                <span className="text-[#544b43]">2. Interval:</span>
                 <button
                   onClick={() =>
                     setIntervalStart(Math.min(currentTime, intervalEnd - 0.3))
                   }
                   className="px-2.5 py-1 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] text-[#1d1a16] cursor-pointer"
                 >
-                  Set Start [ = {intervalStart.toFixed(1)}s
+                  Set [ = {intervalStart.toFixed(1)}s
                 </button>
                 <button
                   onClick={() =>
@@ -1036,10 +1487,36 @@ export default function VideoEditorStudio() {
                   }
                   className="px-2.5 py-1 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] text-[#1d1a16] cursor-pointer"
                 >
-                  Set End ] = {intervalEnd.toFixed(1)}s
+                  Set ] = {intervalEnd.toFixed(1)}s
                 </button>
               </div>
             </div>
+
+            {/* AI Suggested Interval Badges */}
+            {suggestedIntervals.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-[10px] font-bold text-[#234c7a] uppercase shrink-0">
+                  AI Detected Scenes:
+                </span>
+                {suggestedIntervals.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => {
+                      setIntervalStart(s.startTime);
+                      setIntervalEnd(s.endTime);
+                      setCurrentTime(s.startTime);
+                      setPrompt(s.recommendedPrompt);
+                      setStatusMessage(
+                        `Selected AI scene "${s.label}" [${s.startTime}s – ${s.endTime}s]: ${s.reason}`
+                      );
+                    }}
+                    className="px-2 py-0.5 bg-[#ece5d3] hover:bg-[#c6923a] border border-[#1d1a16] text-[11px] font-bold text-[#1d1a16] shrink-0 cursor-pointer"
+                  >
+                    ▶ {s.label} ({s.startTime}s–{s.endTime}s)
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Interactive Scrubber & Interval Track */}
             <div
@@ -1164,7 +1641,7 @@ export default function VideoEditorStudio() {
             {edits.length > 0 && (
               <button
                 onClick={() => {
-                  setEdits([]);
+                  pushEditsWithUndo(() => []);
                   setSelectedEditId(null);
                 }}
                 className="text-[11px] text-[#fbf09c] hover:underline font-bold cursor-pointer"
@@ -1192,7 +1669,7 @@ export default function VideoEditorStudio() {
                   <br />
                   2. Drag the red <strong>[ ]</strong> interval handles.
                   <br />
-                  3. Click <strong>▶ Load Sample Edits</strong> or type a command!
+                  3. Click <strong>▶ Sample Edits</strong> or type any instruction!
                 </p>
               </div>
             ) : (
@@ -1236,7 +1713,7 @@ export default function VideoEditorStudio() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setEdits((prev) =>
+                            pushEditsWithUndo((prev) =>
                               prev.map((item) =>
                                 item.id === edit.id
                                   ? { ...item, enabled: !item.enabled }
@@ -1255,7 +1732,7 @@ export default function VideoEditorStudio() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setEdits((prev) =>
+                            pushEditsWithUndo((prev) =>
                               prev.filter((item) => item.id !== edit.id)
                             );
                           }}
@@ -1378,34 +1855,39 @@ export default function VideoEditorStudio() {
                 </div>
               )}
 
-              {selectedEdit.effectType === 'blur' && (
+              {(selectedEdit.effectType === 'blur' ||
+                selectedEdit.effectType === 'pixelate' ||
+                selectedEdit.effectType === 'color_grade' ||
+                selectedEdit.effectType === 'halftone_ink') && (
                 <div className="space-y-2">
-                  <div>
-                    <label className="text-[10px] font-bold text-[#544b43] block">
-                      Blur Strength ({selectedEdit.params.blurRadius ?? 16}px)
-                    </label>
-                    <input
-                      type="range"
-                      min={4}
-                      max={36}
-                      step={1}
-                      value={selectedEdit.params.blurRadius ?? 16}
-                      onChange={(e) => {
-                        const blurRadius = parseInt(e.target.value, 10);
-                        setEdits((prev) =>
-                          prev.map((it) =>
-                            it.id === selectedEdit.id
-                              ? {
-                                  ...it,
-                                  params: { ...it.params, blurRadius },
-                                }
-                              : it
-                          )
-                        );
-                      }}
-                      className="w-full accent-[#b82d23]"
-                    />
-                  </div>
+                  {selectedEdit.effectType === 'blur' && (
+                    <div>
+                      <label className="text-[10px] font-bold text-[#544b43] block">
+                        Blur Strength ({selectedEdit.params.blurRadius ?? 16}px)
+                      </label>
+                      <input
+                        type="range"
+                        min={4}
+                        max={36}
+                        step={1}
+                        value={selectedEdit.params.blurRadius ?? 16}
+                        onChange={(e) => {
+                          const blurRadius = parseInt(e.target.value, 10);
+                          setEdits((prev) =>
+                            prev.map((it) =>
+                              it.id === selectedEdit.id
+                                ? {
+                                    ...it,
+                                    params: { ...it.params, blurRadius },
+                                  }
+                                : it
+                            )
+                          );
+                        }}
+                        className="w-full accent-[#b82d23]"
+                      />
+                    </div>
+                  )}
                   <label className="flex items-center gap-2 text-xs font-semibold text-[#1d1a16] cursor-pointer">
                     <input
                       type="checkbox"
@@ -1424,7 +1906,7 @@ export default function VideoEditorStudio() {
                         );
                       }}
                     />
-                    <span>Invert Mask (Blur Outside Marked Area)</span>
+                    <span>Invert Mask (Apply Outside Marked Area)</span>
                   </label>
                 </div>
               )}
@@ -1460,6 +1942,175 @@ export default function VideoEditorStudio() {
         </aside>
       </div>
 
+      {/* HIGH-DEFINITION / 4K EXPORT STUDIO MODAL */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 bg-[#1d1a16]/65 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-lg bg-[#ece5d3] border-3 border-[#1d1a16] p-6 space-y-4 shadow-[6px_6px_0px_#1d1a16]">
+            <CornerRivets />
+            <div className="flex items-center justify-between border-b-2 border-[#1d1a16] pb-3">
+              <h3 className="text-base font-bold text-[#1d1a16] flex items-center gap-2">
+                <Download className="w-4 h-4 text-[#b82d23]" />
+                High-Definition Video &amp; Frame Export Studio
+              </h3>
+              <button
+                onClick={() => !isExporting && setShowExportModal(false)}
+                className="text-xs font-bold text-[#544b43] hover:text-[#1d1a16] cursor-pointer"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              {/* Output Resolution */}
+              <div>
+                <label className="font-bold text-[#1d1a16] block mb-1">
+                  Output Resolution
+                </label>
+                <select
+                  value={exportConfig.resolution}
+                  onChange={(e) => {
+                    const res = e.target.value as ExportResolutionPreset;
+                    const recBitrate =
+                      res === 'native'
+                        ? 24
+                        : EXPORT_RESOLUTION_MAP[res].recommendedBitrate;
+                    setExportConfig((prev) => ({
+                      ...prev,
+                      resolution: res,
+                      bitrateMbps: recBitrate,
+                    }));
+                  }}
+                  className="w-full px-2.5 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] font-bold"
+                >
+                  <option value="720p">720p HD (1280×720)</option>
+                  <option value="1080p">1080p Full HD (1920×1080)</option>
+                  <option value="1440p">1440p 2K QHD (2560×1440)</option>
+                  <option value="4k">4K Ultra HD (3840×2160)</option>
+                  <option value="native">
+                    Native Source ({videoMeta.width}×{videoMeta.height})
+                  </option>
+                </select>
+              </div>
+
+              {/* Frame Rate */}
+              <div>
+                <label className="font-bold text-[#1d1a16] block mb-1">
+                  Frame Rate (FPS)
+                </label>
+                <select
+                  value={exportConfig.fps}
+                  onChange={(e) =>
+                    setExportConfig((prev) => ({
+                      ...prev,
+                      fps: Number(e.target.value) as 24 | 30 | 60,
+                    }))
+                  }
+                  className="w-full px-2.5 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] font-bold"
+                >
+                  <option value={24}>24 FPS (Cinematic)</option>
+                  <option value={30}>30 FPS (Standard HD)</option>
+                  <option value={60}>60 FPS (Ultra Smooth)</option>
+                </select>
+              </div>
+
+              {/* Target Bitrate */}
+              <div>
+                <label className="font-bold text-[#1d1a16] block mb-1">
+                  Target Video Bitrate
+                </label>
+                <select
+                  value={exportConfig.bitrateMbps}
+                  onChange={(e) =>
+                    setExportConfig((prev) => ({
+                      ...prev,
+                      bitrateMbps: Number(e.target.value) as 12 | 24 | 35 | 50,
+                    }))
+                  }
+                  className="w-full px-2.5 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] font-bold"
+                >
+                  <option value={12}>12 Mbps (Standard HD)</option>
+                  <option value={24}>24 Mbps (High Definition)</option>
+                  <option value={35}>35 Mbps (2K Studio Quality)</option>
+                  <option value={50}>50 Mbps (4K Master Quality)</option>
+                </select>
+              </div>
+
+              {/* Export Range */}
+              <div>
+                <label className="font-bold text-[#1d1a16] block mb-1">
+                  Timeline Range
+                </label>
+                <select
+                  value={exportConfig.range}
+                  onChange={(e) =>
+                    setExportConfig((prev) => ({
+                      ...prev,
+                      range: e.target.value as 'full' | 'interval',
+                    }))
+                  }
+                  className="w-full px-2.5 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] font-bold"
+                >
+                  <option value="full">Full Video (0.0s – {duration.toFixed(1)}s)</option>
+                  <option value="interval">
+                    Selected Interval Only ({intervalStart.toFixed(1)}s –{' '}
+                    {intervalEnd.toFixed(1)}s)
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            {isExporting && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs font-bold">
+                  <span>Rendering High-Definition Stream...</span>
+                  <span>{exportProgress}%</span>
+                </div>
+                <div className="w-full h-4 bg-[#d9ceb4] border-2 border-[#1d1a16] overflow-hidden">
+                  <div
+                    style={{ width: `${exportProgress}%` }}
+                    className="h-full bg-[#50793e] transition-all"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2 border-t-2 border-[#1d1a16]">
+              <button
+                onClick={() =>
+                  exportHighDefinitionSnapshotPng({
+                    preset: exportConfig.resolution,
+                    videoMeta,
+                    videoElement: videoRef.current,
+                    videoUrl,
+                    sceneId,
+                    currentTime,
+                    edits,
+                  })
+                }
+                disabled={isExporting}
+                className="flex items-center gap-1.5 px-3 py-2 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#1d1a16] cursor-pointer"
+              >
+                <Camera className="w-3.5 h-3.5 text-[#234c7a]" />
+                <span>Export Frame PNG ({exportConfig.resolution.toUpperCase()})</span>
+              </button>
+
+              <button
+                onClick={startHighDefinitionExport}
+                disabled={isExporting}
+                className="flex items-center gap-2 px-5 py-2 bg-[#b82d23] hover:bg-[#a64147] disabled:opacity-50 border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#f5f2e8] cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>
+                  {isExporting
+                    ? `Rendering (${exportProgress}%)...`
+                    : `▶ Render ${exportConfig.resolution.toUpperCase()} Video`}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CLOUD AI SETTINGS MODAL */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-50 bg-[#1d1a16]/60 flex items-center justify-center p-4">
@@ -1468,7 +2119,7 @@ export default function VideoEditorStudio() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#1d1a16] flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-[#b82d23]" />
-                AI Compiler &amp; Cloud Setup
+                AI Compiler &amp; Future Cloud Model Router
               </h3>
               <button
                 onClick={() => setShowSettingsModal(false)}
@@ -1481,9 +2132,9 @@ export default function VideoEditorStudio() {
             <div className="p-3 bg-[#50793e]/15 border-2 border-[#50793e] text-xs text-[#1d1a16] flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-[#50793e] shrink-0 mt-0.5" />
               <div>
-                <strong>Built-in Semantic Compiler Active:</strong> Multi-color
-                screen markings and interval instructions work immediately for
-                free!
+                <strong>Built-in Semantic &amp; Trajectory Compiler Active:</strong>{' '}
+                Multi-color screen markings, motion-tracked keyframes, and
+                stylized shaders work immediately with zero setup!
               </div>
             </div>
 
@@ -1496,6 +2147,19 @@ export default function VideoEditorStudio() {
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
                 placeholder="AIzaSy... (Free from aistudio.google.com)"
+                className="w-full px-3 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] text-xs text-[#1d1a16]"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-[#1d1a16] block">
+                Optional: fal.ai / Replicate Key (SAM 2 + Wan VACE Generative V2V)
+              </label>
+              <input
+                type="password"
+                value={falApiKey}
+                onChange={(e) => setFalApiKey(e.target.value)}
+                placeholder="fal_... (Optional for cloud diffusion inpainting)"
                 className="w-full px-3 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] text-xs text-[#1d1a16]"
               />
             </div>
