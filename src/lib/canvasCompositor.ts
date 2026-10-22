@@ -41,8 +41,8 @@ function buildMaskPath(
 }
 
 /**
- * Renders the Sumo Brothers RPG animated scene (matching the uploaded Sumo Brothers v0.0.11 screenshot
- * and Edo Washi color swatch sheet) when no custom video file is loaded.
+ * Renders an original, clean ink-outlined scenic animation using the warm parchment
+ * and muted earth/vermilion/indigo/matcha palette when no custom video file is loaded.
  */
 export function renderProceduralDemoScene(
   ctx: CanvasRenderingContext2D,
@@ -50,267 +50,174 @@ export function renderProceduralDemoScene(
   height: number,
   time: number
 ) {
-  // 1. Washi Parchment Background (#ece5d3)
+  // 1. Warm Parchment Sky Backdrop (#ece5d3)
   ctx.fillStyle = '#ece5d3';
   ctx.fillRect(0, 0, width, height);
 
-  // Subtle tatami / dojo horizon line
-  const floorY = height * 0.84;
-  ctx.fillStyle = '#d9ceb4';
-  ctx.fillRect(0, floorY, width, height - floorY);
-  ctx.strokeStyle = '#aba18c';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(0, floorY);
-  ctx.lineTo(width, floorY);
-  ctx.stroke();
-
-  // Top Title "Sumo Brothers" & Version
+  // Soft distant hills in sage & warm stone (#85b296 & #c5ac7d)
   ctx.save();
-  ctx.fillStyle = '#1d1a16';
-  ctx.font = `600 ${Math.round(width * 0.038)}px "Segoe UI", sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('Sumo Brothers', width * 0.5, height * 0.11);
-
-  ctx.fillStyle = '#544b43';
-  ctx.font = `500 ${Math.round(width * 0.018)}px "Segoe UI", sans-serif`;
-  ctx.textAlign = 'right';
-  ctx.fillText('v0.0.11', width * 0.96, height * 0.07);
-  ctx.restore();
-
-  // SUBJECT 1 (Left): Matcha Dojo Banner (#50793e & #27513b)
-  ctx.save();
-  const bannerX = width * 0.11;
-  const bannerY = height * 0.22 + Math.sin(time * 1.6) * 4;
-  const bannerW = width * 0.15;
-  const bannerH = height * 0.44;
-
-  // Wood crossbar (#553726)
-  ctx.fillStyle = '#553726';
+  ctx.fillStyle = '#bfd3db';
   ctx.strokeStyle = '#1d1a16';
   ctx.lineWidth = 2.5;
-  ctx.fillRect(bannerX - 12, bannerY - 8, bannerW + 24, 10);
-  ctx.strokeRect(bannerX - 12, bannerY - 8, bannerW + 24, 10);
-
-  // Matcha cloth (#50793e)
-  ctx.fillStyle = '#50793e';
   ctx.beginPath();
-  ctx.roundRect(bannerX, bannerY, bannerW, bannerH, 4);
+  ctx.arc(width * 0.5, height * 0.45, height * 0.34, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  // Inner parchment crest (#ece5d3)
-  ctx.fillStyle = '#ece5d3';
+  // Rolling Hills
+  ctx.fillStyle = '#85b296';
   ctx.beginPath();
-  ctx.arc(bannerX + bannerW / 2, bannerY + bannerH * 0.36, bannerW * 0.28, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#1d1a16';
-  ctx.font = `bold ${Math.round(width * 0.024)}px serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('相撲', bannerX + bannerW / 2, bannerY + bannerH * 0.39);
-
-  ctx.fillStyle = '#fbf09c';
-  ctx.font = `bold ${Math.round(width * 0.014)}px sans-serif`;
-  ctx.fillText('DOJO RANK', bannerX + bannerW / 2, bannerY + bannerH * 0.76);
-  ctx.restore();
-
-  // SUBJECT 2 (Center): Iconic Sumo Brothers Red Postbox + Sweeping Enso Brush Circle + Paper Plane
-  const centerX = width * 0.48;
-  const centerY = height * 0.53;
-
-  // Sweeping Sumi Ink Enso Ring (#1d1a16)
-  ctx.save();
-  ctx.strokeStyle = '#1d1a16';
-  ctx.lineWidth = 18;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.arc(centerX, centerY - 12, height * 0.31, 0.25 * Math.PI, 1.88 * Math.PI);
-  ctx.stroke();
-
-  // Animated Paper Airplane gliding along the Enso arc
-  const planeAngle = -0.35 + Math.sin(time * 1.4) * 0.22;
-  const planeRadius = height * 0.31;
-  const planeX = centerX + Math.cos(planeAngle) * planeRadius;
-  const planeY = centerY - 12 + Math.sin(planeAngle) * planeRadius;
-
-  ctx.translate(planeX, planeY);
-  ctx.rotate(planeAngle + Math.PI / 2);
-  ctx.fillStyle = '#ece5d3';
-  ctx.strokeStyle = '#1d1a16';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(22, 0);
-  ctx.lineTo(-16, -11);
-  ctx.lineTo(-9, 0);
-  ctx.lineTo(-16, 11);
+  ctx.moveTo(0, height * 0.72);
+  ctx.quadraticCurveTo(width * 0.28, height * 0.52, width * 0.58, height * 0.72);
+  ctx.quadraticCurveTo(width * 0.8, height * 0.58, width, height * 0.7);
+  ctx.lineTo(width, height);
+  ctx.lineTo(0, height);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+
+  // Foreground Road / Ground (#d9ceb4 & #aba18c)
+  const groundY = height * 0.74;
+  ctx.fillStyle = '#d9ceb4';
+  ctx.fillRect(0, groundY, width, height - groundY);
   ctx.beginPath();
-  ctx.moveTo(22, 0);
-  ctx.lineTo(-9, 0);
+  ctx.moveTo(0, groundY);
+  ctx.lineTo(width, groundY);
   ctx.stroke();
   ctx.restore();
 
-  // Red Japanese Postbox (#b82d23)
+  // SUBJECT 1 (Top-Left): Drifting Hot Air Balloon (#b82d23 & #dfc992)
   ctx.save();
-  const boxW = width * 0.23;
-  const boxH = height * 0.44;
-  const boxX = centerX - boxW / 2;
-  const boxY = height * 0.41;
-
-  // Ground shadow
-  ctx.fillStyle = '#1d1a16';
-  ctx.beginPath();
-  ctx.ellipse(centerX, boxY + boxH + 8, boxW * 0.82, 4, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Dome top
-  ctx.fillStyle = '#b82d23';
+  const balloonX = width * 0.19 + Math.sin(time * 0.8) * 18;
+  const balloonY = height * 0.26 + Math.cos(time * 1.3) * 10;
   ctx.strokeStyle = '#1d1a16';
   ctx.lineWidth = 2.5;
+
+  // Basket ropes
   ctx.beginPath();
-  ctx.ellipse(centerX, boxY, boxW * 0.48, height * 0.11, 0, Math.PI, 0);
-  ctx.fill();
+  ctx.moveTo(balloonX - 12, balloonY + 34);
+  ctx.lineTo(balloonX - 8, balloonY + 52);
+  ctx.moveTo(balloonX + 12, balloonY + 34);
+  ctx.lineTo(balloonX + 8, balloonY + 52);
   ctx.stroke();
 
-  // Postbox Body
+  // Basket (#7a5133)
+  ctx.fillStyle = '#7a5133';
+  ctx.fillRect(balloonX - 12, balloonY + 52, 24, 16);
+  ctx.strokeRect(balloonX - 12, balloonY + 52, 24, 16);
+
+  // Balloon Envelope (#b82d23)
   ctx.fillStyle = '#b82d23';
-  ctx.fillRect(boxX, boxY, boxW, boxH);
-  ctx.strokeRect(boxX, boxY, boxW, boxH);
-
-  // Postbox Brim Collar
   ctx.beginPath();
-  ctx.roundRect(boxX - 12, boxY - 6, boxW + 24, 18, 8);
+  ctx.arc(balloonX, balloonY, 38, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  // Postal Symbol 〒 on Dome
-  ctx.strokeStyle = '#ece5d3';
-  ctx.lineWidth = 4.5;
+  // Center stripe (#dfc992)
+  ctx.fillStyle = '#dfc992';
   ctx.beginPath();
-  ctx.moveTo(centerX - 16, boxY - 38);
-  ctx.lineTo(centerX + 16, boxY - 38);
-  ctx.moveTo(centerX - 16, boxY - 28);
-  ctx.lineTo(centerX + 16, boxY - 28);
-  ctx.moveTo(centerX, boxY - 28);
-  ctx.lineTo(centerX, boxY - 12);
-  ctx.stroke();
-
-  // Mail Slot
-  ctx.fillStyle = '#1d1a16';
-  ctx.beginPath();
-  ctx.roundRect(centerX - boxW * 0.28, boxY + 28, boxW * 0.56, 12, 4);
+  ctx.ellipse(balloonX, balloonY, 16, 38, 0, 0, Math.PI * 2);
   ctx.fill();
-
-  // Framed Parchment Menu Plaque with 4 Corner Rivets
-  const plaqueW = boxW * 0.78;
-  const plaqueH = boxH * 0.62;
-  const plaqueX = centerX - plaqueW / 2;
-  const plaqueY = boxY + 54;
-
-  ctx.fillStyle = '#ece5d3';
-  ctx.strokeStyle = '#1d1a16';
-  ctx.lineWidth = 2;
-  ctx.fillRect(plaqueX, plaqueY, plaqueW, plaqueH);
-  ctx.strokeRect(plaqueX, plaqueY, plaqueW, plaqueH);
-
-  // 4 Corner Rivet Dots
-  const rivets = [
-    [plaqueX + 6, plaqueY + 6],
-    [plaqueX + plaqueW - 6, plaqueY + 6],
-    [plaqueX + 6, plaqueY + plaqueH - 6],
-    [plaqueX + plaqueW - 6, plaqueY + plaqueH - 6],
-  ];
-  ctx.fillStyle = '#1d1a16';
-  for (const [rx, ry] of rivets) {
-    ctx.beginPath();
-    ctx.arc(rx, ry, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Menu Text Items inside Plaque
-  ctx.font = `500 ${Math.round(width * 0.017)}px "Segoe UI", sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#544b43';
-  const menuItems = ['Singleplayer', 'Multiplayer', 'Options', 'Quit'];
-  const activeMenuIdx = Math.floor(time * 1.2) % 4;
-  menuItems.forEach((label, idx) => {
-    const itemY = plaqueY + 32 + idx * 24;
-    if (idx === activeMenuIdx) {
-      ctx.fillStyle = '#1d1a16';
-      ctx.font = `600 ${Math.round(width * 0.017)}px "Segoe UI", sans-serif`;
-      // Triangle Pointer ▶
-      ctx.beginPath();
-      ctx.moveTo(plaqueX + 26, itemY - 11);
-      ctx.lineTo(plaqueX + 35, itemY - 5);
-      ctx.lineTo(plaqueX + 26, itemY + 1);
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      ctx.fillStyle = '#544b43';
-      ctx.font = `500 ${Math.round(width * 0.017)}px "Segoe UI", sans-serif`;
-    }
-    ctx.fillText(label, plaqueX + 44, itemY);
-  });
-
-  // Base Plinth
-  ctx.fillStyle = '#1d1a16';
-  ctx.fillRect(boxX - 6, boxY + boxH - 8, boxW + 12, 16);
+  ctx.stroke();
   ctx.restore();
 
-  // SUBJECT 3 (Right): Sumo Brother Rikishi Character (#234c7a Indigo Mawashi & #d4c098)
+  // SUBJECT 2 (Center): Clock Tower / Studio Building (#f5f2e8, #234c7a roof)
   ctx.save();
-  const sumoX = width * 0.81;
-  const sumoY = height * 0.58 + Math.abs(Math.sin(time * 2.4)) * -8;
+  const towerW = width * 0.16;
+  const towerH = height * 0.42;
+  const towerX = width * 0.42;
+  const towerY = groundY - towerH;
 
-  // Body
-  ctx.fillStyle = '#d4c098';
+  ctx.fillStyle = '#f5f2e8';
   ctx.strokeStyle = '#1d1a16';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.ellipse(sumoX, sumoY, 56, 62, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+  ctx.lineWidth = 2.5;
+  ctx.fillRect(towerX, towerY, towerW, towerH);
+  ctx.strokeRect(towerX, towerY, towerW, towerH);
 
-  // Indigo Mawashi Belt (#234c7a)
+  // Pitched Roof (#234c7a)
   ctx.fillStyle = '#234c7a';
   ctx.beginPath();
-  ctx.roundRect(sumoX - 52, sumoY + 4, 104, 30, 10);
+  ctx.moveTo(towerX - 12, towerY);
+  ctx.lineTo(towerX + towerW / 2, towerY - 48);
+  ctx.lineTo(towerX + towerW + 12, towerY);
+  ctx.closePath();
   ctx.fill();
   ctx.stroke();
 
-  // Gold Ochre Rope Knot (#c6923a)
-  ctx.fillStyle = '#c6923a';
+  // Clock Face (#dfc992)
+  const clockCx = towerX + towerW / 2;
+  const clockCy = towerY + 48;
+  ctx.fillStyle = '#dfc992';
   ctx.beginPath();
-  ctx.arc(sumoX, sumoY + 19, 11, 0, Math.PI * 2);
+  ctx.arc(clockCx, clockCy, 24, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  // Head
-  ctx.fillStyle = '#d4c098';
+  // Animated Clock Hands
   ctx.beginPath();
-  ctx.arc(sumoX, sumoY - 66, 30, 0, Math.PI * 2);
+  ctx.moveTo(clockCx, clockCy);
+  ctx.lineTo(
+    clockCx + Math.cos(time * 1.5) * 16,
+    clockCy + Math.sin(time * 1.5) * 16
+  );
+  ctx.moveTo(clockCx, clockCy);
+  ctx.lineTo(clockCx, clockCy - 12);
+  ctx.stroke();
+
+  // Windows
+  ctx.fillStyle = '#48586b';
+  ctx.fillRect(towerX + 24, towerY + 100, 28, 38);
+  ctx.strokeRect(towerX + 24, towerY + 100, 28, 38);
+  ctx.fillRect(towerX + towerW - 52, towerY + 100, 28, 38);
+  ctx.strokeRect(towerX + towerW - 52, towerY + 100, 28, 38);
+  ctx.restore();
+
+  // SUBJECT 3 (Right): Moving Vintage Coupe Car (#50793e Matcha Green & #c6923a)
+  ctx.save();
+  const carX = width * 0.76 + Math.sin(time * 1.4) * 28;
+  const carY = groundY + 14;
+  ctx.strokeStyle = '#1d1a16';
+  ctx.lineWidth = 2.5;
+
+  // Car Lower Body (#50793e)
+  ctx.fillStyle = '#50793e';
+  ctx.beginPath();
+  ctx.roundRect(carX - 85, carY - 26, 170, 38, 10);
   ctx.fill();
   ctx.stroke();
 
-  // Chonmage Topknot (#1d1a16)
-  ctx.fillStyle = '#1d1a16';
+  // Car Cabin (#729749)
+  ctx.fillStyle = '#729749';
   ctx.beginPath();
-  ctx.ellipse(sumoX, sumoY - 96, 12, 8, 0, 0, Math.PI * 2);
+  ctx.roundRect(carX - 46, carY - 54, 92, 30, 8);
   ctx.fill();
+  ctx.stroke();
 
-  // Determined Eyes
-  ctx.fillRect(sumoX - 14, sumoY - 70, 8, 4);
-  ctx.fillRect(sumoX + 6, sumoY - 70, 8, 4);
-  // Red Cheek Blushes (#b82d23)
-  ctx.fillStyle = '#b82d23';
+  // Windows (#bfd3db)
+  ctx.fillStyle = '#bfd3db';
+  ctx.fillRect(carX - 36, carY - 48, 32, 20);
+  ctx.strokeRect(carX - 36, carY - 48, 32, 20);
+  ctx.fillRect(carX + 4, carY - 48, 32, 20);
+  ctx.strokeRect(carX + 4, carY - 48, 32, 20);
+
+  // Warm Yellow Headlight (#fbf09c)
+  ctx.fillStyle = '#fbf09c';
   ctx.beginPath();
-  ctx.arc(sumoX - 18, sumoY - 60, 4.5, 0, Math.PI * 2);
-  ctx.arc(sumoX + 18, sumoY - 60, 4.5, 0, Math.PI * 2);
+  ctx.arc(carX - 80, carY - 10, 6, 0, Math.PI * 2);
   ctx.fill();
+  ctx.stroke();
+
+  // Wheels (#1d1a16 & #ece5d3)
+  for (const wx of [carX - 48, carX + 48]) {
+    ctx.fillStyle = '#1d1a16';
+    ctx.beginPath();
+    ctx.arc(wx, carY + 14, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ece5d3';
+    ctx.beginPath();
+    ctx.arc(wx, carY + 14, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -544,7 +451,7 @@ export function renderCompositedFrame(
       const padX = 16;
       const padY = 8;
 
-      // Sumo Brothers Riveted Parchment Plaque Callout
+      // Framed Parchment Callout Card with Corner Dots
       mainCtx.fillStyle = '#ece5d3';
       mainCtx.strokeStyle = '#1d1a16';
       mainCtx.lineWidth = 2.5;
@@ -555,7 +462,6 @@ export function renderCompositedFrame(
       mainCtx.fillRect(boxX, boxY, boxW, boxH);
       mainCtx.strokeRect(boxX, boxY, boxW, boxH);
 
-      // Corner rivets
       mainCtx.fillStyle = '#1d1a16';
       for (const [rx, ry] of [
         [boxX + 5, boxY + 5],

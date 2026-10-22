@@ -23,6 +23,7 @@ import {
   Settings,
   Film,
   RotateCcw,
+  Wand2,
 } from 'lucide-react';
 import {
   DrawingTool,
@@ -40,7 +41,7 @@ import {
 
 const DEFAULT_DURATION = 12;
 
-/** Reusable Sumo Brothers 4-Corner Riveted Plaque Decorator */
+/** Clean 4-Corner Riveted Frame Decorator */
 function CornerRivets() {
   return (
     <>
@@ -55,7 +56,7 @@ function CornerRivets() {
 export default function VideoEditorStudio() {
   // Video playback & source state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoFileName, setVideoFileName] = useState<string>('Sumo Brothers Scene (12s)');
+  const [videoFileName, setVideoFileName] = useState<string>('Scenic Studio Demo (12s)');
   const [duration, setDuration] = useState<number>(DEFAULT_DURATION);
   const [currentTime, setCurrentTime] = useState<number>(1.5);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -78,7 +79,7 @@ export default function VideoEditorStudio() {
   const [edits, setEdits] = useState<TimelineEditItem[]>([]);
   const [selectedEditId, setSelectedEditId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(
-    'Select an interval [ ], mark objects with Shu-iro Red, Ai-iro Blue, Matcha Green, or Kitsune Gold, and dispatch your edit!'
+    'Select a time interval [ ], mark screen regions with Red, Blue, Green, or Yellow, and tell AI what to edit!'
   );
 
   // Cloud Settings & Export state
@@ -226,43 +227,43 @@ export default function VideoEditorStudio() {
     setStatusMessage(`Loaded "${file.name}". Select an interval and mark areas on screen!`);
   };
 
-  // Load 1-click Sumo Brothers Multi-Color Demo
+  // Load 1-click Multi-Color Demo
   const loadShowcasePreset = () => {
     const sampleAnnotations: ScreenAnnotation[] = [
       {
-        id: 'sumo-red-postbox',
+        id: 'demo-red-car',
         color: 'red',
         tool: 'rect',
         points: [
-          { x: 0.35, y: 0.29 },
-          { x: 0.61, y: 0.86 },
+          { x: 0.65, y: 0.63 },
+          { x: 0.87, y: 0.8 },
         ],
         strokeWidth: 4,
-        bbox: { x: 0.35, y: 0.29, width: 0.26, height: 0.57, cx: 0.48, cy: 0.575 },
+        bbox: { x: 0.65, y: 0.63, width: 0.22, height: 0.17, cx: 0.76, cy: 0.715 },
         createdAtTime: 2.0,
       },
       {
-        id: 'sumo-blue-fighter',
+        id: 'demo-blue-tower',
         color: 'blue',
-        tool: 'circle',
-        points: [
-          { x: 0.72, y: 0.38 },
-          { x: 0.9, y: 0.74 },
-        ],
-        strokeWidth: 4,
-        bbox: { x: 0.72, y: 0.38, width: 0.18, height: 0.36, cx: 0.81, cy: 0.56 },
-        createdAtTime: 2.0,
-      },
-      {
-        id: 'sumo-green-banner',
-        color: 'green',
         tool: 'rect',
         points: [
-          { x: 0.09, y: 0.2 },
-          { x: 0.28, y: 0.68 },
+          { x: 0.4, y: 0.22 },
+          { x: 0.6, y: 0.74 },
         ],
         strokeWidth: 4,
-        bbox: { x: 0.09, y: 0.2, width: 0.19, height: 0.48, cx: 0.185, cy: 0.44 },
+        bbox: { x: 0.4, y: 0.22, width: 0.2, height: 0.52, cx: 0.5, cy: 0.48 },
+        createdAtTime: 2.0,
+      },
+      {
+        id: 'demo-green-balloon',
+        color: 'green',
+        tool: 'circle',
+        points: [
+          { x: 0.13, y: 0.16 },
+          { x: 0.25, y: 0.4 },
+        ],
+        strokeWidth: 4,
+        bbox: { x: 0.13, y: 0.16, width: 0.12, height: 0.24, cx: 0.19, cy: 0.28 },
         createdAtTime: 2.0,
       },
     ];
@@ -272,74 +273,74 @@ export default function VideoEditorStudio() {
     setIntervalEnd(6.5);
     setCurrentTime(2.0);
     setPrompt(
-      'Add text "NEW QUEST MAIL!" on the red area, make the blue area glow gold, and blur the green area'
+      'Add text "VINTAGE COUPE" on the red area, make the green area glow gold, and blur the blue area'
     );
 
     const demoEdits: TimelineEditItem[] = [
       {
-        id: 'sumo-edit-1',
-        prompt: 'Add text "NEW QUEST MAIL!" on the red area',
-        summary: 'Plaque "NEW QUEST MAIL!" @ RED',
+        id: 'demo-edit-1',
+        prompt: 'Add text "VINTAGE COUPE" on the red area',
+        summary: 'Callout "VINTAGE COUPE" @ RED',
         startTime: 1.0,
         endTime: 6.5,
         effectType: 'text_overlay',
         targetColor: 'red',
         annotations: [sampleAnnotations[0]],
         params: {
-          text: 'NEW QUEST MAIL!',
+          text: 'VINTAGE COUPE',
           textStyle: 'callout',
           textColor: '#1d1a16',
           fontSize: 28,
         },
         enabled: true,
-        aiProvider: 'Sumo Preset',
+        aiProvider: 'Demo Preset',
       },
       {
-        id: 'sumo-edit-2',
-        prompt: 'Make the blue area glow gold',
-        summary: 'Kitsune Glow (#c6923a) → BLUE',
-        startTime: 1.0,
-        endTime: 6.5,
-        effectType: 'neon_glow',
-        targetColor: 'blue',
-        annotations: [sampleAnnotations[1]],
-        params: { glowColor: '#c6923a', glowIntensity: 26, pulse: true },
-        enabled: true,
-        aiProvider: 'Sumo Preset',
-      },
-      {
-        id: 'sumo-edit-3',
-        prompt: 'Add viewfinder brackets on the blue area',
-        summary: 'Brackets @ BLUE (Sumo Fighter)',
+        id: 'demo-edit-2',
+        prompt: 'Add viewfinder brackets on the red area',
+        summary: 'Brackets @ RED',
         startTime: 1.0,
         endTime: 6.5,
         effectType: 'callout_shape',
-        targetColor: 'blue',
-        annotations: [sampleAnnotations[1]],
+        targetColor: 'red',
+        annotations: [sampleAnnotations[0]],
         params: {
           shapeType: 'brackets',
-          shapeColor: '#234c7a',
+          shapeColor: '#b82d23',
         },
         enabled: true,
-        aiProvider: 'Sumo Preset',
+        aiProvider: 'Demo Preset',
       },
       {
-        id: 'sumo-edit-4',
-        prompt: 'Blur the green area',
-        summary: 'Blur → GREEN (Dojo Banner)',
+        id: 'demo-edit-3',
+        prompt: 'Make the green area glow gold',
+        summary: 'Warm Glow (#c6923a) → GREEN',
+        startTime: 1.0,
+        endTime: 6.5,
+        effectType: 'neon_glow',
+        targetColor: 'green',
+        annotations: [sampleAnnotations[2]],
+        params: { glowColor: '#c6923a', glowIntensity: 26, pulse: true },
+        enabled: true,
+        aiProvider: 'Demo Preset',
+      },
+      {
+        id: 'demo-edit-4',
+        prompt: 'Blur the blue area',
+        summary: 'Gaussian Blur → BLUE',
         startTime: 1.0,
         endTime: 6.5,
         effectType: 'blur',
-        targetColor: 'green',
-        annotations: [sampleAnnotations[2]],
+        targetColor: 'blue',
+        annotations: [sampleAnnotations[1]],
         params: { blurRadius: 14, invertMask: false },
         enabled: true,
-        aiProvider: 'Sumo Preset',
+        aiProvider: 'Demo Preset',
       },
       {
-        id: 'sumo-edit-5',
-        prompt: 'Zoom into the red postbox from 7s to 10.5s',
-        summary: 'Zoom 1.8x → RED Postbox',
+        id: 'demo-edit-5',
+        prompt: 'Zoom into the red area from 7s to 10.5s',
+        summary: 'Zoom 1.8x → RED',
         startTime: 7.0,
         endTime: 10.5,
         effectType: 'zoom',
@@ -347,7 +348,7 @@ export default function VideoEditorStudio() {
         annotations: [sampleAnnotations[0]],
         params: { zoomScale: 1.8, zoomEasing: 'smooth' },
         enabled: true,
-        aiProvider: 'Sumo Preset',
+        aiProvider: 'Demo Preset',
       },
     ];
 
@@ -355,7 +356,7 @@ export default function VideoEditorStudio() {
     setSelectedEditId(demoEdits[0].id);
     setIsPlaying(true);
     setStatusMessage(
-      'Sumo Brothers Demo Loaded! Red Postbox, Blue Sumo Fighter, and Green Banner are active.'
+      'Loaded Multi-Color Demo! Watch how Red, Blue, and Green screen markings control localized edits across intervals.'
     );
   };
 
@@ -443,7 +444,7 @@ export default function VideoEditorStudio() {
 
     setIsCompiling(true);
     setStatusMessage(
-      `Dispatching AI edit for interval [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
+      `Applying AI edit for interval [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
     );
 
     try {
@@ -549,7 +550,7 @@ export default function VideoEditorStudio() {
       const dlUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = dlUrl;
-      a.download = `sumo-brothers-edit-${Date.now()}.webm`;
+      a.download = `chromacut-edit-${Date.now()}.webm`;
       a.click();
       setIsExporting(false);
       setIsPlaying(false);
@@ -576,7 +577,7 @@ export default function VideoEditorStudio() {
     `Blur the ${primaryColor} area and spotlight the ${secondaryColor} area`,
     `Make the ${primaryColor} area glow gold`,
     `Keep the ${primaryColor} area in color and make the background black and white`,
-    `Pixelate the ${primaryColor} area and add text "SECRET" on the ${primaryColor} area`,
+    `Pixelate the ${primaryColor} area and add text "CENSORED" on the ${primaryColor} area`,
     `Slow motion 0.5x and add cinema bars`,
   ];
 
@@ -598,22 +599,20 @@ export default function VideoEditorStudio() {
         />
       )}
 
-      {/* TOP HEADER BAR — SUMO BROTHERS POSTBOX VERMILION & WASHI STYLE */}
+      {/* TOP HEADER BAR */}
       <header className="h-14 border-b-2 border-[#1d1a16] bg-[#d9ceb4] px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          {/* Iconic Postbox Red 〒 Stamp */}
-          <div className="h-9 w-9 rounded-md bg-[#b82d23] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] flex items-center justify-center font-bold text-lg text-[#ece5d3]">
-            〒
+          <div className="h-9 w-9 rounded-md bg-[#b82d23] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] flex items-center justify-center text-[#ece5d3]">
+            <Wand2 className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-bold text-lg tracking-tight text-[#1d1a16]">
-                Sumo Brothers
+                ChromaCut Studio
               </h1>
               <span className="text-[11px] px-2 py-0.5 bg-[#ece5d3] border border-[#1d1a16] text-[#1d1a16] font-semibold">
-                AI Video Editor
+                Interval &amp; Visual Prompt Editor
               </span>
-              <span className="text-xs font-mono text-[#544b43]">v0.0.11</span>
             </div>
             <p className="text-xs text-[#544b43] truncate max-w-lg">
               {statusMessage}
@@ -626,7 +625,7 @@ export default function VideoEditorStudio() {
             onClick={loadShowcasePreset}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#c6923a] hover:bg-[#dfc992] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] active:translate-y-0.5 text-[#1d1a16] text-xs font-bold transition cursor-pointer"
           >
-            <span>▶ Load Sumo Demo</span>
+            <span>▶ Load Sample Edits</span>
           </button>
 
           <label className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer">
@@ -661,14 +660,14 @@ export default function VideoEditorStudio() {
 
       {/* MAIN WORKSPACE */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* LEFT / CENTER: STAGE, DRAWING TOOLBAR, PROMPT PLAQUE, TIMELINE */}
+        {/* LEFT / CENTER: STAGE, DRAWING TOOLBAR, PROMPT CARD, TIMELINE */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#ece5d3]">
           {/* SCREEN MARKING TOOLBAR */}
           <div className="h-12 border-b-2 border-[#1d1a16] bg-[#f5f2e8] px-4 flex items-center justify-between gap-4 shrink-0">
-            {/* Sumo Swatch Color Selector */}
+            {/* Color Palette Selector */}
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-[#544b43] mr-1">
-                1. Ink Color:
+                1. Mark Color:
               </span>
               {(['red', 'blue', 'green', 'yellow'] as MarkColor[]).map(
                 (color) => {
@@ -707,13 +706,13 @@ export default function VideoEditorStudio() {
             {/* Drawing Tools */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-bold text-[#544b43] mr-1">
-                Brush Tool:
+                Shape Tool:
               </span>
               {(
                 [
                   { id: 'rect', label: 'Box', icon: Square },
-                  { id: 'circle', label: 'Enso Circle', icon: Circle },
-                  { id: 'brush', label: 'Freehand', icon: Brush },
+                  { id: 'circle', label: 'Circle', icon: Circle },
+                  { id: 'brush', label: 'Brush', icon: Brush },
                   { id: 'arrow', label: 'Point', icon: MousePointerClick },
                 ] as const
               ).map(({ id, label, icon: Icon }) => (
@@ -826,7 +825,6 @@ export default function VideoEditorStudio() {
                             strokeWidth={4}
                           />
                         )}
-                        {/* Sumo Plaque Tag */}
                         <rect
                           x={bx}
                           y={Math.max(4, by - 24)}
@@ -904,7 +902,7 @@ export default function VideoEditorStudio() {
                   })()}
               </svg>
 
-              {/* Top-left live HUD status plaque */}
+              {/* Top-left live HUD status badge */}
               <div className="absolute top-3 left-3 pointer-events-none flex items-center gap-2">
                 <span className="px-2.5 py-1 bg-[#ece5d3]/95 border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-[11px] font-bold text-[#1d1a16] flex items-center gap-1.5">
                   <Film className="w-3 h-3 text-[#b82d23]" />
@@ -919,13 +917,12 @@ export default function VideoEditorStudio() {
             </div>
           </div>
 
-          {/* AI INTERVAL PROMPT BAR — RIVETED SUMO PLAQUE */}
+          {/* AI INTERVAL PROMPT BAR */}
           <div className="border-t-2 border-[#1d1a16] bg-[#d9ceb4] px-4 py-3 shrink-0">
             <div className="max-w-5xl mx-auto relative bg-[#ece5d3] border-2 border-[#1d1a16] shadow-[3px_3px_0px_#1d1a16] p-3 flex flex-col gap-2">
               <CornerRivets />
 
               <div className="flex items-center gap-2">
-                {/* Active Interval Stamp */}
                 <div className="flex items-center gap-1.5 px-3 py-2 bg-[#234c7a] border-2 border-[#1d1a16] text-xs font-mono font-bold text-[#f5f2e8] shrink-0">
                   <Clock className="w-3.5 h-3.5 text-[#fbf09c]" />
                   <span>
@@ -933,7 +930,6 @@ export default function VideoEditorStudio() {
                   </span>
                 </div>
 
-                {/* Clickable Color Reference Pills */}
                 {colorSummaries.map((cs) => {
                   const cfg = MARK_COLORS[cs.color];
                   return (
@@ -958,7 +954,7 @@ export default function VideoEditorStudio() {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleApplyAiPrompt();
                     }}
-                    placeholder='Tell AI what to do in this interval (e.g., "Zoom into the red area, blur the green area, and make the blue area glow gold")'
+                    placeholder='Tell AI what to do in this interval (e.g., "Zoom into the red area, blur the blue area, and make the green area glow gold")'
                     className="w-full px-3.5 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] focus:outline-none text-sm font-medium text-[#1d1a16] placeholder-[#837a6d]"
                   />
                 </div>
@@ -975,7 +971,7 @@ export default function VideoEditorStudio() {
               {/* Quick Suggestion Chips */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                 <span className="text-[11px] font-bold text-[#544b43] shrink-0 mr-1">
-                  Scrolls:
+                  Presets:
                 </span>
                 {quickChips.map((chip, idx) => (
                   <button
@@ -1074,7 +1070,6 @@ export default function VideoEditorStudio() {
                 }}
                 className="absolute top-0 bottom-0 bg-[#c6923a]/25 border-x-2 border-[#1d1a16] pointer-events-none"
               >
-                {/* Left Interval Handle */}
                 <div
                   onPointerDown={(e) => {
                     e.stopPropagation();
@@ -1086,7 +1081,6 @@ export default function VideoEditorStudio() {
                   <span className="text-[11px] font-bold text-[#f5f2e8]">[</span>
                 </div>
 
-                {/* Right Interval Handle */}
                 <div
                   onPointerDown={(e) => {
                     e.stopPropagation();
@@ -1158,13 +1152,13 @@ export default function VideoEditorStudio() {
           </div>
         </div>
 
-        {/* RIGHT SIDEBAR — RIVETED SUMO POSTBOX MENU PLAQUE */}
+        {/* RIGHT SIDEBAR */}
         <aside className="w-80 border-l-2 border-[#1d1a16] bg-[#d9ceb4] flex flex-col shrink-0">
           <div className="p-3.5 border-b-2 border-[#1d1a16] bg-[#b82d23] text-[#f5f2e8] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-[#fbf09c]" />
               <h2 className="text-xs font-bold uppercase tracking-wider">
-                Interval Scrolls ({edits.length})
+                Active Interval Edits ({edits.length})
               </h2>
             </div>
             {edits.length > 0 && (
@@ -1180,19 +1174,16 @@ export default function VideoEditorStudio() {
             )}
           </div>
 
-          {/* Layer List */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
             {edits.length === 0 ? (
               <div className="relative bg-[#ece5d3] border-2 border-[#1d1a16] p-5 text-center space-y-2 shadow-[3px_3px_0px_#1d1a16]">
                 <CornerRivets />
-                <div className="w-8 h-8 mx-auto rounded-full bg-[#b82d23] border-2 border-[#1d1a16] text-[#ece5d3] font-bold flex items-center justify-center">
-                  〒
-                </div>
+                <Sparkles className="w-6 h-6 mx-auto text-[#b82d23]" />
                 <p className="text-xs font-bold text-[#1d1a16]">
-                  No Interval Scrolls Yet
+                  No Interval Edits Yet
                 </p>
                 <p className="text-[11px] text-[#544b43] leading-relaxed">
-                  1. Pick an ink color (
+                  1. Pick a color (
                   <strong className="text-[#b82d23]">Red</strong>,{' '}
                   <strong className="text-[#234c7a]">Blue</strong>,{' '}
                   <strong className="text-[#50793e]">Green</strong>,{' '}
@@ -1201,7 +1192,7 @@ export default function VideoEditorStudio() {
                   <br />
                   2. Drag the red <strong>[ ]</strong> interval handles.
                   <br />
-                  3. Click <strong>▶ Load Sumo Demo</strong> or type a command!
+                  3. Click <strong>▶ Load Sample Edits</strong> or type a command!
                 </p>
               </div>
             ) : (
@@ -1441,7 +1432,7 @@ export default function VideoEditorStudio() {
               {selectedEdit.effectType === 'text_overlay' && (
                 <div>
                   <label className="text-[10px] font-bold text-[#544b43] block mb-1">
-                    Plaque Text
+                    Callout Text
                   </label>
                   <input
                     type="text"
@@ -1453,7 +1444,7 @@ export default function VideoEditorStudio() {
                           it.id === selectedEdit.id
                             ? {
                                 ...it,
-                                summary: `Plaque "${text}"`,
+                                summary: `Callout "${text}"`,
                                 params: { ...it.params, text },
                               }
                             : it
@@ -1469,7 +1460,7 @@ export default function VideoEditorStudio() {
         </aside>
       </div>
 
-      {/* CLOUD AI SETTINGS MODAL — SUMO BROTHERS POSTBOX PLAQUE */}
+      {/* CLOUD AI SETTINGS MODAL */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-50 bg-[#1d1a16]/60 flex items-center justify-center p-4">
           <div className="relative w-full max-w-md bg-[#ece5d3] border-3 border-[#1d1a16] p-6 space-y-4 shadow-[6px_6px_0px_#1d1a16]">
@@ -1477,7 +1468,7 @@ export default function VideoEditorStudio() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#1d1a16] flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-[#b82d23]" />
-                AI Compiler & Cloud Setup
+                AI Compiler &amp; Cloud Setup
               </h3>
               <button
                 onClick={() => setShowSettingsModal(false)}
@@ -1514,7 +1505,7 @@ export default function VideoEditorStudio() {
                 onClick={() => setShowSettingsModal(false)}
                 className="px-4 py-2 bg-[#b82d23] hover:bg-[#a64147] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#f5f2e8] cursor-pointer"
               >
-                ▶ Save & Continue
+                ▶ Save &amp; Continue
               </button>
             </div>
           </div>

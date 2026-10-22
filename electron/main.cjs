@@ -1,5 +1,4 @@
 const { app, BrowserWindow, shell } = require('electron');
-const path = require('path');
 const http = require('http');
 
 let mainWindow = null;
@@ -39,7 +38,7 @@ async function createWindow() {
     height: 900,
     minWidth: 1080,
     minHeight: 720,
-    title: 'Sumo Brothers — AI Video Editor (v0.0.11)',
+    title: 'ChromaCut AI — Video Editor',
     backgroundColor: '#ece5d3',
     autoHideMenuBar: true,
     webPreferences: {

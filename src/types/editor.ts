@@ -39,19 +39,15 @@ export type EffectType =
   | 'camera_fx';
 
 export interface EffectParams {
-  // Zoom / Pan
   zoomScale?: number;
   zoomEasing?: 'smooth' | 'instant' | 'spring';
 
-  // Blur / Pixelate
   blurRadius?: number;
   pixelBlockSize?: number;
   invertMask?: boolean;
 
-  // Spotlight
   dimOpacity?: number;
 
-  // Color Grade
   saturation?: number;
   brightness?: number;
   contrast?: number;
@@ -61,27 +57,22 @@ export interface EffectParams {
   tintColor?: string;
   tintOpacity?: number;
 
-  // Neon / Glow
   glowColor?: string;
   glowIntensity?: number;
   pulse?: boolean;
 
-  // Text / Callout Overlay
   text?: string;
   textStyle?: 'impact' | 'subtitle' | 'callout' | 'neon';
   textColor?: string;
   fontSize?: number;
 
-  // Callout Shape
   shapeType?: 'ring' | 'brackets' | 'arrow' | 'box';
   shapeColor?: string;
   label?: string;
 
-  // Speed
   playbackRate?: number;
   freezeFrame?: boolean;
 
-  // Camera FX
   cameraEffect?: 'shake' | 'vignette' | 'cinema_bars' | 'vhs_glitch' | 'flash';
   intensity?: number;
 }
@@ -107,18 +98,10 @@ export interface ColorGroupSummary {
   tools: DrawingTool[];
 }
 
-/**
- * Mapped directly to the uploaded Sumo Brothers Color Palette Swatch Sheet:
- * - Red: Postbox Vermilion (#b82d23)
- * - Blue: Ai-iro Indigo (#234c7a / #4479a8)
- * - Green: Matcha Bamboo (#50793e)
- * - Yellow: Kitsune Gold Ochre (#c6923a)
- */
 export const MARK_COLORS: Record<
   MarkColor,
   {
     name: string;
-    jpLabel: string;
     hex: string;
     fillRgba: string;
     borderHex: string;
@@ -128,7 +111,6 @@ export const MARK_COLORS: Record<
 > = {
   red: {
     name: 'Red',
-    jpLabel: 'Shu-iro',
     hex: '#b82d23',
     fillRgba: 'rgba(184, 45, 35, 0.25)',
     borderHex: '#1d1a16',
@@ -137,7 +119,6 @@ export const MARK_COLORS: Record<
   },
   blue: {
     name: 'Blue',
-    jpLabel: 'Ai-iro',
     hex: '#234c7a',
     fillRgba: 'rgba(35, 76, 122, 0.25)',
     borderHex: '#1d1a16',
@@ -146,7 +127,6 @@ export const MARK_COLORS: Record<
   },
   green: {
     name: 'Green',
-    jpLabel: 'Matcha',
     hex: '#50793e',
     fillRgba: 'rgba(80, 121, 62, 0.25)',
     borderHex: '#1d1a16',
@@ -155,7 +135,6 @@ export const MARK_COLORS: Record<
   },
   yellow: {
     name: 'Yellow',
-    jpLabel: 'Kitsune',
     hex: '#c6923a',
     fillRgba: 'rgba(198, 146, 58, 0.28)',
     borderHex: '#1d1a16',
