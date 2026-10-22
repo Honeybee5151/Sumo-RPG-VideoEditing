@@ -17,14 +17,12 @@ import {
   MousePointerClick,
   Repeat,
   Sliders,
-  Wand2,
   Clock,
   Layers,
   CheckCircle2,
   Settings,
   Film,
   RotateCcw,
-  Plus,
 } from 'lucide-react';
 import {
   DrawingTool,
@@ -40,12 +38,24 @@ import {
   renderProceduralDemoScene,
 } from '@/lib/canvasCompositor';
 
-const DEFAULT_DURATION = 12; // 12-second built-in studio scene
+const DEFAULT_DURATION = 12;
+
+/** Reusable Sumo Brothers 4-Corner Riveted Plaque Decorator */
+function CornerRivets() {
+  return (
+    <>
+      <span className="pointer-events-none absolute top-1.5 left-1.5 w-1.5 h-1.5 rounded-full bg-[#1d1a16]" />
+      <span className="pointer-events-none absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#1d1a16]" />
+      <span className="pointer-events-none absolute bottom-1.5 left-1.5 w-1.5 h-1.5 rounded-full bg-[#1d1a16]" />
+      <span className="pointer-events-none absolute bottom-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#1d1a16]" />
+    </>
+  );
+}
 
 export default function VideoEditorStudio() {
   // Video playback & source state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoFileName, setVideoFileName] = useState<string>('Built-in Cyber Studio Scene (12s)');
+  const [videoFileName, setVideoFileName] = useState<string>('Sumo Brothers Scene (12s)');
   const [duration, setDuration] = useState<number>(DEFAULT_DURATION);
   const [currentTime, setCurrentTime] = useState<number>(1.5);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -68,7 +78,7 @@ export default function VideoEditorStudio() {
   const [edits, setEdits] = useState<TimelineEditItem[]>([]);
   const [selectedEditId, setSelectedEditId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(
-    'Draw with Red, Blue, Green, or Yellow on the video, select a time interval, and tell AI what to edit!'
+    'Select an interval [ ], mark objects with Shu-iro Red, Ai-iro Blue, Matcha Green, or Kitsune Gold, and dispatch your edit!'
   );
 
   // Cloud Settings & Export state
@@ -85,7 +95,6 @@ export default function VideoEditorStudio() {
   const draggingHandleRef = useRef<'start' | 'end' | 'playhead' | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
 
-  // Compute active speed multiplier if a 'speed' edit is active at currentTime
   const getActivePlaybackRate = useCallback(
     (t: number) => {
       const speedEdit = edits.find(
@@ -105,7 +114,7 @@ export default function VideoEditorStudio() {
     [edits]
   );
 
-  // Main 60 FPS Render & Playback Loop
+  // 60 FPS Render & Playback Loop
   useEffect(() => {
     let animationFrameId: number;
 
@@ -139,7 +148,6 @@ export default function VideoEditorStudio() {
         });
       }
 
-      // Render current video or procedural frame into sourceCanvas, then composite effects into displayCanvas
       const displayCanvas = displayCanvasRef.current;
       if (displayCanvas) {
         if (!sourceCanvasRef.current) {
@@ -194,7 +202,6 @@ export default function VideoEditorStudio() {
     getActivePlaybackRate,
   ]);
 
-  // Sync HTML5 <video> element when playing or scrubbing uploaded video
   useEffect(() => {
     const vid = videoRef.current;
     if (!vid || !videoUrl) return;
@@ -208,7 +215,6 @@ export default function VideoEditorStudio() {
     }
   }, [isPlaying, videoUrl, currentTime, getActivePlaybackRate]);
 
-  // Upload custom video file
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -217,46 +223,46 @@ export default function VideoEditorStudio() {
     setVideoFileName(file.name);
     setIsPlaying(false);
     setCurrentTime(0);
-    setStatusMessage(`Loaded "${file.name}". Select an interval and draw on screen!`);
+    setStatusMessage(`Loaded "${file.name}". Select an interval and mark areas on screen!`);
   };
 
-  // Load 1-click showcase demo with multi-color annotations + interval edits
+  // Load 1-click Sumo Brothers Multi-Color Demo
   const loadShowcasePreset = () => {
     const sampleAnnotations: ScreenAnnotation[] = [
       {
-        id: 'demo-red-car',
+        id: 'sumo-red-postbox',
         color: 'red',
         tool: 'rect',
         points: [
-          { x: 0.62, y: 0.59 },
-          { x: 0.87, y: 0.79 },
+          { x: 0.35, y: 0.29 },
+          { x: 0.61, y: 0.86 },
         ],
         strokeWidth: 4,
-        bbox: { x: 0.62, y: 0.59, width: 0.25, height: 0.2, cx: 0.745, cy: 0.69 },
+        bbox: { x: 0.35, y: 0.29, width: 0.26, height: 0.57, cx: 0.48, cy: 0.575 },
         createdAtTime: 2.0,
       },
       {
-        id: 'demo-blue-bot',
+        id: 'sumo-blue-fighter',
         color: 'blue',
         tool: 'circle',
         points: [
-          { x: 0.37, y: 0.36 },
-          { x: 0.54, y: 0.68 },
+          { x: 0.72, y: 0.38 },
+          { x: 0.9, y: 0.74 },
         ],
         strokeWidth: 4,
-        bbox: { x: 0.37, y: 0.36, width: 0.17, height: 0.32, cx: 0.455, cy: 0.52 },
+        bbox: { x: 0.72, y: 0.38, width: 0.18, height: 0.36, cx: 0.81, cy: 0.56 },
         createdAtTime: 2.0,
       },
       {
-        id: 'demo-green-sign',
+        id: 'sumo-green-banner',
         color: 'green',
         tool: 'rect',
         points: [
-          { x: 0.07, y: 0.14 },
-          { x: 0.31, y: 0.4 },
+          { x: 0.09, y: 0.2 },
+          { x: 0.28, y: 0.68 },
         ],
         strokeWidth: 4,
-        bbox: { x: 0.07, y: 0.14, width: 0.24, height: 0.26, cx: 0.19, cy: 0.27 },
+        bbox: { x: 0.09, y: 0.2, width: 0.19, height: 0.48, cx: 0.185, cy: 0.44 },
         createdAtTime: 2.0,
       },
     ];
@@ -264,84 +270,84 @@ export default function VideoEditorStudio() {
     setAnnotations(sampleAnnotations);
     setIntervalStart(1.0);
     setIntervalEnd(6.5);
-    setCurrentTime(2.2);
+    setCurrentTime(2.0);
     setPrompt(
-      'Make the green area glow neon cyan, add text "TARGET LOCKED" on the red area, and blur the blue area'
+      'Add text "NEW QUEST MAIL!" on the red area, make the blue area glow gold, and blur the green area'
     );
 
     const demoEdits: TimelineEditItem[] = [
       {
-        id: 'demo-edit-1',
-        prompt: 'Make the green area glow neon cyan',
-        summary: 'Neon Glow (#06b6d4) on GREEN',
-        startTime: 1.0,
-        endTime: 6.5,
-        effectType: 'neon_glow',
-        targetColor: 'green',
-        annotations: [sampleAnnotations[2]],
-        params: { glowColor: '#06b6d4', glowIntensity: 28, pulse: true },
-        enabled: true,
-        aiProvider: 'Showcase Preset',
-      },
-      {
-        id: 'demo-edit-2',
-        prompt: 'Add text "TARGET LOCKED" on the red area',
-        summary: 'Text "TARGET LOCKED" @ RED',
+        id: 'sumo-edit-1',
+        prompt: 'Add text "NEW QUEST MAIL!" on the red area',
+        summary: 'Plaque "NEW QUEST MAIL!" @ RED',
         startTime: 1.0,
         endTime: 6.5,
         effectType: 'text_overlay',
         targetColor: 'red',
         annotations: [sampleAnnotations[0]],
         params: {
-          text: 'TARGET LOCKED',
+          text: 'NEW QUEST MAIL!',
           textStyle: 'callout',
-          textColor: '#f87171',
+          textColor: '#1d1a16',
           fontSize: 28,
         },
         enabled: true,
-        aiProvider: 'Showcase Preset',
+        aiProvider: 'Sumo Preset',
       },
       {
-        id: 'demo-edit-3',
-        prompt: 'Add brackets on the red area',
-        summary: 'Animated brackets @ RED',
+        id: 'sumo-edit-2',
+        prompt: 'Make the blue area glow gold',
+        summary: 'Kitsune Glow (#c6923a) → BLUE',
+        startTime: 1.0,
+        endTime: 6.5,
+        effectType: 'neon_glow',
+        targetColor: 'blue',
+        annotations: [sampleAnnotations[1]],
+        params: { glowColor: '#c6923a', glowIntensity: 26, pulse: true },
+        enabled: true,
+        aiProvider: 'Sumo Preset',
+      },
+      {
+        id: 'sumo-edit-3',
+        prompt: 'Add viewfinder brackets on the blue area',
+        summary: 'Brackets @ BLUE (Sumo Fighter)',
         startTime: 1.0,
         endTime: 6.5,
         effectType: 'callout_shape',
-        targetColor: 'red',
-        annotations: [sampleAnnotations[0]],
+        targetColor: 'blue',
+        annotations: [sampleAnnotations[1]],
         params: {
           shapeType: 'brackets',
-          shapeColor: '#ef4444',
+          shapeColor: '#234c7a',
         },
         enabled: true,
-        aiProvider: 'Showcase Preset',
+        aiProvider: 'Sumo Preset',
       },
       {
-        id: 'demo-edit-4',
-        prompt: 'Blur the blue area',
-        summary: 'Gaussian Blur → BLUE',
+        id: 'sumo-edit-4',
+        prompt: 'Blur the green area',
+        summary: 'Blur → GREEN (Dojo Banner)',
         startTime: 1.0,
         endTime: 6.5,
         effectType: 'blur',
-        targetColor: 'blue',
-        annotations: [sampleAnnotations[1]],
-        params: { blurRadius: 16, invertMask: false },
+        targetColor: 'green',
+        annotations: [sampleAnnotations[2]],
+        params: { blurRadius: 14, invertMask: false },
         enabled: true,
-        aiProvider: 'Showcase Preset',
+        aiProvider: 'Sumo Preset',
       },
       {
-        id: 'demo-edit-5',
-        prompt: 'Zoom into the red area from 7s to 10.5s',
-        summary: 'Zoom 1.9x → RED mark',
+        id: 'sumo-edit-5',
+        prompt: 'Zoom into the red postbox from 7s to 10.5s',
+        summary: 'Zoom 1.8x → RED Postbox',
         startTime: 7.0,
         endTime: 10.5,
         effectType: 'zoom',
         targetColor: 'red',
         annotations: [sampleAnnotations[0]],
-        params: { zoomScale: 1.9, zoomEasing: 'smooth' },
+        params: { zoomScale: 1.8, zoomEasing: 'smooth' },
         enabled: true,
-        aiProvider: 'Showcase Preset',
+        aiProvider: 'Sumo Preset',
       },
     ];
 
@@ -349,11 +355,10 @@ export default function VideoEditorStudio() {
     setSelectedEditId(demoEdits[0].id);
     setIsPlaying(true);
     setStatusMessage(
-      'Loaded Multi-Color Showcase! Watch how Red, Blue, and Green markings drive localized edits across [1.0s – 6.5s] and [7.0s – 10.5s].'
+      'Sumo Brothers Demo Loaded! Red Postbox, Blue Sumo Fighter, and Green Banner are active.'
     );
   };
 
-  // Drawing Canvas Pointer Handlers
   const getNormalizedPoint = (
     e: React.PointerEvent<SVGSVGElement>
   ): NormalizedPoint => {
@@ -398,7 +403,6 @@ export default function VideoEditorStudio() {
     setCurrentStroke(null);
   };
 
-  // Capture a composite visual prompt image (video frame + colored annotations drawn on top)
   const captureCompositeVisualPrompt = (): string | undefined => {
     const displayCanvas = displayCanvasRef.current;
     if (!displayCanvas) return undefined;
@@ -409,7 +413,6 @@ export default function VideoEditorStudio() {
     if (!ctx) return undefined;
 
     ctx.drawImage(displayCanvas, 0, 0, 640, 360);
-    // Overlay colored markings so the Multimodal Vision LLM sees the Set-of-Mark annotations
     for (const ann of annotations) {
       const colorCfg = MARK_COLORS[ann.color];
       const bx = ann.bbox.x * 640;
@@ -422,7 +425,7 @@ export default function VideoEditorStudio() {
       ctx.fillStyle = colorCfg.fillRgba;
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.roundRect(bx, by, bw, bh, 8);
+      ctx.roundRect(bx, by, bw, bh, 6);
       ctx.fill();
       ctx.stroke();
 
@@ -434,14 +437,13 @@ export default function VideoEditorStudio() {
     return offscreen.toDataURL('image/png', 0.8);
   };
 
-  // Submit AI Prompt for Selected Interval + Colored Markings
   const handleApplyAiPrompt = async (customPrompt?: string) => {
     const textToCompile = (customPrompt ?? prompt).trim();
     if (!textToCompile) return;
 
     setIsCompiling(true);
     setStatusMessage(
-      `Compiling edits for interval [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
+      `Dispatching AI edit for interval [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
     );
 
     try {
@@ -466,7 +468,7 @@ export default function VideoEditorStudio() {
         setCurrentTime(intervalStart);
         setIsPlaying(true);
         setStatusMessage(
-          `Added ${data.edits.length} AI edit(s) in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s] via ${data.provider}`
+          `Applied ${data.edits.length} edit(s) in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]`
         );
         if (!customPrompt) setPrompt('');
       }
@@ -478,7 +480,6 @@ export default function VideoEditorStudio() {
     }
   };
 
-  // Timeline Scrubber & Interval Dragging
   const getTimeFromTimelineEvent = useCallback(
     (clientX: number) => {
       const track = timelineTrackRef.current;
@@ -520,7 +521,6 @@ export default function VideoEditorStudio() {
     };
   }, [getTimeFromTimelineEvent, intervalStart, intervalEnd, videoUrl]);
 
-  // Export Composited Video via Canvas MediaRecorder Stream
   const handleExportVideo = () => {
     const canvas = displayCanvasRef.current;
     if (!canvas || isExporting) return;
@@ -549,11 +549,11 @@ export default function VideoEditorStudio() {
       const dlUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = dlUrl;
-      a.download = `chromacut-edited-${Date.now()}.webm`;
+      a.download = `sumo-brothers-edit-${Date.now()}.webm`;
       a.click();
       setIsExporting(false);
       setIsPlaying(false);
-      setStatusMessage('Export complete! Downloaded edited video.');
+      setStatusMessage('Export complete! Saved edited video.');
     };
 
     recorder.start();
@@ -567,22 +567,21 @@ export default function VideoEditorStudio() {
   const colorSummaries = summarizeColorGroups(annotations);
   const selectedEdit = edits.find((e) => e.id === selectedEditId) || null;
 
-  // Dynamic quick suggestions tailored to drawn colors
   const primaryColor = colorSummaries[0]?.color ?? activeColor;
-  const secondaryColor = colorSummaries[1]?.color ?? (primaryColor === 'red' ? 'blue' : 'red');
+  const secondaryColor =
+    colorSummaries[1]?.color ?? (primaryColor === 'red' ? 'blue' : 'red');
 
   const quickChips = [
     `Zoom into the ${primaryColor} area smoothly`,
     `Blur the ${primaryColor} area and spotlight the ${secondaryColor} area`,
-    `Make the ${primaryColor} area glow neon purple`,
+    `Make the ${primaryColor} area glow gold`,
     `Keep the ${primaryColor} area in color and make the background black and white`,
-    `Pixelate the ${primaryColor} area and add text "CENSORED" on the ${primaryColor} area`,
+    `Pixelate the ${primaryColor} area and add text "SECRET" on the ${primaryColor} area`,
     `Slow motion 0.5x and add cinema bars`,
   ];
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#090a0f] text-gray-100 overflow-hidden">
-      {/* Hidden <video> element for uploaded user video files */}
+    <div className="flex flex-col h-screen w-screen bg-[#ece5d3] text-[#1d1a16] overflow-hidden">
       {videoUrl && (
         <video
           ref={videoRef}
@@ -599,22 +598,24 @@ export default function VideoEditorStudio() {
         />
       )}
 
-      {/* TOP HEADER BAR */}
-      <header className="h-14 border-b border-white/10 bg-[#10121c] px-4 flex items-center justify-between shrink-0">
+      {/* TOP HEADER BAR — SUMO BROTHERS POSTBOX VERMILION & WASHI STYLE */}
+      <header className="h-14 border-b-2 border-[#1d1a16] bg-[#d9ceb4] px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
-            <Wand2 className="w-5 h-5 text-white" />
+          {/* Iconic Postbox Red 〒 Stamp */}
+          <div className="h-9 w-9 rounded-md bg-[#b82d23] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] flex items-center justify-center font-bold text-lg text-[#ece5d3]">
+            〒
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold text-base tracking-tight text-white">
-                ChromaCut AI
+            <div className="flex items-center gap-2.5">
+              <h1 className="font-bold text-lg tracking-tight text-[#1d1a16]">
+                Sumo Brothers
               </h1>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 font-medium">
-                Interval + Color Visual Prompt Studio
+              <span className="text-[11px] px-2 py-0.5 bg-[#ece5d3] border border-[#1d1a16] text-[#1d1a16] font-semibold">
+                AI Video Editor
               </span>
+              <span className="text-xs font-mono text-[#544b43]">v0.0.11</span>
             </div>
-            <p className="text-xs text-gray-400 truncate max-w-md">
+            <p className="text-xs text-[#544b43] truncate max-w-lg">
               {statusMessage}
             </p>
           </div>
@@ -623,15 +624,14 @@ export default function VideoEditorStudio() {
         <div className="flex items-center gap-2.5">
           <button
             onClick={loadShowcasePreset}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/20 to-pink-500/20 hover:from-amber-500/30 hover:to-pink-500/30 border border-amber-400/40 text-amber-200 text-xs font-medium transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#c6923a] hover:bg-[#dfc992] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] active:translate-y-0.5 text-[#1d1a16] text-xs font-bold transition cursor-pointer"
           >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            Load Multi-Color Demo
+            <span>▶ Load Sumo Demo</span>
           </button>
 
-          <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 transition cursor-pointer">
-            <Upload className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Upload Video</span>
+          <label className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer">
+            <Upload className="w-3.5 h-3.5 text-[#234c7a]" />
+            <span>Open Video File</span>
             <input
               type="file"
               accept="video/*"
@@ -642,16 +642,16 @@ export default function VideoEditorStudio() {
 
           <button
             onClick={() => setShowSettingsModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-300 transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer"
           >
-            <Settings className="w-3.5 h-3.5 text-gray-400" />
-            <span>{geminiApiKey ? 'Gemini Cloud Active' : 'Cloud AI Setup'}</span>
+            <Settings className="w-3.5 h-3.5 text-[#544b43]" />
+            <span>{geminiApiKey ? 'Gemini Active' : 'AI Settings'}</span>
           </button>
 
           <button
             onClick={handleExportVideo}
             disabled={isExporting}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-semibold text-white shadow-lg shadow-indigo-600/25 transition cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#b82d23] hover:bg-[#a64147] disabled:opacity-50 border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#f5f2e8] transition cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>{isExporting ? 'Recording (6s)...' : 'Export Video'}</span>
@@ -659,66 +659,71 @@ export default function VideoEditorStudio() {
         </div>
       </header>
 
-      {/* MAIN WORKSPACE: STAGE + RIGHT INSPECTOR */}
+      {/* MAIN WORKSPACE */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* LEFT / CENTER: VIDEO STAGE, DRAWING TOOLBAR, PROMPT BAR, TIMELINE */}
-        <div className="flex-1 flex flex-col min-w-0 bg-[#0b0d14]">
+        {/* LEFT / CENTER: STAGE, DRAWING TOOLBAR, PROMPT PLAQUE, TIMELINE */}
+        <div className="flex-1 flex flex-col min-w-0 bg-[#ece5d3]">
           {/* SCREEN MARKING TOOLBAR */}
-          <div className="h-12 border-b border-white/10 bg-[#121521] px-4 flex items-center justify-between gap-4 shrink-0">
-            {/* Color Palette Selector */}
+          <div className="h-12 border-b-2 border-[#1d1a16] bg-[#f5f2e8] px-4 flex items-center justify-between gap-4 shrink-0">
+            {/* Sumo Swatch Color Selector */}
             <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-gray-400 mr-1">
-                1. Mark Screen Color:
+              <span className="text-xs font-bold text-[#544b43] mr-1">
+                1. Ink Color:
               </span>
-              {(['red', 'blue', 'green', 'yellow'] as MarkColor[]).map((color) => {
-                const cfg = MARK_COLORS[color];
-                const isSelected = activeColor === color;
-                const count = annotations.filter((a) => a.color === color).length;
-                return (
-                  <button
-                    key={color}
-                    onClick={() => setActiveColor(color)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer ${
-                      isSelected
-                        ? `${cfg.badgeBg} ${cfg.badgeText} ring-2 ring-white/30 scale-105`
-                        : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
-                    }`}
-                  >
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ backgroundColor: cfg.hex }}
-                    />
-                    <span>{cfg.name}</span>
-                    {count > 0 && (
-                      <span className="px-1.5 py-0.2 rounded-full bg-black/40 text-[10px]">
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+              {(['red', 'blue', 'green', 'yellow'] as MarkColor[]).map(
+                (color) => {
+                  const cfg = MARK_COLORS[color];
+                  const isSelected = activeColor === color;
+                  const count = annotations.filter(
+                    (a) => a.color === color
+                  ).length;
+                  return (
+                    <button
+                      key={color}
+                      onClick={() => setActiveColor(color)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold border-2 border-[#1d1a16] transition cursor-pointer ${
+                        isSelected
+                          ? `${cfg.badgeBg} ${cfg.badgeText} shadow-[2px_2px_0px_#1d1a16] -translate-y-0.5`
+                          : 'bg-[#ece5d3] text-[#1d1a16] hover:bg-[#d9ceb4]'
+                      }`}
+                    >
+                      {isSelected && <span className="text-[10px]">▶</span>}
+                      <span
+                        className="w-2.5 h-2.5 rounded-full border border-[#1d1a16]"
+                        style={{ backgroundColor: cfg.hex }}
+                      />
+                      <span>{cfg.name}</span>
+                      {count > 0 && (
+                        <span className="px-1.5 rounded-sm bg-[#1d1a16] text-[#ece5d3] text-[10px]">
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                }
+              )}
             </div>
 
-            {/* Drawing Shape Tools */}
+            {/* Drawing Tools */}
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-medium text-gray-400 mr-1">
-                Shape:
+              <span className="text-xs font-bold text-[#544b43] mr-1">
+                Brush Tool:
               </span>
               {(
                 [
                   { id: 'rect', label: 'Box', icon: Square },
-                  { id: 'circle', label: 'Circle', icon: Circle },
-                  { id: 'brush', label: 'Brush', icon: Brush },
-                  { id: 'arrow', label: 'Target', icon: MousePointerClick },
+                  { id: 'circle', label: 'Enso Circle', icon: Circle },
+                  { id: 'brush', label: 'Freehand', icon: Brush },
+                  { id: 'arrow', label: 'Point', icon: MousePointerClick },
                 ] as const
               ).map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => setActiveTool(id)}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition cursor-pointer ${
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs font-bold border-2 border-[#1d1a16] transition cursor-pointer ${
                     activeTool === id
-                      ? 'bg-indigo-600/30 border-indigo-500 text-indigo-200'
-                      : 'bg-white/5 border-white/10 text-gray-400 hover:text-gray-200'
+                      ? 'bg-[#1d1a16] text-[#ece5d3] shadow-[2px_2px_0px_#b82d23]'
+                      : 'bg-[#ece5d3] text-[#544b43] hover:text-[#1d1a16]'
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
@@ -731,20 +736,19 @@ export default function VideoEditorStudio() {
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setShowMarkingsOverlay((v) => !v)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-gray-300 transition cursor-pointer"
-                title="Show or hide drawn screen markings"
+                className="flex items-center gap-1 px-2.5 py-1 bg-[#ece5d3] hover:bg-[#d9ceb4] border-2 border-[#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer"
               >
                 {showMarkingsOverlay ? (
-                  <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                  <Eye className="w-3.5 h-3.5 text-[#50793e]" />
                 ) : (
-                  <EyeOff className="w-3.5 h-3.5 text-gray-500" />
+                  <EyeOff className="w-3.5 h-3.5 text-[#837a6d]" />
                 )}
                 <span>Marks</span>
               </button>
               <button
                 onClick={() => setAnnotations((prev) => prev.slice(0, -1))}
                 disabled={annotations.length === 0}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-40 border border-white/10 text-xs text-gray-300 transition cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1 bg-[#ece5d3] hover:bg-[#d9ceb4] disabled:opacity-40 border-2 border-[#1d1a16] text-xs font-semibold text-[#1d1a16] transition cursor-pointer"
               >
                 <Undo2 className="w-3.5 h-3.5" />
                 <span>Undo</span>
@@ -752,17 +756,17 @@ export default function VideoEditorStudio() {
               <button
                 onClick={() => setAnnotations([])}
                 disabled={annotations.length === 0}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 border border-red-500/30 text-xs text-red-300 transition cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1 bg-[#b82d23]/15 hover:bg-[#b82d23]/30 disabled:opacity-40 border-2 border-[#1d1a16] text-xs font-bold text-[#b82d23] transition cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>Clear Marks</span>
+                <span>Clear</span>
               </button>
             </div>
           </div>
 
           {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY */}
-          <div className="flex-1 relative flex items-center justify-center p-4 min-h-0 overflow-hidden">
-            <div className="relative aspect-video max-h-full max-w-full rounded-xl overflow-hidden shadow-2xl border border-white/15 bg-black">
+          <div className="flex-1 relative flex items-center justify-center p-4 min-h-0 overflow-hidden bg-[#e2d9c3]">
+            <div className="relative aspect-video max-h-full max-w-full border-3 border-[#1d1a16] shadow-[6px_6px_0px_#1d1a16] bg-[#ece5d3] overflow-hidden">
               <canvas
                 ref={displayCanvasRef}
                 className="w-full h-full block object-contain"
@@ -816,25 +820,26 @@ export default function VideoEditorStudio() {
                             y={by}
                             width={bw}
                             height={bh}
-                            rx={10}
+                            rx={4}
                             fill={cfg.fillRgba}
                             stroke={cfg.hex}
                             strokeWidth={4}
                           />
                         )}
-                        {/* Color Semantic Tag Pill */}
+                        {/* Sumo Plaque Tag */}
                         <rect
                           x={bx}
                           y={Math.max(4, by - 24)}
-                          width={74}
+                          width={78}
                           height={20}
-                          rx={5}
                           fill={cfg.hex}
+                          stroke="#1d1a16"
+                          strokeWidth={2}
                         />
                         <text
-                          x={bx + 37}
+                          x={bx + 39}
                           y={Math.max(18, by - 10)}
-                          fill="#ffffff"
+                          fill="#f5f2e8"
                           fontSize="11"
                           fontWeight="bold"
                           textAnchor="middle"
@@ -845,12 +850,14 @@ export default function VideoEditorStudio() {
                     );
                   })}
 
-                {/* Active Stroke Preview while dragging */}
                 {currentStroke &&
                   currentStroke.length > 0 &&
                   (() => {
                     const cfg = MARK_COLORS[activeColor];
-                    const previewBox = computeBoundingBox(currentStroke, activeTool);
+                    const previewBox = computeBoundingBox(
+                      currentStroke,
+                      activeTool
+                    );
                     const bx = previewBox.x * 1000;
                     const by = previewBox.y * 562.5;
                     const bw = previewBox.width * 1000;
@@ -888,7 +895,7 @@ export default function VideoEditorStudio() {
                         y={by}
                         width={bw}
                         height={bh}
-                        rx={10}
+                        rx={4}
                         fill={cfg.fillRgba}
                         stroke={cfg.hex}
                         strokeWidth={4}
@@ -897,29 +904,30 @@ export default function VideoEditorStudio() {
                   })()}
               </svg>
 
-              {/* Top-left live HUD status pill */}
+              {/* Top-left live HUD status plaque */}
               <div className="absolute top-3 left-3 pointer-events-none flex items-center gap-2">
-                <span className="px-2.5 py-1 rounded-md bg-black/70 backdrop-blur-md border border-white/15 text-[11px] font-mono text-gray-200 flex items-center gap-1.5">
-                  <Film className="w-3 h-3 text-indigo-400" />
+                <span className="px-2.5 py-1 bg-[#ece5d3]/95 border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-[11px] font-bold text-[#1d1a16] flex items-center gap-1.5">
+                  <Film className="w-3 h-3 text-[#b82d23]" />
                   {videoFileName}
                 </span>
                 {currentTime >= intervalStart && currentTime <= intervalEnd && (
-                  <span className="px-2.5 py-1 rounded-md bg-indigo-600/80 backdrop-blur-md text-[11px] font-semibold text-white">
-                    Inside Interval [{intervalStart.toFixed(1)}s – {intervalEnd.toFixed(1)}s]
+                  <span className="px-2.5 py-1 bg-[#b82d23] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-[11px] font-bold text-[#f5f2e8]">
+                    ▶ Interval [{intervalStart.toFixed(1)}s – {intervalEnd.toFixed(1)}s]
                   </span>
                 )}
               </div>
             </div>
           </div>
 
-          {/* AI INTERVAL PROMPT BAR */}
-          <div className="border-t border-white/10 bg-[#131624] px-4 py-3 shrink-0">
-            <div className="max-w-5xl mx-auto flex flex-col gap-2">
-              {/* Prompt Input Row */}
+          {/* AI INTERVAL PROMPT BAR — RIVETED SUMO PLAQUE */}
+          <div className="border-t-2 border-[#1d1a16] bg-[#d9ceb4] px-4 py-3 shrink-0">
+            <div className="max-w-5xl mx-auto relative bg-[#ece5d3] border-2 border-[#1d1a16] shadow-[3px_3px_0px_#1d1a16] p-3 flex flex-col gap-2">
+              <CornerRivets />
+
               <div className="flex items-center gap-2">
-                {/* Active Interval Badge */}
-                <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-500/15 border border-indigo-500/40 text-xs font-mono text-indigo-200 shrink-0">
-                  <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                {/* Active Interval Stamp */}
+                <div className="flex items-center gap-1.5 px-3 py-2 bg-[#234c7a] border-2 border-[#1d1a16] text-xs font-mono font-bold text-[#f5f2e8] shrink-0">
+                  <Clock className="w-3.5 h-3.5 text-[#fbf09c]" />
                   <span>
                     {intervalStart.toFixed(1)}s – {intervalEnd.toFixed(1)}s
                   </span>
@@ -932,12 +940,10 @@ export default function VideoEditorStudio() {
                     <button
                       key={cs.color}
                       onClick={() =>
-                        setPrompt((prev) =>
-                          `${prev} the ${cs.color} area`.trim()
-                        )
+                        setPrompt((prev) => `${prev} the ${cs.color} area`.trim())
                       }
-                      className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer shrink-0 ${cfg.badgeBg} ${cfg.badgeText}`}
-                      title={`Click to insert "the ${cs.color} area" into your prompt`}
+                      className={`px-2.5 py-1.5 border-2 border-[#1d1a16] text-xs font-bold transition cursor-pointer shrink-0 ${cfg.badgeBg} ${cfg.badgeText}`}
+                      title={`Click to insert "the ${cs.color} area"`}
                     >
                       +{cs.color.toUpperCase()}
                     </button>
@@ -952,25 +958,24 @@ export default function VideoEditorStudio() {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleApplyAiPrompt();
                     }}
-                    placeholder='Tell AI what to do in this interval (e.g., "Zoom into the red area, blur the blue area, and make the green area glow neon cyan")'
-                    className="w-full px-4 py-2.5 rounded-xl bg-[#0b0d16] border border-white/15 focus:border-indigo-500 focus:outline-none text-sm text-white placeholder-gray-500"
+                    placeholder='Tell AI what to do in this interval (e.g., "Zoom into the red area, blur the green area, and make the blue area glow gold")'
+                    className="w-full px-3.5 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] focus:outline-none text-sm font-medium text-[#1d1a16] placeholder-[#837a6d]"
                   />
                 </div>
 
                 <button
                   onClick={() => handleApplyAiPrompt()}
                   disabled={isCompiling || !prompt.trim()}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-40 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition cursor-pointer shrink-0"
+                  className="flex items-center gap-2 px-4 py-2 bg-[#b82d23] hover:bg-[#a64147] disabled:opacity-40 border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-sm font-bold text-[#f5f2e8] transition cursor-pointer shrink-0"
                 >
-                  <Sparkles className="w-4 h-4" />
-                  <span>{isCompiling ? 'Applying...' : 'Apply to Interval'}</span>
+                  <span>▶ {isCompiling ? 'Applying...' : 'Apply to Interval'}</span>
                 </button>
               </div>
 
               {/* Quick Suggestion Chips */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                <span className="text-[11px] text-gray-400 shrink-0 mr-1">
-                  Try prompt:
+                <span className="text-[11px] font-bold text-[#544b43] shrink-0 mr-1">
+                  Scrolls:
                 </span>
                 {quickChips.map((chip, idx) => (
                   <button
@@ -979,7 +984,7 @@ export default function VideoEditorStudio() {
                       setPrompt(chip);
                       handleApplyAiPrompt(chip);
                     }}
-                    className="text-[11px] px-2.5 py-1 rounded-full bg-white/5 hover:bg-indigo-500/20 border border-white/10 hover:border-indigo-500/40 text-gray-300 hover:text-indigo-200 transition shrink-0 cursor-pointer"
+                    className="text-[11px] px-2.5 py-0.5 bg-[#f5f2e8] hover:bg-[#c6923a] border border-[#1d1a16] text-[#1d1a16] font-medium transition shrink-0 cursor-pointer"
                   >
                     {chip}
                   </button>
@@ -989,13 +994,12 @@ export default function VideoEditorStudio() {
           </div>
 
           {/* TIMELINE & INTERVAL SCRUBBER */}
-          <div className="h-44 border-t border-white/10 bg-[#0e101a] px-4 py-2.5 flex flex-col gap-2 shrink-0">
-            {/* Timeline Controls Header */}
+          <div className="h-44 border-t-2 border-[#1d1a16] bg-[#d9ceb4] px-4 py-2.5 flex flex-col gap-2 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setIsPlaying((p) => !p)}
-                  className="h-8 w-8 rounded-lg bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center text-white transition cursor-pointer"
+                  className="h-8 w-8 bg-[#b82d23] hover:bg-[#a64147] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] flex items-center justify-center text-[#f5f2e8] transition cursor-pointer"
                 >
                   {isPlaying ? (
                     <Pause className="w-4 h-4" />
@@ -1003,16 +1007,16 @@ export default function VideoEditorStudio() {
                     <Play className="w-4 h-4 ml-0.5" />
                   )}
                 </button>
-                <span className="font-mono text-xs text-gray-200 bg-white/5 px-2.5 py-1 rounded-md border border-white/10">
+                <span className="font-mono text-xs font-bold text-[#1d1a16] bg-[#ece5d3] px-2.5 py-1 border-2 border-[#1d1a16]">
                   {currentTime.toFixed(2)}s / {duration.toFixed(2)}s
                 </span>
 
                 <button
                   onClick={() => setLoopIntervalOnly((l) => !l)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold border-2 border-[#1d1a16] transition cursor-pointer ${
                     loopIntervalOnly
-                      ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300'
-                      : 'bg-white/5 border-white/10 text-gray-400 hover:text-gray-200'
+                      ? 'bg-[#50793e] text-[#f5f2e8] shadow-[2px_2px_0px_#1d1a16]'
+                      : 'bg-[#ece5d3] text-[#544b43] hover:text-[#1d1a16]'
                   }`}
                 >
                   <Repeat className="w-3.5 h-3.5" />
@@ -1020,13 +1024,13 @@ export default function VideoEditorStudio() {
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-gray-400">2. Selected Interval:</span>
+              <div className="flex items-center gap-2 text-xs font-bold">
+                <span className="text-[#544b43]">2. Interval Range:</span>
                 <button
                   onClick={() =>
                     setIntervalStart(Math.min(currentTime, intervalEnd - 0.3))
                   }
-                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 cursor-pointer"
+                  className="px-2.5 py-1 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] text-[#1d1a16] cursor-pointer"
                 >
                   Set Start [ = {intervalStart.toFixed(1)}s
                 </button>
@@ -1034,7 +1038,7 @@ export default function VideoEditorStudio() {
                   onClick={() =>
                     setIntervalEnd(Math.max(currentTime, intervalStart + 0.3))
                   }
-                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 cursor-pointer"
+                  className="px-2.5 py-1 bg-[#ece5d3] hover:bg-[#f5f2e8] border-2 border-[#1d1a16] text-[#1d1a16] cursor-pointer"
                 >
                   Set End ] = {intervalEnd.toFixed(1)}s
                 </button>
@@ -1052,10 +1056,10 @@ export default function VideoEditorStudio() {
                 }
                 draggingHandleRef.current = 'playhead';
               }}
-              className="relative flex-1 rounded-xl bg-[#08090f] border border-white/10 overflow-hidden select-none cursor-pointer flex flex-col justify-between p-2"
+              className="relative flex-1 bg-[#ece5d3] border-2 border-[#1d1a16] shadow-inner overflow-hidden select-none cursor-pointer flex flex-col justify-between p-2"
             >
               {/* Time Ruler Ticks */}
-              <div className="flex justify-between text-[10px] font-mono text-gray-500 px-1 pointer-events-none">
+              <div className="flex justify-between text-[10px] font-mono font-bold text-[#544b43] px-1 pointer-events-none">
                 {Array.from({ length: 13 }).map((_, i) => {
                   const tickTime = ((duration / 12) * i).toFixed(1);
                   return <span key={i}>{tickTime}s</span>;
@@ -1068,7 +1072,7 @@ export default function VideoEditorStudio() {
                   left: `${(intervalStart / duration) * 100}%`,
                   width: `${((intervalEnd - intervalStart) / duration) * 100}%`,
                 }}
-                className="absolute top-0 bottom-0 bg-indigo-500/15 border-x-2 border-indigo-400 pointer-events-none"
+                className="absolute top-0 bottom-0 bg-[#c6923a]/25 border-x-2 border-[#1d1a16] pointer-events-none"
               >
                 {/* Left Interval Handle */}
                 <div
@@ -1076,10 +1080,10 @@ export default function VideoEditorStudio() {
                     e.stopPropagation();
                     draggingHandleRef.current = 'start';
                   }}
-                  className="pointer-events-auto absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-9 rounded-md bg-indigo-500 hover:bg-indigo-400 border border-white/50 flex items-center justify-center cursor-ew-resize shadow-lg"
+                  className="pointer-events-auto absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-9 bg-[#b82d23] hover:bg-[#a64147] border-2 border-[#1d1a16] flex items-center justify-center cursor-ew-resize shadow"
                   title="Drag Interval Start"
                 >
-                  <span className="text-[10px] font-bold text-white">[</span>
+                  <span className="text-[11px] font-bold text-[#f5f2e8]">[</span>
                 </div>
 
                 {/* Right Interval Handle */}
@@ -1088,24 +1092,24 @@ export default function VideoEditorStudio() {
                     e.stopPropagation();
                     draggingHandleRef.current = 'end';
                   }}
-                  className="pointer-events-auto absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-9 rounded-md bg-indigo-500 hover:bg-indigo-400 border border-white/50 flex items-center justify-center cursor-ew-resize shadow-lg"
+                  className="pointer-events-auto absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-9 bg-[#b82d23] hover:bg-[#a64147] border-2 border-[#1d1a16] flex items-center justify-center cursor-ew-resize shadow"
                   title="Drag Interval End"
                 >
-                  <span className="text-[10px] font-bold text-white">]</span>
+                  <span className="text-[11px] font-bold text-[#f5f2e8]">]</span>
                 </div>
               </div>
 
               {/* Applied AI Edit Blocks on Timeline */}
               <div className="relative flex-1 flex flex-col gap-1 mt-1 overflow-y-auto pr-1">
                 {edits.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-xs text-gray-500 pointer-events-none">
-                    Drag the purple [ ] handles to choose an interval, draw colors on the video, and enter an AI prompt above
+                  <div className="h-full flex items-center justify-center text-xs font-medium text-[#544b43] pointer-events-none">
+                    Drag the red [ ] handles to select an interval, mark colors on screen, and apply an AI instruction
                   </div>
                 ) : (
                   edits.map((edit) => {
                     const leftPct = (edit.startTime / duration) * 100;
                     const widthPct = Math.max(
-                      3,
+                      4,
                       ((edit.endTime - edit.startTime) / duration) * 100
                     );
                     const colorCfg =
@@ -1125,15 +1129,18 @@ export default function VideoEditorStudio() {
                           marginLeft: `${leftPct}%`,
                           width: `${widthPct}%`,
                         }}
-                        className={`h-6 rounded-md px-2 flex items-center justify-between text-[11px] font-medium truncate border transition cursor-pointer ${
+                        className={`h-6 px-2 flex items-center justify-between text-[11px] font-bold truncate border-2 border-[#1d1a16] transition cursor-pointer ${
                           selectedEditId === edit.id
-                            ? 'ring-2 ring-white bg-indigo-600/50 border-indigo-300 text-white'
+                            ? 'bg-[#1d1a16] text-[#ece5d3] shadow-[2px_2px_0px_#b82d23]'
                             : colorCfg
                             ? `${colorCfg.badgeBg} ${colorCfg.badgeText}`
-                            : 'bg-purple-500/25 border-purple-400/40 text-purple-200'
+                            : 'bg-[#544b43] text-[#ece5d3]'
                         } ${!edit.enabled ? 'opacity-40 line-through' : ''}`}
                       >
-                        <span className="truncate">{edit.summary}</span>
+                        <span className="truncate">
+                          {selectedEditId === edit.id ? '▶ ' : ''}
+                          {edit.summary}
+                        </span>
                       </div>
                     );
                   })
@@ -1143,21 +1150,21 @@ export default function VideoEditorStudio() {
               {/* Current Time Playhead Line */}
               <div
                 style={{ left: `${(currentTime / duration) * 100}%` }}
-                className="absolute top-0 bottom-0 w-0.5 bg-amber-400 pointer-events-none z-20"
+                className="absolute top-0 bottom-0 w-0.5 bg-[#1d1a16] pointer-events-none z-20"
               >
-                <div className="w-3 h-3 -ml-[5px] rounded-full bg-amber-400 shadow" />
+                <div className="w-3.5 h-3.5 -ml-[6px] bg-[#b82d23] border-2 border-[#1d1a16]" />
               </div>
             </div>
           </div>
         </div>
 
-        {/* RIGHT SIDEBAR: INTERVAL EDITS & PARAMETER INSPECTOR */}
-        <aside className="w-80 border-l border-white/10 bg-[#10131f] flex flex-col shrink-0">
-          <div className="p-3.5 border-b border-white/10 flex items-center justify-between">
+        {/* RIGHT SIDEBAR — RIVETED SUMO POSTBOX MENU PLAQUE */}
+        <aside className="w-80 border-l-2 border-[#1d1a16] bg-[#d9ceb4] flex flex-col shrink-0">
+          <div className="p-3.5 border-b-2 border-[#1d1a16] bg-[#b82d23] text-[#f5f2e8] flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-indigo-400" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-gray-200">
-                AI Interval Layers ({edits.length})
+              <Layers className="w-4 h-4 text-[#fbf09c]" />
+              <h2 className="text-xs font-bold uppercase tracking-wider">
+                Interval Scrolls ({edits.length})
               </h2>
             </div>
             {edits.length > 0 && (
@@ -1166,7 +1173,7 @@ export default function VideoEditorStudio() {
                   setEdits([]);
                   setSelectedEditId(null);
                 }}
-                className="text-[11px] text-gray-400 hover:text-red-400 transition cursor-pointer"
+                className="text-[11px] text-[#fbf09c] hover:underline font-bold cursor-pointer"
               >
                 Clear All
               </button>
@@ -1174,25 +1181,27 @@ export default function VideoEditorStudio() {
           </div>
 
           {/* Layer List */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
             {edits.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-white/10 p-5 text-center space-y-2">
-                <Sparkles className="w-6 h-6 text-indigo-400 mx-auto opacity-75" />
-                <p className="text-xs font-medium text-gray-300">
-                  No AI Interval Edits Yet
+              <div className="relative bg-[#ece5d3] border-2 border-[#1d1a16] p-5 text-center space-y-2 shadow-[3px_3px_0px_#1d1a16]">
+                <CornerRivets />
+                <div className="w-8 h-8 mx-auto rounded-full bg-[#b82d23] border-2 border-[#1d1a16] text-[#ece5d3] font-bold flex items-center justify-center">
+                  〒
+                </div>
+                <p className="text-xs font-bold text-[#1d1a16]">
+                  No Interval Scrolls Yet
                 </p>
-                <p className="text-[11px] text-gray-400 leading-relaxed">
-                  1. Pick a color (<span className="text-red-400">Red</span>,{' '}
-                  <span className="text-blue-400">Blue</span>,{' '}
-                  <span className="text-emerald-400">Green</span>,{' '}
-                  <span className="text-yellow-400">Yellow</span>) and draw on
-                  the screen.
+                <p className="text-[11px] text-[#544b43] leading-relaxed">
+                  1. Pick an ink color (
+                  <strong className="text-[#b82d23]">Red</strong>,{' '}
+                  <strong className="text-[#234c7a]">Blue</strong>,{' '}
+                  <strong className="text-[#50793e]">Green</strong>,{' '}
+                  <strong className="text-[#9a6c24]">Yellow</strong>) and draw on
+                  the video.
                   <br />
-                  2. Adjust the <span className="text-indigo-300">[ ]</span>{' '}
-                  interval handles on the timeline.
+                  2. Drag the red <strong>[ ]</strong> interval handles.
                   <br />
-                  3. Type what should happen in that interval or click{' '}
-                  <strong className="text-amber-300">Load Multi-Color Demo</strong>!
+                  3. Click <strong>▶ Load Sumo Demo</strong> or type a command!
                 </p>
               </div>
             ) : (
@@ -1207,21 +1216,27 @@ export default function VideoEditorStudio() {
                   <div
                     key={edit.id}
                     onClick={() => setSelectedEditId(edit.id)}
-                    className={`p-3 rounded-xl border transition cursor-pointer ${
+                    className={`relative p-3 border-2 border-[#1d1a16] transition cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-600/15 border-indigo-500/60'
-                        : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        ? 'bg-[#f5f2e8] shadow-[3px_3px_0px_#b82d23]'
+                        : 'bg-[#ece5d3] hover:bg-[#f5f2e8] shadow-[2px_2px_0px_#1d1a16]'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2">
+                    <CornerRivets />
+                    <div className="flex items-center justify-between gap-2 px-1">
                       <div className="flex items-center gap-1.5 min-w-0">
+                        {isSelected && (
+                          <span className="text-xs font-bold text-[#b82d23]">
+                            ▶
+                          </span>
+                        )}
                         {colorCfg && (
                           <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            className="w-2.5 h-2.5 rounded-full border border-[#1d1a16] shrink-0"
                             style={{ backgroundColor: colorCfg.hex }}
                           />
                         )}
-                        <span className="text-xs font-semibold text-white truncate">
+                        <span className="text-xs font-bold text-[#1d1a16] truncate">
                           {edit.summary}
                         </span>
                       </div>
@@ -1238,12 +1253,12 @@ export default function VideoEditorStudio() {
                               )
                             );
                           }}
-                          className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white cursor-pointer"
+                          className="p-1 hover:bg-[#d9ceb4] text-[#1d1a16] cursor-pointer"
                         >
                           {edit.enabled ? (
-                            <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                            <Eye className="w-3.5 h-3.5 text-[#50793e]" />
                           ) : (
-                            <EyeOff className="w-3.5 h-3.5 text-gray-500" />
+                            <EyeOff className="w-3.5 h-3.5 text-[#837a6d]" />
                           )}
                         </button>
                         <button
@@ -1253,22 +1268,22 @@ export default function VideoEditorStudio() {
                               prev.filter((item) => item.id !== edit.id)
                             );
                           }}
-                          className="p-1 rounded hover:bg-red-500/20 text-gray-400 hover:text-red-400 cursor-pointer"
+                          className="p-1 hover:bg-[#b82d23]/20 text-[#b82d23] cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
 
-                    <p className="text-[11px] text-gray-400 mt-1 truncate">
+                    <p className="text-[11px] text-[#544b43] mt-1 px-1 truncate">
                       &ldquo;{edit.prompt}&rdquo;
                     </p>
 
-                    <div className="flex items-center justify-between mt-2 text-[10px] font-mono text-gray-400">
+                    <div className="flex items-center justify-between mt-2 px-1 text-[10px] font-mono font-bold text-[#544b43]">
                       <span>
                         [{edit.startTime.toFixed(1)}s – {edit.endTime.toFixed(1)}s]
                       </span>
-                      <span className="text-indigo-300 uppercase">
+                      <span className="text-[#234c7a] uppercase">
                         {edit.effectType.replace('_', ' ')}
                       </span>
                     </div>
@@ -1280,18 +1295,17 @@ export default function VideoEditorStudio() {
 
           {/* Fine-Tune Selected Edit Inspector */}
           {selectedEdit && (
-            <div className="p-3.5 border-t border-white/10 bg-[#0c0e18] space-y-3">
+            <div className="p-3.5 border-t-2 border-[#1d1a16] bg-[#ece5d3] space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
-                  <Sliders className="w-3.5 h-3.5" />
-                  Inspector: {selectedEdit.summary}
+                <span className="text-xs font-bold text-[#1d1a16] flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-[#b82d23]" />
+                  Adjust: {selectedEdit.summary}
                 </span>
               </div>
 
-              {/* Interval Start / End Sliders */}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div>
-                  <label className="text-[10px] text-gray-400 block">
+                  <label className="text-[10px] font-bold text-[#544b43] block">
                     Start ({selectedEdit.startTime.toFixed(1)}s)
                   </label>
                   <input
@@ -1313,11 +1327,11 @@ export default function VideoEditorStudio() {
                         )
                       );
                     }}
-                    className="w-full accent-indigo-500"
+                    className="w-full accent-[#b82d23]"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-gray-400 block">
+                  <label className="text-[10px] font-bold text-[#544b43] block">
                     End ({selectedEdit.endTime.toFixed(1)}s)
                   </label>
                   <input
@@ -1339,15 +1353,14 @@ export default function VideoEditorStudio() {
                         )
                       );
                     }}
-                    className="w-full accent-indigo-500"
+                    className="w-full accent-[#b82d23]"
                   />
                 </div>
               </div>
 
-              {/* Effect-Specific Controls */}
               {selectedEdit.effectType === 'zoom' && (
                 <div>
-                  <label className="text-[10px] text-gray-400 block">
+                  <label className="text-[10px] font-bold text-[#544b43] block">
                     Zoom Scale ({(selectedEdit.params.zoomScale ?? 1.8).toFixed(1)}x)
                   </label>
                   <input
@@ -1369,7 +1382,7 @@ export default function VideoEditorStudio() {
                         )
                       );
                     }}
-                    className="w-full accent-indigo-500"
+                    className="w-full accent-[#b82d23]"
                   />
                 </div>
               )}
@@ -1377,7 +1390,7 @@ export default function VideoEditorStudio() {
               {selectedEdit.effectType === 'blur' && (
                 <div className="space-y-2">
                   <div>
-                    <label className="text-[10px] text-gray-400 block">
+                    <label className="text-[10px] font-bold text-[#544b43] block">
                       Blur Strength ({selectedEdit.params.blurRadius ?? 16}px)
                     </label>
                     <input
@@ -1399,10 +1412,10 @@ export default function VideoEditorStudio() {
                           )
                         );
                       }}
-                      className="w-full accent-indigo-500"
+                      className="w-full accent-[#b82d23]"
                     />
                   </div>
-                  <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-[#1d1a16] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={Boolean(selectedEdit.params.invertMask)}
@@ -1427,8 +1440,8 @@ export default function VideoEditorStudio() {
 
               {selectedEdit.effectType === 'text_overlay' && (
                 <div>
-                  <label className="text-[10px] text-gray-400 block mb-1">
-                    Overlay Text
+                  <label className="text-[10px] font-bold text-[#544b43] block mb-1">
+                    Plaque Text
                   </label>
                   <input
                     type="text"
@@ -1440,14 +1453,14 @@ export default function VideoEditorStudio() {
                           it.id === selectedEdit.id
                             ? {
                                 ...it,
-                                summary: `Text "${text}"`,
+                                summary: `Plaque "${text}"`,
                                 params: { ...it.params, text },
                               }
                             : it
                         )
                       );
                     }}
-                    className="w-full px-2.5 py-1.5 rounded bg-black/50 border border-white/15 text-xs text-white"
+                    className="w-full px-2.5 py-1.5 bg-[#f5f2e8] border-2 border-[#1d1a16] text-xs font-bold text-[#1d1a16]"
                   />
                 </div>
               )}
@@ -1456,56 +1469,52 @@ export default function VideoEditorStudio() {
         </aside>
       </div>
 
-      {/* CLOUD AI SETTINGS MODAL */}
+      {/* CLOUD AI SETTINGS MODAL — SUMO BROTHERS POSTBOX PLAQUE */}
       {showSettingsModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-[#131726] border border-white/15 p-5 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-[#1d1a16]/60 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-md bg-[#ece5d3] border-3 border-[#1d1a16] p-6 space-y-4 shadow-[6px_6px_0px_#1d1a16]">
+            <CornerRivets />
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
-                Cloud AI & Free Server Configuration
+              <h3 className="text-sm font-bold text-[#1d1a16] flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#b82d23]" />
+                AI Compiler & Cloud Setup
               </h3>
               <button
                 onClick={() => setShowSettingsModal(false)}
-                className="text-xs text-gray-400 hover:text-white cursor-pointer"
+                className="text-xs font-bold text-[#544b43] hover:text-[#1d1a16] cursor-pointer"
               >
-                Close
+                ✕ Close
               </button>
             </div>
 
-            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 flex items-start gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="p-3 bg-[#50793e]/15 border-2 border-[#50793e] text-xs text-[#1d1a16] flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-[#50793e] shrink-0 mt-0.5" />
               <div>
-                <strong>Built-in Semantic Compiler is Active:</strong> You can
-                use multi-color screen markings and interval prompts right now
-                with zero setup!
+                <strong>Built-in Semantic Compiler Active:</strong> Multi-color
+                screen markings and interval instructions work immediately for
+                free!
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-gray-300 block">
-                Optional: Google AI Studio Free Tier Key (Gemini 2.5 Flash Vision)
+              <label className="text-xs font-bold text-[#1d1a16] block">
+                Optional: Google AI Studio Free Key (Gemini 2.5 Flash Vision)
               </label>
               <input
                 type="password"
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
                 placeholder="AIzaSy... (Free from aistudio.google.com)"
-                className="w-full px-3 py-2 rounded-lg bg-black/40 border border-white/15 text-xs text-white"
+                className="w-full px-3 py-2 bg-[#f5f2e8] border-2 border-[#1d1a16] text-xs text-[#1d1a16]"
               />
-              <p className="text-[11px] text-gray-400">
-                When provided, ChromaCut sends a composite visual snapshot of
-                the video frame + your colored markings to Gemini Vision in the
-                cloud.
-              </p>
             </div>
 
             <div className="flex justify-end">
               <button
                 onClick={() => setShowSettingsModal(false)}
-                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white cursor-pointer"
+                className="px-4 py-2 bg-[#b82d23] hover:bg-[#a64147] border-2 border-[#1d1a16] shadow-[2px_2px_0px_#1d1a16] text-xs font-bold text-[#f5f2e8] cursor-pointer"
               >
-                Save & Continue
+                ▶ Save & Continue
               </button>
             </div>
           </div>

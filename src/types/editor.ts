@@ -40,26 +40,26 @@ export type EffectType =
 
 export interface EffectParams {
   // Zoom / Pan
-  zoomScale?: number; // e.g., 1.8
+  zoomScale?: number;
   zoomEasing?: 'smooth' | 'instant' | 'spring';
 
   // Blur / Pixelate
-  blurRadius?: number; // px, e.g., 16
-  pixelBlockSize?: number; // px, e.g., 14
-  invertMask?: boolean; // true = apply outside the drawn shape (e.g., background blur or color splash)
+  blurRadius?: number;
+  pixelBlockSize?: number;
+  invertMask?: boolean;
 
   // Spotlight
-  dimOpacity?: number; // 0.0 to 1.0 (e.g. 0.7)
+  dimOpacity?: number;
 
   // Color Grade
-  saturation?: number; // 100 = normal, 0 = grayscale, 200 = super vibrant
-  brightness?: number; // 100 = normal
-  contrast?: number;   // 100 = normal
-  hueRotate?: number;  // 0 to 360 deg
-  sepia?: number;      // 0 to 100
-  invert?: number;     // 0 to 100
-  tintColor?: string;  // hex color
-  tintOpacity?: number; // 0 to 1
+  saturation?: number;
+  brightness?: number;
+  contrast?: number;
+  hueRotate?: number;
+  sepia?: number;
+  invert?: number;
+  tintColor?: string;
+  tintOpacity?: number;
 
   // Neon / Glow
   glowColor?: string;
@@ -78,7 +78,7 @@ export interface EffectParams {
   label?: string;
 
   // Speed
-  playbackRate?: number; // 0.25 to 4.0
+  playbackRate?: number;
   freezeFrame?: boolean;
 
   // Camera FX
@@ -94,7 +94,6 @@ export interface TimelineEditItem {
   endTime: number;
   effectType: EffectType;
   targetColor?: MarkColor | 'all';
-  // Snapshot of the annotation geometry used by this effect so the user can clear the drawing board after applying
   annotations: ScreenAnnotation[];
   params: EffectParams;
   enabled: boolean;
@@ -108,10 +107,18 @@ export interface ColorGroupSummary {
   tools: DrawingTool[];
 }
 
+/**
+ * Mapped directly to the uploaded Sumo Brothers Color Palette Swatch Sheet:
+ * - Red: Postbox Vermilion (#b82d23)
+ * - Blue: Ai-iro Indigo (#234c7a / #4479a8)
+ * - Green: Matcha Bamboo (#50793e)
+ * - Yellow: Kitsune Gold Ochre (#c6923a)
+ */
 export const MARK_COLORS: Record<
   MarkColor,
   {
     name: string;
+    jpLabel: string;
     hex: string;
     fillRgba: string;
     borderHex: string;
@@ -121,34 +128,38 @@ export const MARK_COLORS: Record<
 > = {
   red: {
     name: 'Red',
-    hex: '#ef4444',
-    fillRgba: 'rgba(239, 68, 68, 0.26)',
-    borderHex: '#f87171',
-    badgeBg: 'bg-red-500/20 border-red-500/50',
-    badgeText: 'text-red-300',
+    jpLabel: 'Shu-iro',
+    hex: '#b82d23',
+    fillRgba: 'rgba(184, 45, 35, 0.25)',
+    borderHex: '#1d1a16',
+    badgeBg: 'bg-[#b82d23] border-[#1d1a16]',
+    badgeText: 'text-[#f5f2e8]',
   },
   blue: {
     name: 'Blue',
-    hex: '#3b82f6',
-    fillRgba: 'rgba(59, 130, 246, 0.26)',
-    borderHex: '#60a5fa',
-    badgeBg: 'bg-blue-500/20 border-blue-500/50',
-    badgeText: 'text-blue-300',
+    jpLabel: 'Ai-iro',
+    hex: '#234c7a',
+    fillRgba: 'rgba(35, 76, 122, 0.25)',
+    borderHex: '#1d1a16',
+    badgeBg: 'bg-[#234c7a] border-[#1d1a16]',
+    badgeText: 'text-[#f5f2e8]',
   },
   green: {
     name: 'Green',
-    hex: '#10b981',
-    fillRgba: 'rgba(16, 185, 129, 0.26)',
-    borderHex: '#34d399',
-    badgeBg: 'bg-emerald-500/20 border-emerald-500/50',
-    badgeText: 'text-emerald-300',
+    jpLabel: 'Matcha',
+    hex: '#50793e',
+    fillRgba: 'rgba(80, 121, 62, 0.25)',
+    borderHex: '#1d1a16',
+    badgeBg: 'bg-[#50793e] border-[#1d1a16]',
+    badgeText: 'text-[#f5f2e8]',
   },
   yellow: {
     name: 'Yellow',
-    hex: '#eab308',
-    fillRgba: 'rgba(234, 179, 8, 0.26)',
-    borderHex: '#facc15',
-    badgeBg: 'bg-yellow-500/20 border-yellow-500/50',
-    badgeText: 'text-yellow-300',
+    jpLabel: 'Kitsune',
+    hex: '#c6923a',
+    fillRgba: 'rgba(198, 146, 58, 0.28)',
+    borderHex: '#1d1a16',
+    badgeBg: 'bg-[#c6923a] border-[#1d1a16]',
+    badgeText: 'text-[#1d1a16]',
   },
 };

@@ -1,11 +1,6 @@
 import { mergeBoundingBoxes } from '@/lib/editCompiler';
 import { ScreenAnnotation, TimelineEditItem } from '@/types/editor';
 
-/**
- * Builds a Canvas2D path for a list of ScreenAnnotations.
- * If invertMask is true, prepends a full-frame rectangle so clipping with 'evenodd'
- * affects everything OUTSIDE the user's drawn markings.
- */
 function buildMaskPath(
   ctx: CanvasRenderingContext2D,
   annotations: ScreenAnnotation[],
@@ -34,22 +29,20 @@ function buildMaskPath(
     const h = b.height * height;
 
     if (ann.tool === 'rect') {
-      ctx.roundRect(x, y, w, h, 12);
+      ctx.roundRect(x, y, w, h, 8);
     } else if (ann.tool === 'circle') {
       ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     } else if (ann.tool === 'brush' && ann.points.length > 2) {
-      // Expand brush stroke into a smooth closed region or padded bounding capsule
-      // If the user scribbled a region, use the convex/bounding ellipse + stroke hull
       ctx.roundRect(x, y, w, h, Math.min(w, h) * 0.35);
     } else {
-      ctx.roundRect(x, y, w, h, 14);
+      ctx.roundRect(x, y, w, h, 10);
     }
   }
 }
 
 /**
- * Renders the built-in procedural studio demo scene when no external video file is uploaded.
- * Features 4 distinct visual subjects so the user can immediately test multi-color interval edits.
+ * Renders the Sumo Brothers RPG animated scene (matching the uploaded Sumo Brothers v0.0.11 screenshot
+ * and Edo Washi color swatch sheet) when no custom video file is loaded.
  */
 export function renderProceduralDemoScene(
   ctx: CanvasRenderingContext2D,
@@ -57,169 +50,267 @@ export function renderProceduralDemoScene(
   height: number,
   time: number
 ) {
-  // 1. Twilight Cyberpunk / Studio Street Backdrop
-  const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
-  skyGrad.addColorStop(0, '#0b1026');
-  skyGrad.addColorStop(0.55, '#1b1638');
-  skyGrad.addColorStop(1, '#121824');
-  ctx.fillStyle = skyGrad;
+  // 1. Washi Parchment Background (#ece5d3)
+  ctx.fillStyle = '#ece5d3';
   ctx.fillRect(0, 0, width, height);
 
-  // Subtle perspective grid floor
-  const horizonY = height * 0.65;
-  ctx.fillStyle = '#0d1322';
-  ctx.fillRect(0, horizonY, width, height - horizonY);
-
-  ctx.save();
-  ctx.strokeStyle = 'rgba(99, 102, 241, 0.22)';
-  ctx.lineWidth = 1.5;
-  for (let i = -8; i <= 8; i++) {
-    ctx.beginPath();
-    ctx.moveTo(width * 0.5 + i * 35, horizonY);
-    ctx.lineTo(width * 0.5 + i * 160, height);
-    ctx.stroke();
-  }
-  const gridOffset = (time * 40) % 28;
-  for (let y = horizonY + gridOffset; y < height; y += 28) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // City skyline silhouettes
-  const buildings = [
-    { x: 0.04, w: 0.12, h: 0.42 },
-    { x: 0.17, w: 0.1, h: 0.34 },
-    { x: 0.29, w: 0.14, h: 0.48 },
-    { x: 0.46, w: 0.11, h: 0.36 },
-    { x: 0.6, w: 0.15, h: 0.45 },
-    { x: 0.77, w: 0.11, h: 0.38 },
-    { x: 0.89, w: 0.09, h: 0.44 },
-  ];
-  for (const b of buildings) {
-    ctx.fillStyle = '#131930';
-    ctx.fillRect(b.x * width, horizonY - b.h * height, b.w * width, b.h * height);
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.15)';
-    ctx.strokeRect(b.x * width, horizonY - b.h * height, b.w * width, b.h * height);
-  }
-
-  // SUBJECT 1 (Top-Left): Neon Arcade Billboard Sign
-  ctx.save();
-  const signX = width * 0.08;
-  const signY = height * 0.16;
-  const signW = width * 0.22;
-  const signH = height * 0.22;
-  ctx.fillStyle = '#1e1b4b';
-  ctx.strokeStyle = '#38bdf8';
-  ctx.lineWidth = 3;
+  // Subtle tatami / dojo horizon line
+  const floorY = height * 0.84;
+  ctx.fillStyle = '#d9ceb4';
+  ctx.fillRect(0, floorY, width, height - floorY);
+  ctx.strokeStyle = '#aba18c';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.roundRect(signX, signY, signW, signH, 10);
-  ctx.fill();
+  ctx.moveTo(0, floorY);
+  ctx.lineTo(width, floorY);
   ctx.stroke();
 
-  ctx.fillStyle = '#f43f5e';
-  ctx.font = `bold ${Math.round(width * 0.022)}px sans-serif`;
+  // Top Title "Sumo Brothers" & Version
+  ctx.save();
+  ctx.fillStyle = '#1d1a16';
+  ctx.font = `600 ${Math.round(width * 0.038)}px "Segoe UI", sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText('CYBER CAFE', signX + signW / 2, signY + signH * 0.45);
-  ctx.fillStyle = '#38bdf8';
-  ctx.font = `bold ${Math.round(width * 0.016)}px monospace`;
-  ctx.fillText('OPEN 24/7 ★', signX + signW / 2, signY + signH * 0.74);
+  ctx.fillText('Sumo Brothers', width * 0.5, height * 0.11);
+
+  ctx.fillStyle = '#544b43';
+  ctx.font = `500 ${Math.round(width * 0.018)}px "Segoe UI", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText('v0.0.11', width * 0.96, height * 0.07);
   ctx.restore();
 
-  // SUBJECT 2 (Top-Right): Hovering Camera Drone
+  // SUBJECT 1 (Left): Matcha Dojo Banner (#50793e & #27513b)
   ctx.save();
-  const droneX = width * 0.76 + Math.sin(time * 1.8) * (width * 0.045);
-  const droneY = height * 0.22 + Math.cos(time * 2.5) * (height * 0.03);
-  ctx.fillStyle = '#e2e8f0';
+  const bannerX = width * 0.11;
+  const bannerY = height * 0.22 + Math.sin(time * 1.6) * 4;
+  const bannerW = width * 0.15;
+  const bannerH = height * 0.44;
+
+  // Wood crossbar (#553726)
+  ctx.fillStyle = '#553726';
+  ctx.strokeStyle = '#1d1a16';
+  ctx.lineWidth = 2.5;
+  ctx.fillRect(bannerX - 12, bannerY - 8, bannerW + 24, 10);
+  ctx.strokeRect(bannerX - 12, bannerY - 8, bannerW + 24, 10);
+
+  // Matcha cloth (#50793e)
+  ctx.fillStyle = '#50793e';
   ctx.beginPath();
-  ctx.roundRect(droneX - 36, droneY - 14, 72, 28, 12);
+  ctx.roundRect(bannerX, bannerY, bannerW, bannerH, 4);
   ctx.fill();
-  // Rotors
-  ctx.strokeStyle = '#94a3b8';
+  ctx.stroke();
+
+  // Inner parchment crest (#ece5d3)
+  ctx.fillStyle = '#ece5d3';
+  ctx.beginPath();
+  ctx.arc(bannerX + bannerW / 2, bannerY + bannerH * 0.36, bannerW * 0.28, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#1d1a16';
+  ctx.font = `bold ${Math.round(width * 0.024)}px serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('相撲', bannerX + bannerW / 2, bannerY + bannerH * 0.39);
+
+  ctx.fillStyle = '#fbf09c';
+  ctx.font = `bold ${Math.round(width * 0.014)}px sans-serif`;
+  ctx.fillText('DOJO RANK', bannerX + bannerW / 2, bannerY + bannerH * 0.76);
+  ctx.restore();
+
+  // SUBJECT 2 (Center): Iconic Sumo Brothers Red Postbox + Sweeping Enso Brush Circle + Paper Plane
+  const centerX = width * 0.48;
+  const centerY = height * 0.53;
+
+  // Sweeping Sumi Ink Enso Ring (#1d1a16)
+  ctx.save();
+  ctx.strokeStyle = '#1d1a16';
+  ctx.lineWidth = 18;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(centerX, centerY - 12, height * 0.31, 0.25 * Math.PI, 1.88 * Math.PI);
+  ctx.stroke();
+
+  // Animated Paper Airplane gliding along the Enso arc
+  const planeAngle = -0.35 + Math.sin(time * 1.4) * 0.22;
+  const planeRadius = height * 0.31;
+  const planeX = centerX + Math.cos(planeAngle) * planeRadius;
+  const planeY = centerY - 12 + Math.sin(planeAngle) * planeRadius;
+
+  ctx.translate(planeX, planeY);
+  ctx.rotate(planeAngle + Math.PI / 2);
+  ctx.fillStyle = '#ece5d3';
+  ctx.strokeStyle = '#1d1a16';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(22, 0);
+  ctx.lineTo(-16, -11);
+  ctx.lineTo(-9, 0);
+  ctx.lineTo(-16, 11);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(22, 0);
+  ctx.lineTo(-9, 0);
+  ctx.stroke();
+  ctx.restore();
+
+  // Red Japanese Postbox (#b82d23)
+  ctx.save();
+  const boxW = width * 0.23;
+  const boxH = height * 0.44;
+  const boxX = centerX - boxW / 2;
+  const boxY = height * 0.41;
+
+  // Ground shadow
+  ctx.fillStyle = '#1d1a16';
+  ctx.beginPath();
+  ctx.ellipse(centerX, boxY + boxH + 8, boxW * 0.82, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Dome top
+  ctx.fillStyle = '#b82d23';
+  ctx.strokeStyle = '#1d1a16';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(centerX, boxY, boxW * 0.48, height * 0.11, 0, Math.PI, 0);
+  ctx.fill();
+  ctx.stroke();
+
+  // Postbox Body
+  ctx.fillStyle = '#b82d23';
+  ctx.fillRect(boxX, boxY, boxW, boxH);
+  ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+  // Postbox Brim Collar
+  ctx.beginPath();
+  ctx.roundRect(boxX - 12, boxY - 6, boxW + 24, 18, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  // Postal Symbol 〒 on Dome
+  ctx.strokeStyle = '#ece5d3';
+  ctx.lineWidth = 4.5;
+  ctx.beginPath();
+  ctx.moveTo(centerX - 16, boxY - 38);
+  ctx.lineTo(centerX + 16, boxY - 38);
+  ctx.moveTo(centerX - 16, boxY - 28);
+  ctx.lineTo(centerX + 16, boxY - 28);
+  ctx.moveTo(centerX, boxY - 28);
+  ctx.lineTo(centerX, boxY - 12);
+  ctx.stroke();
+
+  // Mail Slot
+  ctx.fillStyle = '#1d1a16';
+  ctx.beginPath();
+  ctx.roundRect(centerX - boxW * 0.28, boxY + 28, boxW * 0.56, 12, 4);
+  ctx.fill();
+
+  // Framed Parchment Menu Plaque with 4 Corner Rivets
+  const plaqueW = boxW * 0.78;
+  const plaqueH = boxH * 0.62;
+  const plaqueX = centerX - plaqueW / 2;
+  const plaqueY = boxY + 54;
+
+  ctx.fillStyle = '#ece5d3';
+  ctx.strokeStyle = '#1d1a16';
+  ctx.lineWidth = 2;
+  ctx.fillRect(plaqueX, plaqueY, plaqueW, plaqueH);
+  ctx.strokeRect(plaqueX, plaqueY, plaqueW, plaqueH);
+
+  // 4 Corner Rivet Dots
+  const rivets = [
+    [plaqueX + 6, plaqueY + 6],
+    [plaqueX + plaqueW - 6, plaqueY + 6],
+    [plaqueX + 6, plaqueY + plaqueH - 6],
+    [plaqueX + plaqueW - 6, plaqueY + plaqueH - 6],
+  ];
+  ctx.fillStyle = '#1d1a16';
+  for (const [rx, ry] of rivets) {
+    ctx.beginPath();
+    ctx.arc(rx, ry, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Menu Text Items inside Plaque
+  ctx.font = `500 ${Math.round(width * 0.017)}px "Segoe UI", sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#544b43';
+  const menuItems = ['Singleplayer', 'Multiplayer', 'Options', 'Quit'];
+  const activeMenuIdx = Math.floor(time * 1.2) % 4;
+  menuItems.forEach((label, idx) => {
+    const itemY = plaqueY + 32 + idx * 24;
+    if (idx === activeMenuIdx) {
+      ctx.fillStyle = '#1d1a16';
+      ctx.font = `600 ${Math.round(width * 0.017)}px "Segoe UI", sans-serif`;
+      // Triangle Pointer ▶
+      ctx.beginPath();
+      ctx.moveTo(plaqueX + 26, itemY - 11);
+      ctx.lineTo(plaqueX + 35, itemY - 5);
+      ctx.lineTo(plaqueX + 26, itemY + 1);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#544b43';
+      ctx.font = `500 ${Math.round(width * 0.017)}px "Segoe UI", sans-serif`;
+    }
+    ctx.fillText(label, plaqueX + 44, itemY);
+  });
+
+  // Base Plinth
+  ctx.fillStyle = '#1d1a16';
+  ctx.fillRect(boxX - 6, boxY + boxH - 8, boxW + 12, 16);
+  ctx.restore();
+
+  // SUBJECT 3 (Right): Sumo Brother Rikishi Character (#234c7a Indigo Mawashi & #d4c098)
+  ctx.save();
+  const sumoX = width * 0.81;
+  const sumoY = height * 0.58 + Math.abs(Math.sin(time * 2.4)) * -8;
+
+  // Body
+  ctx.fillStyle = '#d4c098';
+  ctx.strokeStyle = '#1d1a16';
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(droneX - 52, droneY - 18);
-  ctx.lineTo(droneX - 18, droneY - 18);
-  ctx.moveTo(droneX + 18, droneY - 18);
-  ctx.lineTo(droneX + 52, droneY - 18);
+  ctx.ellipse(sumoX, sumoY, 56, 62, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.stroke();
-  // Drone Eye
-  ctx.fillStyle = '#10b981';
-  ctx.beginPath();
-  ctx.arc(droneX, droneY, 7, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
 
-  // SUBJECT 3 (Center): Animated Studio Robot / Skater Character
-  ctx.save();
-  const botX = width * 0.45 + Math.sin(time * 1.1) * (width * 0.03);
-  const botY = height * 0.56;
-  // Torso
-  ctx.fillStyle = '#3b82f6';
+  // Indigo Mawashi Belt (#234c7a)
+  ctx.fillStyle = '#234c7a';
   ctx.beginPath();
-  ctx.roundRect(botX - 38, botY - 40, 76, 86, 16);
+  ctx.roundRect(sumoX - 52, sumoY + 4, 104, 30, 10);
   ctx.fill();
+  ctx.stroke();
+
+  // Gold Ochre Rope Knot (#c6923a)
+  ctx.fillStyle = '#c6923a';
+  ctx.beginPath();
+  ctx.arc(sumoX, sumoY + 19, 11, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
   // Head
-  ctx.fillStyle = '#f8fafc';
+  ctx.fillStyle = '#d4c098';
   ctx.beginPath();
-  ctx.roundRect(botX - 30, botY - 88, 60, 42, 12);
+  ctx.arc(sumoX, sumoY - 66, 30, 0, Math.PI * 2);
   ctx.fill();
-  // Visor
-  ctx.fillStyle = '#0f172a';
-  ctx.beginPath();
-  ctx.roundRect(botX - 22, botY - 78, 44, 20, 6);
-  ctx.fill();
-  // Glowing eyes
-  ctx.fillStyle = '#38bdf8';
-  ctx.beginPath();
-  ctx.arc(botX - 10, botY - 68, 4, 0, Math.PI * 2);
-  ctx.arc(botX + 10, botY - 68, 4, 0, Math.PI * 2);
-  ctx.fill();
-  // Chest badge
-  ctx.fillStyle = '#facc15';
-  ctx.beginPath();
-  ctx.arc(botX, botY - 4, 14, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+  ctx.stroke();
 
-  // SUBJECT 4 (Bottom-Right): Sports Car
-  ctx.save();
-  const carX = width * 0.74 + Math.cos(time * 0.9) * (width * 0.02);
-  const carY = height * 0.72;
-  // Car body
-  ctx.fillStyle = '#ef4444';
+  // Chonmage Topknot (#1d1a16)
+  ctx.fillStyle = '#1d1a16';
   ctx.beginPath();
-  ctx.roundRect(carX - 95, carY - 26, 190, 44, 14);
+  ctx.ellipse(sumoX, sumoY - 96, 12, 8, 0, 0, Math.PI * 2);
   ctx.fill();
-  // Cabin
-  ctx.fillStyle = '#fb7185';
+
+  // Determined Eyes
+  ctx.fillRect(sumoX - 14, sumoY - 70, 8, 4);
+  ctx.fillRect(sumoX + 6, sumoY - 70, 8, 4);
+  // Red Cheek Blushes (#b82d23)
+  ctx.fillStyle = '#b82d23';
   ctx.beginPath();
-  ctx.roundRect(carX - 50, carY - 54, 100, 32, 10);
+  ctx.arc(sumoX - 18, sumoY - 60, 4.5, 0, Math.PI * 2);
+  ctx.arc(sumoX + 18, sumoY - 60, 4.5, 0, Math.PI * 2);
   ctx.fill();
-  // Windshield
-  ctx.fillStyle = '#1e293b';
-  ctx.beginPath();
-  ctx.roundRect(carX - 42, carY - 48, 84, 22, 6);
-  ctx.fill();
-  // Headlights
-  ctx.fillStyle = '#fef08a';
-  ctx.beginPath();
-  ctx.arc(carX - 88, carY - 6, 6, 0, Math.PI * 2);
-  ctx.fill();
-  // Wheels
-  ctx.fillStyle = '#0f172a';
-  ctx.strokeStyle = '#cbd5e1';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.arc(carX - 55, carY + 18, 18, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(carX + 55, carY + 18, 18, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
   ctx.restore();
 }
 
@@ -241,7 +332,6 @@ export function renderCompositedFrame(
   mainCtx.save();
   mainCtx.clearRect(0, 0, width, height);
 
-  // 1. Calculate global camera transform (Zoom / Pan + Camera Shake)
   let scale = 1;
   let focusX = 0.5;
   let focusY = 0.5;
@@ -254,7 +344,8 @@ export function renderCompositedFrame(
       const duration = Math.max(0.1, edit.endTime - edit.startTime);
       const elapsed = currentTime - edit.startTime;
       const remaining = edit.endTime - currentTime;
-      const rampTime = edit.params.zoomEasing === 'instant' ? 0.01 : Math.min(0.35, duration * 0.25);
+      const rampTime =
+        edit.params.zoomEasing === 'instant' ? 0.01 : Math.min(0.35, duration * 0.25);
 
       let progress = 1;
       if (elapsed < rampTime) {
@@ -262,7 +353,6 @@ export function renderCompositedFrame(
       } else if (remaining < rampTime) {
         progress = remaining / rampTime;
       }
-      // Smoothstep easing
       const eased = progress * progress * (3 - 2 * progress);
       scale = 1 + (targetScale - 1) * eased;
 
@@ -280,19 +370,15 @@ export function renderCompositedFrame(
     }
   }
 
-  // Apply camera transform
   mainCtx.translate(width * 0.5 + shakeX, height * 0.5 + shakeY);
   mainCtx.scale(scale, scale);
   mainCtx.translate(-focusX * width, -focusY * height);
 
-  // Draw base video frame
   mainCtx.drawImage(sourceCanvas, 0, 0, width, height);
 
-  // 2. Apply Regional & Full-Frame Pixel Effects
   for (const edit of activeEdits) {
     const { effectType, params, annotations } = edit;
 
-    // A. GAUSSIAN BLUR
     if (effectType === 'blur') {
       mainCtx.save();
       buildMaskPath(mainCtx, annotations, width, height, Boolean(params.invertMask));
@@ -302,7 +388,6 @@ export function renderCompositedFrame(
       mainCtx.restore();
     }
 
-    // B. PIXELATE / MOSAIC
     if (effectType === 'pixelate') {
       mainCtx.save();
       buildMaskPath(mainCtx, annotations, width, height, Boolean(params.invertMask));
@@ -325,7 +410,6 @@ export function renderCompositedFrame(
       mainCtx.restore();
     }
 
-    // C. COLOR GRADING & TINTING
     if (effectType === 'color_grade') {
       mainCtx.save();
       buildMaskPath(mainCtx, annotations, width, height, Boolean(params.invertMask));
@@ -353,19 +437,17 @@ export function renderCompositedFrame(
       mainCtx.restore();
     }
 
-    // D. SPOTLIGHT (Dim Outside Marked Region)
     if (effectType === 'spotlight') {
       mainCtx.save();
       buildMaskPath(mainCtx, annotations, width, height, true);
       mainCtx.clip('evenodd');
-      mainCtx.fillStyle = `rgba(5, 7, 15, ${params.dimOpacity ?? 0.72})`;
+      mainCtx.fillStyle = `rgba(29, 26, 22, ${params.dimOpacity ?? 0.72})`;
       mainCtx.fillRect(0, 0, width, height);
       mainCtx.restore();
     }
 
-    // E. NEON GLOW
     if (effectType === 'neon_glow') {
-      const glowColor = params.glowColor ?? '#a855f7';
+      const glowColor = params.glowColor ?? '#b82d23';
       const pulseFactor = params.pulse ? 0.75 + 0.35 * Math.sin(currentTime * 8) : 1;
 
       mainCtx.save();
@@ -376,7 +458,6 @@ export function renderCompositedFrame(
       mainCtx.lineWidth = 4;
       mainCtx.stroke();
 
-      // Inner vibrant tint bloom
       mainCtx.clip();
       mainCtx.globalCompositeOperation = 'screen';
       mainCtx.fillStyle = glowColor;
@@ -385,7 +466,6 @@ export function renderCompositedFrame(
       mainCtx.restore();
     }
 
-    // F. CALLOUT SHAPE (Ring, Viewfinder Brackets, or Arrow)
     if (effectType === 'callout_shape') {
       const bbox =
         annotations.length > 0
@@ -396,30 +476,26 @@ export function renderCompositedFrame(
       const ry = bbox.y * height;
       const rw = bbox.width * width;
       const rh = bbox.height * height;
-      const color = params.shapeColor ?? '#ef4444';
+      const color = params.shapeColor ?? '#b82d23';
 
       mainCtx.save();
       mainCtx.strokeStyle = color;
       mainCtx.shadowColor = color;
-      mainCtx.shadowBlur = 12;
-      mainCtx.lineWidth = 3.5;
+      mainCtx.shadowBlur = 8;
+      mainCtx.lineWidth = 4;
 
       if (params.shapeType === 'brackets') {
         const corner = Math.min(rw, rh) * 0.25;
         mainCtx.beginPath();
-        // Top-left
         mainCtx.moveTo(rx, ry + corner);
         mainCtx.lineTo(rx, ry);
         mainCtx.lineTo(rx + corner, ry);
-        // Top-right
         mainCtx.moveTo(rx + rw - corner, ry);
         mainCtx.lineTo(rx + rw, ry);
         mainCtx.lineTo(rx + rw, ry + corner);
-        // Bottom-right
         mainCtx.moveTo(rx + rw, ry + rh - corner);
         mainCtx.lineTo(rx + rw, ry + rh);
         mainCtx.lineTo(rx + rw - corner, ry + rh);
-        // Bottom-left
         mainCtx.moveTo(rx + corner, ry + rh);
         mainCtx.lineTo(rx, ry + rh);
         mainCtx.lineTo(rx, ry + rh - corner);
@@ -438,9 +514,8 @@ export function renderCompositedFrame(
         mainCtx.lineTo(tipX + 6, tipY - 26);
         mainCtx.lineTo(tipX + 16, tipY - 26);
         mainCtx.closePath();
-        mainCtx.fill();
+        ctx_fill_stroke(mainCtx);
       } else {
-        // Rotating dashed ring
         mainCtx.setLineDash([14, 8]);
         mainCtx.lineDashOffset = -currentTime * 45;
         mainCtx.beginPath();
@@ -450,7 +525,6 @@ export function renderCompositedFrame(
       mainCtx.restore();
     }
 
-    // G. TEXT / CAPTION OVERLAY
     if (effectType === 'text_overlay' && params.text) {
       const bbox =
         annotations.length > 0
@@ -459,10 +533,10 @@ export function renderCompositedFrame(
 
       const tx = bbox.cx * width;
       const ty = Math.max(42, bbox.y * height - 14);
-      const fontSize = Math.round((params.fontSize ?? 32) * (width / 960));
+      const fontSize = Math.round((params.fontSize ?? 30) * (width / 960));
 
       mainCtx.save();
-      mainCtx.font = `800 ${fontSize}px sans-serif`;
+      mainCtx.font = `700 ${fontSize}px "Segoe UI", sans-serif`;
       mainCtx.textAlign = 'center';
       mainCtx.textBaseline = 'bottom';
 
@@ -470,42 +544,40 @@ export function renderCompositedFrame(
       const padX = 16;
       const padY = 8;
 
-      if (params.textStyle === 'callout') {
-        mainCtx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-        mainCtx.strokeStyle = params.textColor ?? '#38bdf8';
-        mainCtx.lineWidth = 2;
+      // Sumo Brothers Riveted Parchment Plaque Callout
+      mainCtx.fillStyle = '#ece5d3';
+      mainCtx.strokeStyle = '#1d1a16';
+      mainCtx.lineWidth = 2.5;
+      const boxX = tx - metrics.width / 2 - padX;
+      const boxY = ty - fontSize - padY;
+      const boxW = metrics.width + padX * 2;
+      const boxH = fontSize + padY * 2;
+      mainCtx.fillRect(boxX, boxY, boxW, boxH);
+      mainCtx.strokeRect(boxX, boxY, boxW, boxH);
+
+      // Corner rivets
+      mainCtx.fillStyle = '#1d1a16';
+      for (const [rx, ry] of [
+        [boxX + 5, boxY + 5],
+        [boxX + boxW - 5, boxY + 5],
+        [boxX + 5, boxY + boxH - 5],
+        [boxX + boxW - 5, boxY + boxH - 5],
+      ]) {
         mainCtx.beginPath();
-        mainCtx.roundRect(
-          tx - metrics.width / 2 - padX,
-          ty - fontSize - padY,
-          metrics.width + padX * 2,
-          fontSize + padY * 2,
-          10
-        );
+        mainCtx.arc(rx, ry, 2, 0, Math.PI * 2);
         mainCtx.fill();
-        mainCtx.stroke();
-      } else if (params.textStyle === 'neon') {
-        mainCtx.shadowColor = '#ec4899';
-        mainCtx.shadowBlur = 18;
-      } else {
-        mainCtx.shadowColor = 'rgba(0,0,0,0.85)';
-        mainCtx.shadowBlur = 10;
-        mainCtx.lineWidth = 5;
-        mainCtx.strokeStyle = '#000000';
-        mainCtx.strokeText(params.text, tx, ty);
       }
 
-      mainCtx.fillStyle = params.textColor ?? '#ffffff';
-      mainCtx.fillText(params.text, tx, ty);
+      mainCtx.fillStyle = '#1d1a16';
+      mainCtx.fillText(params.text, tx, ty - 2);
       mainCtx.restore();
     }
 
-    // H. CAMERA FX (Vignette, Cinema Bars, VHS Glitch, Flash)
     if (effectType === 'camera_fx') {
       mainCtx.save();
       if (params.cameraEffect === 'cinema_bars') {
         const barH = height * 0.12;
-        mainCtx.fillStyle = '#000000';
+        mainCtx.fillStyle = '#1d1a16';
         mainCtx.fillRect(0, 0, width, barH);
         mainCtx.fillRect(0, height - barH, width, barH);
       } else if (params.cameraEffect === 'vignette') {
@@ -517,8 +589,8 @@ export function renderCompositedFrame(
           height / 2,
           width * 0.65
         );
-        radGrad.addColorStop(0, 'rgba(0,0,0,0)');
-        radGrad.addColorStop(1, 'rgba(0,0,0,0.78)');
+        radGrad.addColorStop(0, 'rgba(29,26,22,0)');
+        radGrad.addColorStop(1, 'rgba(29,26,22,0.78)');
         mainCtx.fillStyle = radGrad;
         mainCtx.fillRect(0, 0, width, height);
       } else if (params.cameraEffect === 'vhs_glitch') {
@@ -526,15 +598,9 @@ export function renderCompositedFrame(
         mainCtx.globalAlpha = 0.45;
         const offset = Math.sin(currentTime * 35) * 8;
         mainCtx.drawImage(sourceCanvas, offset, 0, width, height);
-        // Scanlines
-        mainCtx.globalCompositeOperation = 'source-over';
-        mainCtx.fillStyle = 'rgba(255,255,255,0.06)';
-        for (let y = 0; y < height; y += 6) {
-          mainCtx.fillRect(0, y, width, 2);
-        }
       } else if (params.cameraEffect === 'flash') {
         const flashAlpha = Math.max(0, Math.sin(currentTime * 22) * 0.55);
-        mainCtx.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+        mainCtx.fillStyle = `rgba(245, 242, 232, ${flashAlpha})`;
         mainCtx.fillRect(0, 0, width, height);
       }
       mainCtx.restore();
@@ -542,4 +608,11 @@ export function renderCompositedFrame(
   }
 
   mainCtx.restore();
+}
+
+function ctx_fill_stroke(ctx: CanvasRenderingContext2D) {
+  ctx.fill();
+  ctx.strokeStyle = '#1d1a16';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
