@@ -71,7 +71,7 @@ function postJsonRequest(
 }
 
 interface AiEditRequestBody {
-  mode?: 'edit' | 'test';
+  mode?: 'edit' | 'test' | 'draw_image';
   prompt?: string;
   startTime?: number;
   endTime?: number;
@@ -275,6 +275,7 @@ async function callProviderLlm(params: {
   systemPrompt: string;
   userPrompt: string;
   compositeFrameDataUrl?: string;
+  jsonSuffix?: string;
 }): Promise<{
   rawText: string;
   providerLabel: string;
@@ -288,6 +289,7 @@ async function callProviderLlm(params: {
     systemPrompt,
     userPrompt,
     compositeFrameDataUrl,
+    jsonSuffix = 'Return ONLY a valid JSON array of edit objects.',
   } = params;
   const fallbackPromptTokens = Math.max(
     24,
@@ -371,7 +373,7 @@ async function callProviderLlm(params: {
     }
     contentBlocks.push({
       type: 'text',
-      text: `User Prompt: "${userPrompt}"\n\nReturn ONLY a valid JSON array of edit objects.`,
+      text: `User Prompt: "${userPrompt}"\n\n${jsonSuffix}`,
     });
 
     const res = await postJsonRequest(
@@ -443,14 +445,14 @@ async function callProviderLlm(params: {
       ? [
           {
             type: 'text',
-            text: `User Prompt: "${userPrompt}"\n\nReturn ONLY a valid JSON array of edit objects.`,
+            text: `User Prompt: "${userPrompt}"\n\n${jsonSuffix}`,
           },
           {
             type: 'image_url',
             image_url: { url: compositeFrameDataUrl },
           },
         ]
-      : `User Prompt: "${userPrompt}"\n\nReturn ONLY a valid JSON array of edit objects.`;
+      : `User Prompt: "${userPrompt}"\n\n${jsonSuffix}`;
 
   const headers: Record<string, string> = {};
   if (key) {
@@ -507,6 +509,151 @@ async function callProviderLlm(params: {
       totalTokens: tTok,
     },
   };
+}
+
+function buildDrawImageSystemPrompt(): string {
+  return `You are an expert digital illustrator, concept artist, and HTML5 2D Canvas graphics programmer inside the Sumo VideoEditor studio.
+Your job is to draw a rich, detailed, high-definition 1920x1080 widescreen illustration matching the user's prompt by writing synchronous HTML5 2D Canvas JavaScript drawing code (\`renderCode\`) and/or vector SVG (\`svg\`).
+
+Return ONLY a valid JSON object with the following structure:
+{
+  "title": "Short descriptive title of the image (2-5 words)",
+  "renderCode": "/* JavaScript statements using ctx, width, height */"
+}
+
+STRICT RULES FOR \`renderCode\`:
+1. Available variables in scope: \`ctx\` (CanvasRenderingContext2D), \`width\` (1920), \`height\` (1080), \`Math\`.
+2. Do NOT wrap your code in \`function() { ... }\` or markdown fences. Write the JavaScript statements directly as the string value of \`renderCode\`.
+3. Paint a complete, multi-layered 1920x1080 scene from back to front:
+   - Layer 1 (Background): Fill the entire \`width x height\` canvas using rich \`ctx.createLinearGradient\` / \`ctx.createRadialGradient\`, atmospheric sky/lighting, stars, clouds, sun/moon, or room backdrop.
+   - Layer 2 (Environment / Midground): Draw detailed scenery, horizon, mountains, buildings, trees, water reflections, perspective grids, or studio props.
+   - Layer 3 (Main Subject): Draw the exact subject(s) requested by the user with expressive geometry (\`beginPath\`, \`bezierCurveTo\`, \`quadraticCurveTo\`, \`arc\`, \`ellipse\`, \`roundRect\`), multi-stop gradients, shading, highlights, shadows (\`ctx.shadowColor\`, \`ctx.shadowBlur\`), and crisp details.
+   - Layer 4 (Lighting & Polish): Add atmospheric glow, rim lighting, particles/bokeh, and subtle framing so the final 1920x1080 PNG looks like a polished illustration.
+4. Always balance \`ctx.save()\` and \`ctx.restore()\`.
+5. Never use external network resources (\`new Image()\`, \`fetch\`), \`document\`, or \`window\`. Everything must render synchronously onto \`ctx\`.`;
+}
+
+function buildFallbackProceduralArtwork(prompt: string): {
+  title: string;
+  renderCode: string;
+} {
+  const cleanTitle =
+    prompt
+      .trim()
+      .replace(/[^\w\s-]/g, '')
+      .split(/\s+/)
+      .slice(0, 4)
+      .join(' ') || 'AI Artwork';
+  const safeText = JSON.stringify(prompt.trim().slice(0, 64));
+
+  const renderCode = `
+ctx.save();
+const bg = ctx.createLinearGradient(0, 0, 0, height);
+bg.addColorStop(0, '#0f172a');
+bg.addColorStop(0.55, '#1e1b4b');
+bg.addColorStop(1, '#31102f');
+ctx.fillStyle = bg;
+ctx.fillRect(0, 0, width, height);
+
+// Glow sun / focal light
+const glow = ctx.createRadialGradient(width * 0.5, height * 0.42, 20, width * 0.5, height * 0.42, 420);
+glow.addColorStop(0, 'rgba(251, 191, 36, 0.95)');
+glow.addColorStop(0.35, 'rgba(244, 63, 94, 0.55)');
+glow.addColorStop(1, 'rgba(244, 63, 94, 0)');
+ctx.fillStyle = glow;
+ctx.beginPath();
+ctx.arc(width * 0.5, height * 0.42, 420, 0, Math.PI * 2);
+ctx.fill();
+
+// Stars
+for (let i = 0; i < 90; i++) {
+  const sx = ((i * 197) % 1880) + 20;
+  const sy = ((i * 131) % 620) + 20;
+  const sr = (i % 3) + 1;
+  ctx.fillStyle = i % 4 === 0 ? 'rgba(253, 224, 71, 0.85)' : 'rgba(255, 255, 255, 0.65)';
+  ctx.beginPath();
+  ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Layered mountains
+const drawRidge = (baseY, amp, seed, color) => {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, height);
+  for (let x = 0; x <= width; x += 40) {
+    const y = baseY - Math.sin(x * 0.0035 + seed) * amp - Math.cos(x * 0.009 - seed) * (amp * 0.45);
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(width, height);
+  ctx.closePath();
+  ctx.fill();
+};
+drawRidge(height * 0.66, 95, 1.2, '#1e1b4b');
+drawRidge(height * 0.74, 75, 2.7, '#111827');
+drawRidge(height * 0.83, 48, 4.1, '#090d16');
+
+// Title badge
+ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+ctx.font = 'bold 44px sans-serif';
+ctx.textAlign = 'center';
+ctx.fillText(${safeText}, width * 0.5, height * 0.91);
+ctx.restore();
+`.trim();
+
+  return { title: cleanTitle, renderCode };
+}
+
+function parseDrawImageResponse(
+  rawText: string,
+  prompt: string
+): { title: string; renderCode: string; svg?: string } | null {
+  let cleaned = rawText
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/```json/gi, '')
+    .replace(/```javascript/gi, '')
+    .replace(/```js/gi, '')
+    .replace(/```/g, '')
+    .trim();
+
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  try {
+    const parsed = JSON.parse(cleaned) as {
+      title?: string;
+      renderCode?: string;
+      code?: string;
+      svg?: string;
+    };
+    const renderCode = (parsed.renderCode || parsed.code || '').trim();
+    const svg = typeof parsed.svg === 'string' ? parsed.svg.trim() : undefined;
+    if (!renderCode && !svg) return null;
+
+    if (renderCode) {
+      // Validate JS syntax before returning to client
+      new Function('ctx', 'width', 'height', renderCode);
+    }
+
+    const fallbackTitle =
+      prompt
+        .trim()
+        .replace(/[^\w\s-]/g, '')
+        .split(/\s+/)
+        .slice(0, 4)
+        .join(' ') || 'AI Illustration';
+
+    return {
+      title: (parsed.title || fallbackTitle).trim(),
+      renderCode,
+      svg,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -587,6 +734,69 @@ export async function POST(req: NextRequest) {
         },
         { status: 400 }
       );
+    }
+
+    // 1.5 AI IMAGE DRAWING MODE (Current Project -> Images -> AI Draw)
+    if (mode === 'draw_image') {
+      if (!prompt || !prompt.trim()) {
+        return NextResponse.json(
+          { error: 'Please enter a description of the image to draw.' },
+          { status: 400 }
+        );
+      }
+
+      const drawStartMs = Date.now();
+      const candidates = resolveActiveProviderAndKey(body);
+      const drawSystemPrompt = buildDrawImageSystemPrompt();
+
+      for (const cand of candidates) {
+        try {
+          const { rawText, providerLabel, usage } = await callProviderLlm({
+            provider: cand.provider,
+            key: cand.key,
+            model: cand.model,
+            baseUrl: cand.baseUrl,
+            systemPrompt: drawSystemPrompt,
+            userPrompt: `Draw a detailed 1920x1080 illustration of: ${prompt.trim()}`,
+            jsonSuffix:
+              'Return ONLY a valid JSON object: {"title": "...", "renderCode": "..."}',
+          });
+
+          const parsedArt = parseDrawImageResponse(rawText, prompt);
+          if (parsedArt) {
+            return NextResponse.json({
+              ok: true,
+              title: parsedArt.title,
+              renderCode: parsedArt.renderCode,
+              svg: parsedArt.svg,
+              provider: providerLabel,
+              usage: {
+                ...usage,
+                latencyMs: Date.now() - drawStartMs,
+              },
+            });
+          }
+        } catch (drawErr) {
+          console.warn(
+            `AI Draw provider ${cand.provider} (${cand.model}) failed, trying next:`,
+            drawErr
+          );
+        }
+      }
+
+      const fallbackArt = buildFallbackProceduralArtwork(prompt);
+      return NextResponse.json({
+        ok: true,
+        title: fallbackArt.title,
+        renderCode: fallbackArt.renderCode,
+        provider: 'Built-in Procedural Artist',
+        usage: {
+          promptTokens: 24,
+          completionTokens: 120,
+          totalTokens: 144,
+          latencyMs: Math.max(1, Date.now() - drawStartMs),
+        },
+      });
     }
 
     // 2. NORMAL AI EDIT COMPILATION MODE

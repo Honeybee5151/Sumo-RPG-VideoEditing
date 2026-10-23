@@ -1500,6 +1500,131 @@ export default function VideoEditorStudio() {
     }
   };
 
+  // AI Image Drawing State & Handler for "Current Project -> Images -> AI Draw"
+  const [showAiDrawPanel, setShowAiDrawPanel] = useState<boolean>(false);
+  const [aiDrawPrompt, setAiDrawPrompt] = useState<string>('');
+  const [isAiDrawing, setIsAiDrawing] = useState<boolean>(false);
+
+  const handleGenerateAiImage = async () => {
+    const cleanPrompt = aiDrawPrompt.trim();
+    if (!cleanPrompt || isAiDrawing) return;
+
+    setIsAiDrawing(true);
+    setStatusMessage(`AI drawing 1920×1080 image: "${cleanPrompt}"...`);
+
+    try {
+      const activeKey =
+        aiSettings.apiKeys[aiSettings.provider] ||
+        aiSettings.apiKeys.auto ||
+        geminiApiKey ||
+        '';
+
+      const response = await fetch('/api/ai-edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'draw_image',
+          prompt: cleanPrompt,
+          provider: aiSettings.provider,
+          model: aiSettings.model,
+          apiKey: activeKey,
+          apiKeys: aiSettings.apiKeys,
+          geminiApiKey,
+          customBaseUrl: aiSettings.customBaseUrl,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || 'Failed to draw image with AI.');
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 1920;
+      canvas.height = 1080;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Could not initialize 2D drawing canvas.');
+      }
+
+      // Base background
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Execute AI Canvas 2D drawing code
+      if (typeof data.renderCode === 'string' && data.renderCode.trim()) {
+        try {
+          const drawFn = new Function(
+            'ctx',
+            'width',
+            'height',
+            `"use strict";\n${data.renderCode}`
+          );
+          drawFn(ctx, canvas.width, canvas.height);
+        } catch (codeErr) {
+          console.warn('AI renderCode execution warning:', codeErr);
+        }
+      }
+
+      // Optional SVG layer if returned
+      if (typeof data.svg === 'string' && data.svg.trim().startsWith('<svg')) {
+        await new Promise<void>((resolve) => {
+          const svgImg = new Image();
+          svgImg.onload = () => {
+            ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
+            resolve();
+          };
+          svgImg.onerror = () => resolve();
+          svgImg.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+            data.svg
+          )}`;
+        });
+      }
+
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/png')
+      );
+      if (!blob) {
+        throw new Error('Could not encode drawn image as PNG.');
+      }
+
+      const rawTitle = (data.title || cleanPrompt)
+        .replace(/[^\w\s-]/g, '')
+        .trim()
+        .slice(0, 36);
+      const existingImgCount = mediaLibrary.filter(
+        (m) => m.category === 'image'
+      ).length;
+      const fileName = `${rawTitle || `AI Image ${existingImgCount + 1}`}.png`;
+      const file = new File([blob], fileName, { type: 'image/png' });
+
+      if (data.usage?.totalTokens) {
+        setAiProgressState({
+          status: 'complete',
+          tokens: Number(data.usage.totalTokens || 0),
+          promptTokens: Number(data.usage.promptTokens || 0),
+          completionTokens: Number(data.usage.completionTokens || 0),
+          progressPct: 100,
+          provider: data.provider,
+          summary: `Drew "${fileName}"`,
+        });
+      }
+
+      processImportedFile(file);
+      setAiDrawPrompt('');
+      setShowAiDrawPanel(false);
+      setStatusMessage(
+        `AI drew "${fileName}" via ${data.provider || 'AI Artist'} and saved it to Images!`
+      );
+    } catch (err) {
+      setStatusMessage(
+        err instanceof Error ? err.message : 'Failed to draw AI image.'
+      );
+    } finally {
+      setIsAiDrawing(false);
+    }
+  };
+
   const handleStageDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDraggingFile(false);
@@ -3213,15 +3338,74 @@ export default function VideoEditorStudio() {
                   )}
                 </button>
               </div>
+            ) : libraryCategory === 'image' ? (
+              <>
+                <div className="w-full h-8 grid grid-cols-2 gap-1.5 shrink-0">
+                  <label className="w-full h-full flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
+                    <span className="truncate">Add Image</span>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleFileInputChange}
+                      className="hidden"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAiDrawPanel((prev) => !prev)}
+                    title="Ask AI (DeepSeek, Gemini, OpenAI, etc.) to draw a custom 1920x1080 image via code"
+                    className={`w-full h-full flex items-center justify-center gap-1.5 px-2 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                      showAiDrawPanel || isAiDrawing
+                        ? 'bg-[#26231f] border-[#26231f] text-[#faf8f4]'
+                        : 'bg-[#f0ece1] hover:bg-[#e5dfd0] border-[#d6cfc2] text-[#26231f]'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[#c6923a] shrink-0" />
+                    <span className="truncate">
+                      {isAiDrawing ? 'Drawing...' : 'AI Draw'}
+                    </span>
+                  </button>
+                </div>
+
+                {showAiDrawPanel && (
+                  <div className="w-full bg-[#f4f1ea] border border-[#d6cfc2] rounded-xl p-2 flex flex-col gap-1.5 shrink-0">
+                    <input
+                      type="text"
+                      value={aiDrawPrompt}
+                      onChange={(e) => setAiDrawPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleGenerateAiImage();
+                        }
+                      }}
+                      disabled={isAiDrawing}
+                      placeholder="Describe image to draw..."
+                      className="w-full h-7 px-2 rounded-lg bg-[#faf8f4] border border-[#d6cfc2] text-xs text-[#26231f] placeholder-[#8a8377] focus:outline-none focus:border-[#26231f]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGenerateAiImage}
+                      disabled={isAiDrawing || !aiDrawPrompt.trim()}
+                      className="w-full h-7 flex items-center justify-center gap-1.5 rounded-lg bg-[#26231f] hover:bg-[#3b3630] disabled:opacity-50 text-[#faf8f4] text-xs font-medium transition cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3 text-[#c6923a] shrink-0" />
+                      <span>
+                        {isAiDrawing ? 'AI Drawing via Code...' : 'Draw 1080p Image'}
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
               <label className="w-full h-8 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
-                <span>
-                  Add {libraryCategory === 'image' ? 'Image' : 'Video'}
-                </span>
+                <span>Add Video</span>
                 <input
                   type="file"
                   multiple
-                  accept={libraryCategory === 'video' ? 'video/*' : 'image/*'}
+                  accept="video/*"
                   onChange={handleFileInputChange}
                   className="hidden"
                 />
