@@ -2383,10 +2383,10 @@ export default function VideoEditorStudio() {
 
         {/* CENTER: UNIFIED TOP BAR, STAGE, PROMPT BAR, TIMELINE (Locked Flex Column) */}
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#f4f1ea]">
-          {/* UNIFIED TOP BAR: Box, Dot, Cut, Delete, Undo/Redo on left; Save, Settings, Export on right */}
-          <div className="h-11 border-b border-[#ded7c8] bg-[#faf8f4] px-3 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
+          {/* UNIFIED TOP BAR: Rigid fixed-width controls & smaller adaptive text so nothing shifts */}
+          <div className="h-11 min-h-[2.75rem] max-h-[2.75rem] border-b border-[#ded7c8] bg-[#faf8f4] px-3 flex items-center justify-between gap-2 shrink-0 overflow-hidden">
+            <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+              <div className="h-7 flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 shrink-0">
                 {(
                   [
                     { id: 'rect', label: 'Box', icon: Square },
@@ -2396,29 +2396,29 @@ export default function VideoEditorStudio() {
                   <button
                     key={id}
                     onClick={() => setActiveTool(id)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer ${
+                    className={`w-14 h-6 flex items-center justify-center gap-1 rounded-md text-[11px] font-medium transition cursor-pointer shrink-0 ${
                       activeTool === id
                         ? 'bg-[#26231f] text-white'
                         : 'text-[#6e655c] hover:text-[#26231f]'
                     }`}
                   >
-                    <Icon className="w-3 h-3" />
-                    <span>{label}</span>
+                    <Icon className="w-3 h-3 shrink-0" />
+                    <span className="truncate">{label}</span>
                   </button>
                 ))}
               </div>
 
-              {/* Cut on Red Playhead Button */}
+              {/* Cut on Red Playhead Button (Rigid w-24 width) */}
               <button
                 onClick={handleCutInterval}
                 title={`Cut at red playhead (${currentTime.toFixed(1)}s) [Shortcut: C]`}
-                className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium tabular-nums text-[#26231f] transition cursor-pointer"
+                className="w-24 min-w-[6rem] max-w-[6rem] h-7 flex items-center justify-center gap-1 px-2 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-[11px] font-medium tabular-nums text-[#26231f] transition cursor-pointer shrink-0 overflow-hidden"
               >
-                <Scissors className="w-3.5 h-3.5" />
-                <span>Cut ({currentTime.toFixed(1)}s)</span>
+                <Scissors className="w-3 h-3 shrink-0" />
+                <span className="truncate">Cut ({currentTime.toFixed(1)}s)</span>
               </button>
 
-              {/* Delete Selected Segment / Box / Dot Button */}
+              {/* Delete Selected Segment / Box / Dot Button (Rigid w-28 width; text adapts to fit) */}
               <button
                 onClick={handleDeleteSelected}
                 title={
@@ -2426,41 +2426,43 @@ export default function VideoEditorStudio() {
                     ? `Delete selected segment (${selectedSegment.startTime.toFixed(1)}s–${selectedSegment.endTime.toFixed(1)}s) [Del / Backspace]`
                     : 'Delete cut segment or selected Box/Dot [Del / Backspace]'
                 }
-                className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium tabular-nums text-[#26231f] transition cursor-pointer"
+                className={`w-28 min-w-[7rem] max-w-[7rem] h-7 flex items-center justify-center gap-1 px-2 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg font-medium tabular-nums text-[#26231f] transition cursor-pointer shrink-0 overflow-hidden ${
+                  selectedSegment ? 'text-[10px]' : 'text-[11px]'
+                }`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>
+                <Trash2 className="w-3 h-3 shrink-0" />
+                <span className="truncate">
                   {selectedSegment
-                    ? `Delete (${selectedSegment.startTime.toFixed(1)}s–${selectedSegment.endTime.toFixed(1)}s)`
+                    ? `Del ${selectedSegment.startTime.toFixed(1)}–${selectedSegment.endTime.toFixed(1)}s`
                     : 'Delete'}
                 </span>
               </button>
 
-              {/* Undo & Redo Buttons (Cmd+Z / Cmd+X / Cmd+Shift+Z) */}
+              {/* Undo & Redo Buttons (Rigid w-16 width) */}
               <button
                 onClick={handleUndoEdit}
                 disabled={undoStack.length === 0}
                 title="Undo (Ctrl+Z / Cmd+Z)"
-                className="flex items-center gap-1 px-2 py-1 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer"
+                className="w-16 min-w-[4rem] max-w-[4rem] h-7 flex items-center justify-center gap-1 px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] cursor-pointer shrink-0"
               >
-                <Undo2 className="w-3.5 h-3.5" />
-                <span>Undo</span>
+                <Undo2 className="w-3 h-3 shrink-0" />
+                <span className="truncate">Undo</span>
               </button>
 
               <button
                 onClick={handleRedoEdit}
                 disabled={redoStack.length === 0}
                 title="Redo (Ctrl+X / Cmd+X / Ctrl+Y)"
-                className="flex items-center gap-1 px-2 py-1 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer"
+                className="w-16 min-w-[4rem] max-w-[4rem] h-7 flex items-center justify-center gap-1 px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] cursor-pointer shrink-0"
               >
-                <RotateCcw className="w-3.5 h-3.5 scale-x-[-1]" />
-                <span>Redo</span>
+                <RotateCcw className="w-3 h-3 scale-x-[-1] shrink-0" />
+                <span className="truncate">Redo</span>
               </button>
 
               <button
                 onClick={() => setShowMarkingsOverlay((v) => !v)}
                 title="Show / Hide Highlights"
-                className="p-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] cursor-pointer shrink-0"
               >
                 {showMarkingsOverlay ? (
                   <Eye className="w-3.5 h-3.5 text-[#50793e]" />
@@ -2470,8 +2472,8 @@ export default function VideoEditorStudio() {
               </button>
             </div>
 
-            {/* Right Actions: Save, Settings, Export + ⋯ */}
-            <div className="flex items-center gap-2 shrink-0">
+            {/* Right Actions: Save, Settings, Export + ⋯ (Rigid fixed sizes) */}
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={() =>
                   exportProjectFile({
@@ -2483,7 +2485,7 @@ export default function VideoEditorStudio() {
                   })
                 }
                 title="Save Project (.chromacut.json)"
-                className="p-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer shrink-0"
               >
                 <Save className="w-3.5 h-3.5 text-[#50793e]" />
               </button>
@@ -2491,20 +2493,20 @@ export default function VideoEditorStudio() {
               <button
                 onClick={() => setShowSettingsModal(true)}
                 title="AI Settings"
-                className="p-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer shrink-0"
               >
                 <Settings className="w-3.5 h-3.5 text-[#6e655c]" />
               </button>
 
-              <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
+              <div className="h-7 flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 shrink-0">
                 <button
                   onClick={startHighDefinitionExport}
                   disabled={isExporting}
-                  className="flex items-center gap-1.5 px-3 py-1 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-50 rounded-md text-xs font-medium text-white transition cursor-pointer"
+                  className="w-28 min-w-[7rem] max-w-[7rem] h-6 flex items-center justify-center gap-1 px-2 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-50 rounded-md text-[11px] font-medium tabular-nums text-white transition cursor-pointer shrink-0 overflow-hidden"
                   title="Export video"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>
+                  <Download className="w-3 h-3 shrink-0" />
+                  <span className="truncate">
                     {isExporting
                       ? `${exportProgress}%`
                       : `Export ${exportConfig.resolution.toUpperCase()}`}
@@ -2513,7 +2515,7 @@ export default function VideoEditorStudio() {
 
                 <button
                   onClick={() => setShowExportModal(true)}
-                  className="px-2 py-1 text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
+                  className="w-6 h-6 flex items-center justify-center text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer shrink-0"
                   title="Export settings (Resolution, FPS, Bitrate, Frame PNG)"
                 >
                   ⋯
@@ -2549,7 +2551,7 @@ export default function VideoEditorStudio() {
                 onPointerDown={handleCanvasPointerDown}
                 onPointerMove={handleCanvasPointerMove}
                 onPointerUp={handleCanvasPointerUp}
-                className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
+                className="absolute inset-0 w-full h-full cursor-crosshair touch-none overflow-hidden"
               >
                 {showMarkingsOverlay &&
                   [...timeframeAnnotations]
@@ -3120,7 +3122,7 @@ export default function VideoEditorStudio() {
                   )
                 }
                 disabled={isCompiling || !prompt.trim()}
-                className="h-9 px-4 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-40 rounded-lg text-xs font-medium text-white transition cursor-pointer shrink-0"
+                className="w-20 min-w-[5rem] max-w-[5rem] h-9 flex items-center justify-center px-2 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-40 rounded-lg text-[11px] font-medium text-white transition cursor-pointer shrink-0 truncate"
               >
                 {isCompiling ? 'Applying...' : 'Apply'}
               </button>
@@ -3129,11 +3131,11 @@ export default function VideoEditorStudio() {
 
           {/* SINGLE-FOCUS TIMELINE (Enlarged & locked h-44 base height so video size never shifts) */}
           <div className="h-44 min-h-[11rem] max-h-[11rem] border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2.5 flex flex-col gap-2 shrink-0 overflow-hidden">
-            <div className="h-7 flex items-center justify-between gap-2 shrink-0">
-              <div className="flex items-center gap-2 shrink-0">
+            <div className="h-7 min-h-[1.75rem] max-h-[1.75rem] flex items-center justify-between gap-2 shrink-0 overflow-hidden">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={() => setIsPlaying((p) => !p)}
-                  className="h-7 w-7 bg-[#26231f] hover:bg-[#3d3833] rounded-lg flex items-center justify-center text-white transition cursor-pointer"
+                  className="h-7 w-7 bg-[#26231f] hover:bg-[#3d3833] rounded-lg flex items-center justify-center text-white transition cursor-pointer shrink-0"
                   title="Play / Pause (Space)"
                 >
                   {isPlaying ? (
@@ -3146,7 +3148,7 @@ export default function VideoEditorStudio() {
                 {videoUrl && (
                   <button
                     onClick={() => setIsMuted((m) => !m)}
-                    className="h-7 w-7 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg flex items-center justify-center text-[#26231f] cursor-pointer"
+                    className="h-7 w-7 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg flex items-center justify-center text-[#26231f] cursor-pointer shrink-0"
                   >
                     {isMuted ? (
                       <VolumeX className="w-3.5 h-3.5 text-[#b82d23]" />
@@ -3156,24 +3158,24 @@ export default function VideoEditorStudio() {
                   </button>
                 )}
 
-                <span className="font-mono text-xs text-[#6e655c] px-2 py-0.5">
+                <span className="w-24 min-w-[6rem] max-w-[6rem] text-center font-mono text-[11px] tabular-nums text-[#6e655c] truncate shrink-0">
                   {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
                 </span>
 
                 <button
                   onClick={() => setLoopIntervalOnly((l) => !l)}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border transition cursor-pointer ${
+                  className={`w-16 min-w-[4rem] max-w-[4rem] h-6 flex items-center justify-center gap-1 px-1.5 rounded-md text-[11px] font-medium border transition cursor-pointer shrink-0 ${
                     loopIntervalOnly
                       ? 'bg-[#50793e] text-white border-[#50793e]'
                       : 'bg-[#f0ece1] text-[#6e655c] border-[#d6cfc2] hover:text-[#26231f]'
                   }`}
                 >
-                  <Repeat className="w-3 h-3" />
-                  <span>Loop</span>
+                  <Repeat className="w-3 h-3 shrink-0" />
+                  <span className="truncate">Loop</span>
                 </button>
 
                 {/* Timeframe Zoom Out / Zoom In Controls right beside Loop */}
-                <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-md p-0.5">
+                <div className="h-6 flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-md p-0.5 shrink-0">
                   <button
                     type="button"
                     onClick={() =>
@@ -3185,7 +3187,7 @@ export default function VideoEditorStudio() {
                     }
                     disabled={timelineZoom <= 1}
                     title="Zoom out of timeframe"
-                    className="h-5 w-5 flex items-center justify-center rounded text-[#26231f] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition"
+                    className="h-5 w-5 flex items-center justify-center rounded text-[#26231f] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition shrink-0"
                   >
                     <ZoomOut className="w-3 h-3" />
                   </button>
@@ -3193,7 +3195,7 @@ export default function VideoEditorStudio() {
                     type="button"
                     onClick={() => handleTimelineZoomChange(1)}
                     title="Reset timeframe zoom to 1x"
-                    className="px-1.5 text-[11px] font-mono font-medium text-[#26231f] hover:text-[#b82d23] cursor-pointer tabular-nums"
+                    className="w-9 min-w-[2.25rem] max-w-[2.25rem] text-center text-[10px] font-mono font-medium text-[#26231f] hover:text-[#b82d23] cursor-pointer tabular-nums truncate shrink-0"
                   >
                     {timelineZoom % 1 === 0
                       ? `${timelineZoom}x`
@@ -3210,26 +3212,26 @@ export default function VideoEditorStudio() {
                     }
                     disabled={timelineZoom >= 16}
                     title="Zoom in into timeframe"
-                    className="h-5 w-5 flex items-center justify-center rounded text-[#26231f] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition"
+                    className="h-5 w-5 flex items-center justify-center rounded text-[#26231f] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition shrink-0"
                   >
                     <ZoomIn className="w-3 h-3" />
                   </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 text-xs text-[#6e655c] shrink-0">
+              <div className="w-40 min-w-[10rem] max-w-[10rem] flex items-center justify-end gap-1.5 text-[11px] text-[#6e655c] shrink-0 overflow-hidden">
                 {focusedColor !== 'all' ? (
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5 truncate">
                     <span
-                      className="w-2 h-2 rounded-full"
+                      className="w-2 h-2 rounded-full shrink-0"
                       style={{ backgroundColor: MARK_COLORS[focusedColor].hex }}
                     />
-                    <span>
+                    <span className="truncate">
                       Editing <strong className="text-[#26231f]">{MARK_COLORS[focusedColor].name}</strong>
                     </span>
                   </span>
                 ) : (
-                  <span className="text-[#8c8277]">
+                  <span className="text-[#8c8277] font-mono tabular-nums truncate">
                     {intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s
                   </span>
                 )}
@@ -3525,8 +3527,8 @@ export default function VideoEditorStudio() {
                         <span className="text-[9px] text-white">[</span>
                       </div>
 
-                      <div className="flex items-center gap-1.5 truncate px-1.5">
-                        <span className="truncate">
+                      <div className="flex items-center gap-1.5 min-w-0 truncate px-1">
+                        <span className="text-[10px] truncate">
                           {cfg.name} ({selectedGroup.startTime.toFixed(1)}s–{selectedGroup.endTime.toFixed(1)}s)
                           {colorEdits.length > 0
                             ? ` • ${colorEdits.map((e) => e.prompt).join(', ')}`
@@ -3636,20 +3638,20 @@ export default function VideoEditorStudio() {
           </div>
         </div>
 
-        {/* RIGHT SIDEBAR: SCROLLABLE COLORS & EDITS HUB (Constant w-80 width & stable layout) */}
-        <aside className="w-80 min-w-[20rem] max-w-[20rem] h-full border-l border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0">
+        {/* RIGHT SIDEBAR: SCROLLABLE COLORS & EDITS HUB (Constant w-80 width & rigid card layout) */}
+        <aside className="w-80 min-w-[20rem] max-w-[20rem] h-full border-l border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0 overflow-hidden">
           {/* Header showcasing Placed Color Count */}
-          <div className="h-11 px-3.5 border-b border-[#ded7c8] flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <Layers className="w-3.5 h-3.5 text-[#6e655c]" />
-              <h2 className="text-xs font-semibold text-[#26231f]">
+          <div className="h-11 min-h-[2.75rem] max-h-[2.75rem] px-3.5 border-b border-[#ded7c8] flex items-center justify-between shrink-0 overflow-hidden">
+            <div className="flex items-center gap-2 min-w-0">
+              <Layers className="w-3.5 h-3.5 text-[#6e655c] shrink-0" />
+              <h2 className="text-[11px] font-semibold tabular-nums text-[#26231f] truncate">
                 Colors ({allColorGroups.length}) & Edits ({edits.length})
               </h2>
             </div>
           </div>
 
           {/* Scrollable List of Placed Colors & Their Connected Edits */}
-          <div className="flex-1 flex flex-col overflow-y-auto [scrollbar-gutter:stable] p-3 gap-2 min-h-0">
+          <div className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] p-3 gap-2 min-h-0">
             {allColorGroups.map((cg) => {
                   const cfg = MARK_COLORS[cg.color];
                   const isFocused = focusedColor === cg.color;
@@ -3659,7 +3661,7 @@ export default function VideoEditorStudio() {
                   const hasDot = colorAnns.some((a) => a.tool === 'dot');
                   const hasBox = colorAnns.some((a) => a.tool !== 'dot');
                   const shapeLabel =
-                    hasDot && hasBox ? 'Box + Dot' : hasDot ? 'Dot' : 'Box';
+                    hasDot && hasBox ? 'Box+Dot' : hasDot ? 'Dot' : 'Box';
                   const colorEdits = edits.filter(
                     (e) => e.targetColor === cg.color
                   );
@@ -3668,28 +3670,28 @@ export default function VideoEditorStudio() {
                     <div
                       key={cg.color}
                       onClick={() => selectColorForAi(cg.color)}
-                      className={`w-full p-2.5 rounded-xl border transition cursor-pointer space-y-2 shrink-0 ${
+                      className={`w-full p-2.5 rounded-xl border transition cursor-pointer space-y-2 shrink-0 overflow-hidden ${
                         isFocused
                           ? 'bg-[#f0ece1] border-[#26231f]'
                           : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
+                      <div className="h-6 flex items-center justify-between gap-1.5 overflow-hidden">
+                        <div className="flex items-center gap-1.5 min-w-0">
                           <span
-                            className="w-3 h-3 rounded-full shrink-0"
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
                             style={{ backgroundColor: cfg.hex }}
                           />
-                          <span className="text-xs font-semibold text-[#26231f] truncate">
+                          <span className="text-[11px] font-semibold text-[#26231f] truncate">
                             {cfg.name}
                           </span>
-                          <span className="px-1.5 py-0.5 rounded bg-[#faf8f4] border border-[#d6cfc2] text-[10px] font-medium text-[#6e655c] shrink-0">
+                          <span className="w-12 min-w-[3rem] max-w-[3rem] text-center py-0.5 rounded bg-[#faf8f4] border border-[#d6cfc2] text-[9px] font-medium text-[#6e655c] truncate shrink-0">
                             {shapeLabel}
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-[11px] font-mono text-[#6e655c]">
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-[10px] font-mono tabular-nums text-[#6e655c]">
                             {cg.startTime.toFixed(1)}s–{cg.endTime.toFixed(1)}s
                           </span>
                           <button
@@ -3698,9 +3700,9 @@ export default function VideoEditorStudio() {
                               deleteColor(cg.color);
                             }}
                             title={`Delete ${cfg.name}`}
-                            className="p-1 rounded hover:bg-[#b82d23]/10 text-[#6e655c] hover:text-[#b82d23] cursor-pointer"
+                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[#b82d23]/10 text-[#6e655c] hover:text-[#b82d23] cursor-pointer shrink-0"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
                       </div>
