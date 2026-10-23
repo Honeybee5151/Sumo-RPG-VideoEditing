@@ -1653,143 +1653,298 @@ export default function VideoEditorStudio() {
                 className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
               >
                 {showMarkingsOverlay &&
-                  timeframeAnnotations.map((ann) => {
-                    const cfg = MARK_COLORS[ann.color];
-                    const isFocused = focusedColor === ann.color;
-                    const bx = ann.bbox.x * 1000;
-                    const by = ann.bbox.y * 562.5;
-                    const bw = ann.bbox.width * 1000;
-                    const bh = ann.bbox.height * 562.5;
+                  [...timeframeAnnotations]
+                    .sort((a, b) =>
+                      a.tool === 'dot' && b.tool !== 'dot'
+                        ? 1
+                        : a.tool !== 'dot' && b.tool === 'dot'
+                        ? -1
+                        : 0
+                    )
+                    .map((ann) => {
+                      const cfg = MARK_COLORS[ann.color];
+                      const isFocused = focusedColor === ann.color;
+                      const bx = ann.bbox.x * 1000;
+                      const by = ann.bbox.y * 562.5;
+                      const bw = ann.bbox.width * 1000;
+                      const bh = ann.bbox.height * 562.5;
 
-                    const startTransform = (
-                      e: React.PointerEvent<SVGElement>,
-                      mode:
-                        | 'move'
-                        | 'nw'
-                        | 'ne'
-                        | 'sw'
-                        | 'se'
-                        | 'n'
-                        | 's'
-                        | 'w'
-                        | 'e'
-                    ) => {
-                      e.stopPropagation();
-                      overlaySvgRef.current?.setPointerCapture(e.pointerId);
-                      selectColorForAi(ann.color);
-                      canvasTransformRef.current = {
-                        annId: ann.id,
-                        color: ann.color,
-                        mode,
-                        startPt: getNormalizedPoint(e),
-                        initialBbox: { ...ann.bbox },
-                        initialPoints: ann.points.map((p) => ({ ...p })),
+                      const removeSingleAnnotation = (
+                        e: React.PointerEvent<SVGElement>
+                      ) => {
+                        e.stopPropagation();
+                        const sameColorCount = annotations.filter(
+                          (a) => a.color === ann.color
+                        ).length;
+                        if (sameColorCount > 1) {
+                          setAnnotations((prev) =>
+                            prev.filter((a) => a.id !== ann.id)
+                          );
+                        } else {
+                          deleteColor(ann.color);
+                        }
                       };
-                    };
 
-                    if (ann.tool === 'dot') {
-                      const dcx = ann.bbox.cx * 1000;
-                      const dcy = ann.bbox.cy * 562.5;
-                      const dotLabelX = Math.max(4, Math.min(880, dcx - 47));
-                      const dotLabelY = Math.max(4, dcy - 36);
+                      const startTransform = (
+                        e: React.PointerEvent<SVGElement>,
+                        mode:
+                          | 'move'
+                          | 'nw'
+                          | 'ne'
+                          | 'sw'
+                          | 'se'
+                          | 'n'
+                          | 's'
+                          | 'w'
+                          | 'e'
+                      ) => {
+                        e.stopPropagation();
+                        overlaySvgRef.current?.setPointerCapture(e.pointerId);
+                        selectColorForAi(ann.color);
+                        canvasTransformRef.current = {
+                          annId: ann.id,
+                          color: ann.color,
+                          mode,
+                          startPt: getNormalizedPoint(e),
+                          initialBbox: { ...ann.bbox },
+                          initialPoints: ann.points.map((p) => ({ ...p })),
+                        };
+                      };
+
+                      if (ann.tool === 'dot') {
+                        const dcx = ann.bbox.cx * 1000;
+                        const dcy = ann.bbox.cy * 562.5;
+                        const dotLabelX = Math.max(4, Math.min(880, dcx - 47));
+                        const dotLabelY = Math.max(4, dcy - 36);
+                        return (
+                          <g key={ann.id}>
+                            <g
+                              onPointerDown={(e) => startTransform(e, 'move')}
+                              className="cursor-move"
+                            >
+                              {/* Outer Target Ring */}
+                              <circle
+                                cx={dcx}
+                                cy={dcy}
+                                r={16}
+                                fill={cfg.fillRgba}
+                                stroke={cfg.hex}
+                                strokeWidth={isFocused ? 3 : 2}
+                              />
+                              {/* Crosshair Ticks */}
+                              <line
+                                x1={dcx - 22}
+                                y1={dcy}
+                                x2={dcx - 10}
+                                y2={dcy}
+                                stroke={cfg.hex}
+                                strokeWidth={2}
+                              />
+                              <line
+                                x1={dcx + 10}
+                                y1={dcy}
+                                x2={dcx + 22}
+                                y2={dcy}
+                                stroke={cfg.hex}
+                                strokeWidth={2}
+                              />
+                              <line
+                                x1={dcx}
+                                y1={dcy - 22}
+                                x2={dcx}
+                                y2={dcy - 10}
+                                stroke={cfg.hex}
+                                strokeWidth={2}
+                              />
+                              <line
+                                x1={dcx}
+                                y1={dcy + 10}
+                                x2={dcx}
+                                y2={dcy + 22}
+                                stroke={cfg.hex}
+                                strokeWidth={2}
+                              />
+                              {/* Center Exact Pinpoint Dot */}
+                              <circle
+                                cx={dcx}
+                                cy={dcy}
+                                r={6}
+                                fill={cfg.hex}
+                                stroke="#ffffff"
+                                strokeWidth={2}
+                              />
+
+                              {/* Dot Color Label Badge */}
+                              <rect
+                                x={dotLabelX}
+                                y={dotLabelY}
+                                width={94}
+                                height={18}
+                                rx={4}
+                                fill={cfg.hex}
+                              />
+                              <text
+                                x={dotLabelX + 47}
+                                y={dotLabelY + 12.5}
+                                fill="#ffffff"
+                                fontSize="10"
+                                fontWeight="600"
+                                textAnchor="middle"
+                              >
+                                ● {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
+                              </text>
+                            </g>
+
+                            {/* Delete Button (×) for Dot */}
+                            <g
+                              onPointerDown={removeSingleAnnotation}
+                              className="cursor-pointer"
+                            >
+                              <rect
+                                x={dotLabelX + 96}
+                                y={dotLabelY}
+                                width={18}
+                                height={18}
+                                rx={4}
+                                fill="#26231f"
+                              />
+                              <text
+                                x={dotLabelX + 105}
+                                y={dotLabelY + 13}
+                                fill="#ffffff"
+                                fontSize="12"
+                                fontWeight="bold"
+                                textAnchor="middle"
+                              >
+                                ×
+                              </text>
+                            </g>
+                          </g>
+                        );
+                      }
+
+                      const handles: Array<{
+                        mode: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e';
+                        cx: number;
+                        cy: number;
+                        cursor: string;
+                      }> = [
+                        { mode: 'nw', cx: bx, cy: by, cursor: 'cursor-nwse-resize' },
+                        {
+                          mode: 'ne',
+                          cx: bx + bw,
+                          cy: by,
+                          cursor: 'cursor-nesw-resize',
+                        },
+                        {
+                          mode: 'sw',
+                          cx: bx,
+                          cy: by + bh,
+                          cursor: 'cursor-nesw-resize',
+                        },
+                        {
+                          mode: 'se',
+                          cx: bx + bw,
+                          cy: by + bh,
+                          cursor: 'cursor-nwse-resize',
+                        },
+                        {
+                          mode: 'n',
+                          cx: bx + bw / 2,
+                          cy: by,
+                          cursor: 'cursor-ns-resize',
+                        },
+                        {
+                          mode: 's',
+                          cx: bx + bw / 2,
+                          cy: by + bh,
+                          cursor: 'cursor-ns-resize',
+                        },
+                        {
+                          mode: 'w',
+                          cx: bx,
+                          cy: by + bh / 2,
+                          cursor: 'cursor-ew-resize',
+                        },
+                        {
+                          mode: 'e',
+                          cx: bx + bw,
+                          cy: by + bh / 2,
+                          cursor: 'cursor-ew-resize',
+                        },
+                      ];
+
+                      const labelY = Math.max(4, by - 22);
+
                       return (
                         <g key={ann.id}>
+                          {/* Translucent Box Fill is pointer-events-none so you can freely place Dots or smaller Boxes inside it! */}
+                          <rect
+                            x={bx}
+                            y={by}
+                            width={bw}
+                            height={bh}
+                            rx={6}
+                            fill={cfg.fillRgba}
+                            stroke={cfg.hex}
+                            strokeWidth={isFocused ? 4 : 3}
+                            className="pointer-events-none"
+                          />
+
+                          {/* Border Stroke & Label Badge are draggable so you can move the Box by its edge or label */}
                           <g
                             onPointerDown={(e) => startTransform(e, 'move')}
                             className="cursor-move"
                           >
-                            {/* Outer Target Ring */}
-                            <circle
-                              cx={dcx}
-                              cy={dcy}
-                              r={16}
-                              fill={cfg.fillRgba}
-                              stroke={cfg.hex}
-                              strokeWidth={isFocused ? 3 : 2}
-                            />
-                            {/* Crosshair Ticks */}
-                            <line
-                              x1={dcx - 22}
-                              y1={dcy}
-                              x2={dcx - 10}
-                              y2={dcy}
-                              stroke={cfg.hex}
-                              strokeWidth={2}
-                            />
-                            <line
-                              x1={dcx + 10}
-                              y1={dcy}
-                              x2={dcx + 22}
-                              y2={dcy}
-                              stroke={cfg.hex}
-                              strokeWidth={2}
-                            />
-                            <line
-                              x1={dcx}
-                              y1={dcy - 22}
-                              x2={dcx}
-                              y2={dcy - 10}
-                              stroke={cfg.hex}
-                              strokeWidth={2}
-                            />
-                            <line
-                              x1={dcx}
-                              y1={dcy + 10}
-                              x2={dcx}
-                              y2={dcy + 22}
-                              stroke={cfg.hex}
-                              strokeWidth={2}
-                            />
-                            {/* Center Exact Pinpoint Dot */}
-                            <circle
-                              cx={dcx}
-                              cy={dcy}
-                              r={6}
-                              fill={cfg.hex}
-                              stroke="#ffffff"
-                              strokeWidth={2}
+                            <rect
+                              x={bx}
+                              y={by}
+                              width={bw}
+                              height={bh}
+                              rx={6}
+                              fill="none"
+                              stroke="transparent"
+                              strokeWidth={14}
+                              pointerEvents="stroke"
                             />
 
-                            {/* Dot Color Label Badge */}
+                            {/* Color Label Badge */}
                             <rect
-                              x={dotLabelX}
-                              y={dotLabelY}
+                              x={bx}
+                              y={labelY}
                               width={94}
                               height={18}
                               rx={4}
                               fill={cfg.hex}
                             />
                             <text
-                              x={dotLabelX + 47}
-                              y={dotLabelY + 12.5}
+                              x={bx + 47}
+                              y={labelY + 12.5}
                               fill="#ffffff"
                               fontSize="10"
                               fontWeight="600"
                               textAnchor="middle"
                             >
-                              ● {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
+                              {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
                             </text>
                           </g>
 
-                          {/* Delete Button (×) for Dot */}
+                          {/* Delete Button (×) right on the placed highlight badge */}
                           <g
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              deleteColor(ann.color);
-                            }}
+                            onPointerDown={removeSingleAnnotation}
                             className="cursor-pointer"
                           >
                             <rect
-                              x={dotLabelX + 96}
-                              y={dotLabelY}
+                              x={bx + 96}
+                              y={labelY}
                               width={18}
                               height={18}
                               rx={4}
                               fill="#26231f"
                             />
                             <text
-                              x={dotLabelX + 105}
-                              y={dotLabelY + 13}
+                              x={bx + 105}
+                              y={labelY + 13}
                               fill="#ffffff"
                               fontSize="12"
                               fontWeight="bold"
@@ -1798,172 +1953,26 @@ export default function VideoEditorStudio() {
                               ×
                             </text>
                           </g>
+
+                          {/* 8 Stretch / Resize Handles around the placed highlight */}
+                          {handles.map((h) => (
+                            <rect
+                              key={h.mode}
+                              x={h.cx - 5.5}
+                              y={h.cy - 5.5}
+                              width={11}
+                              height={11}
+                              rx={2.5}
+                              fill="#ffffff"
+                              stroke={cfg.hex}
+                              strokeWidth={2}
+                              onPointerDown={(e) => startTransform(e, h.mode)}
+                              className={h.cursor}
+                            />
+                          ))}
                         </g>
                       );
-                    }
-
-                    const handles: Array<{
-                      mode: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e';
-                      cx: number;
-                      cy: number;
-                      cursor: string;
-                    }> = [
-                      { mode: 'nw', cx: bx, cy: by, cursor: 'cursor-nwse-resize' },
-                      {
-                        mode: 'ne',
-                        cx: bx + bw,
-                        cy: by,
-                        cursor: 'cursor-nesw-resize',
-                      },
-                      {
-                        mode: 'sw',
-                        cx: bx,
-                        cy: by + bh,
-                        cursor: 'cursor-nesw-resize',
-                      },
-                      {
-                        mode: 'se',
-                        cx: bx + bw,
-                        cy: by + bh,
-                        cursor: 'cursor-nwse-resize',
-                      },
-                      {
-                        mode: 'n',
-                        cx: bx + bw / 2,
-                        cy: by,
-                        cursor: 'cursor-ns-resize',
-                      },
-                      {
-                        mode: 's',
-                        cx: bx + bw / 2,
-                        cy: by + bh,
-                        cursor: 'cursor-ns-resize',
-                      },
-                      {
-                        mode: 'w',
-                        cx: bx,
-                        cy: by + bh / 2,
-                        cursor: 'cursor-ew-resize',
-                      },
-                      {
-                        mode: 'e',
-                        cx: bx + bw,
-                        cy: by + bh / 2,
-                        cursor: 'cursor-ew-resize',
-                      },
-                    ];
-
-                    const labelY = Math.max(4, by - 22);
-
-                    return (
-                      <g key={ann.id}>
-                        {/* Draggable Shape Body */}
-                        <g
-                          onPointerDown={(e) => startTransform(e, 'move')}
-                          className="cursor-move"
-                        >
-                          {ann.tool === 'brush' && ann.points.length > 1 ? (
-                            <polygon
-                              fill={cfg.fillRgba}
-                              stroke={cfg.hex}
-                              strokeWidth={isFocused ? 4 : 3}
-                              strokeLinejoin="round"
-                              points={ann.points
-                                .map((p) => `${p.x * 1000},${p.y * 562.5}`)
-                                .join(' ')}
-                            />
-                          ) : ann.tool === 'circle' ? (
-                            <ellipse
-                              cx={bx + bw / 2}
-                              cy={by + bh / 2}
-                              rx={bw / 2}
-                              ry={bh / 2}
-                              fill={cfg.fillRgba}
-                              stroke={cfg.hex}
-                              strokeWidth={isFocused ? 4 : 3}
-                              strokeDasharray="8 4"
-                            />
-                          ) : (
-                            <rect
-                              x={bx}
-                              y={by}
-                              width={bw}
-                              height={bh}
-                              rx={6}
-                              fill={cfg.fillRgba}
-                              stroke={cfg.hex}
-                              strokeWidth={isFocused ? 4 : 3}
-                            />
-                          )}
-
-                          {/* Color Label Badge */}
-                          <rect
-                            x={bx}
-                            y={labelY}
-                            width={94}
-                            height={18}
-                            rx={4}
-                            fill={cfg.hex}
-                          />
-                          <text
-                            x={bx + 47}
-                            y={labelY + 12.5}
-                            fill="#ffffff"
-                            fontSize="10"
-                            fontWeight="600"
-                            textAnchor="middle"
-                          >
-                            {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
-                          </text>
-                        </g>
-
-                        {/* Delete Button (×) right on the placed highlight badge */}
-                        <g
-                          onPointerDown={(e) => {
-                            e.stopPropagation();
-                            deleteColor(ann.color);
-                          }}
-                          className="cursor-pointer"
-                        >
-                          <rect
-                            x={bx + 96}
-                            y={labelY}
-                            width={18}
-                            height={18}
-                            rx={4}
-                            fill="#26231f"
-                          />
-                          <text
-                            x={bx + 105}
-                            y={labelY + 13}
-                            fill="#ffffff"
-                            fontSize="12"
-                            fontWeight="bold"
-                            textAnchor="middle"
-                          >
-                            ×
-                          </text>
-                        </g>
-
-                        {/* 8 Stretch / Resize Handles around the placed highlight */}
-                        {handles.map((h) => (
-                          <rect
-                            key={h.mode}
-                            x={h.cx - 5.5}
-                            y={h.cy - 5.5}
-                            width={11}
-                            height={11}
-                            rx={2.5}
-                            fill="#ffffff"
-                            stroke={cfg.hex}
-                            strokeWidth={2}
-                            onPointerDown={(e) => startTransform(e, h.mode)}
-                            className={h.cursor}
-                          />
-                        ))}
-                      </g>
-                    );
-                  })}
+                    })}
 
                 {currentStroke &&
                   currentStroke.length > 0 &&
