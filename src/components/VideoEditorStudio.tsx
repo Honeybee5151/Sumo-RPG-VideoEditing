@@ -300,6 +300,25 @@ export default function VideoEditorStudio() {
     } catch {
       // ignore storage parse issues
     }
+
+    // Auto-update check tied to GitHub Releases
+    const checkAndApplyReleaseUpdate = async () => {
+      try {
+        const res = await fetch('/api/auto-update');
+        const data = await res.json();
+        if (data?.updateAvailable) {
+          await fetch('/api/auto-update', { method: 'POST' });
+        }
+      } catch {
+        // ignore network issues when offline
+      }
+    };
+    checkAndApplyReleaseUpdate();
+    const updateTimer = window.setInterval(
+      checkAndApplyReleaseUpdate,
+      15 * 60 * 1000
+    );
+    return () => window.clearInterval(updateTimer);
   }, []);
 
   const updateAiSettings = useCallback(

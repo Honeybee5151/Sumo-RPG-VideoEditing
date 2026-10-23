@@ -1,8 +1,29 @@
 {
   "name": "sumo-rpg-video-editing",
+  "productName": "Sumo VideoEditor",
   "version": "0.0.11",
   "private": true,
   "main": "electron/main.cjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Honeybee5151/Sumo-RPG-VideoEditing.git"
+  },
+  "build": {
+    "appId": "com.sumo.videoeditor",
+    "productName": "Sumo VideoEditor",
+    "win": {
+      "icon": "public/sumo-icon.ico",
+      "target": ["nsis", "zip"]
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Honeybee5151",
+        "repo": "Sumo-RPG-VideoEditing",
+        "releaseType": "release"
+      }
+    ]
+  },
   "scripts": {
     "dev": "next dev",
     "app": "electron electron/main.cjs",

@@ -1,6 +1,9 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, dialog } = require('electron');
 const http = require('http');
+const https = require('https');
 const path = require('path');
+const fs = require('fs');
+const { exec } = require('child_process');
 
 app.setName('Sumo VideoEditor');
 if (process.platform === 'win32') {
@@ -11,6 +14,141 @@ let mainWindow = null;
 const PORT = process.env.PORT || 3000;
 const APP_URL = `http://127.0.0.1:${PORT}`;
 const ICON_PATH = path.join(__dirname, '..', 'public', 'sumo-icon.ico');
+const GITHUB_REPO = 'Honeybee5151/Sumo-RPG-VideoEditing';
+const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+
+function getLocalVersion() {
+  try {
+    const pkgPath = path.join(__dirname, '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    return pkg.version || '0.0.1';
+  } catch {
+    return '0.0.1';
+  }
+}
+
+function normalizeVersion(v) {
+  return String(v || '')
+    .replace(/^v/i, '')
+    .trim()
+    .split(/[.-]/)
+    .map((n) => parseInt(n, 10) || 0);
+}
+
+function isNewerVersion(remoteVer, localVer) {
+  const r = normalizeVersion(remoteVer);
+  const l = normalizeVersion(localVer);
+  const len = Math.max(r.length, l.length);
+  for (let i = 0; i < len; i++) {
+    const rv = r[i] || 0;
+    const lv = l[i] || 0;
+    if (rv > lv) return true;
+    if (rv < lv) return false;
+  }
+  return false;
+}
+
+function fetchLatestGitHubRelease() {
+  return new Promise((resolve) => {
+    const req = https.get(
+      GITHUB_RELEASES_API,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'Sumo-VideoEditor-AutoUpdater',
+        },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve(null);
+          return;
+        }
+        let raw = '';
+        res.on('data', (chunk) => {
+          raw += chunk;
+        });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(raw));
+          } catch {
+            resolve(null);
+          }
+        });
+      }
+    );
+    req.on('error', () => resolve(null));
+    req.setTimeout(10000, () => {
+      req.destroy();
+      resolve(null);
+    });
+  });
+}
+
+let lastNotifiedVersion = null;
+
+async function checkForReleaseUpdates() {
+  // 1. If running as a packaged installer with electron-updater installed, trigger native autoUpdater
+  if (app.isPackaged) {
+    try {
+      const { autoUpdater } = require('electron-updater');
+      autoUpdater.autoDownload = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+    } catch {
+      // Fall back to GitHub Releases API check below
+    }
+  }
+
+  // 2. Check GitHub Releases API (https://api.github.com/repos/Honeybee5151/Sumo-RPG-VideoEditing/releases/latest)
+  const release = await fetchLatestGitHubRelease();
+  if (!release || !release.tag_name) return;
+
+  const localVersion = getLocalVersion();
+  const latestVersion = String(release.tag_name).replace(/^v/i, '');
+  if (!isNewerVersion(latestVersion, localVersion)) return;
+  if (lastNotifiedVersion === latestVersion) return;
+  lastNotifiedVersion = latestVersion;
+
+  const repoRoot = path.join(__dirname, '..');
+  const hasGitDir = fs.existsSync(path.join(repoRoot, '.git'));
+
+  if (hasGitDir) {
+    // Automatically sync to the new release in the background and reload when ready
+    exec(
+      'git fetch origin --tags && git pull --ff-only origin main',
+      { cwd: repoRoot },
+      (err) => {
+        if (!err && mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.reloadIgnoringCache();
+        }
+      }
+    );
+    return;
+  }
+
+  // If not a git checkout, offer 1-click download of the release installer asset or release page
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const winAsset = assets.find((a) => /\.(exe|msi|zip)$/i.test(a.name || ''));
+  const targetUrl =
+    (winAsset && winAsset.browser_download_url) ||
+    release.html_url ||
+    `https://github.com/${GITHUB_REPO}/releases/latest`;
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Sumo VideoEditor Update Available',
+      message: `A new release (v${latestVersion}) of Sumo VideoEditor is available.`,
+      detail: release.name || `Current version: v${localVersion}`,
+      buttons: ['Update Now', 'Later'],
+      defaultId: 0,
+    });
+    if (result.response === 0) {
+      shell.openExternal(targetUrl);
+    }
+  }
+}
 
 function waitForServer(url, timeout = 120000) {
   const start = Date.now();
@@ -70,6 +208,9 @@ async function createWindow() {
       mainWindow.setTitle('Sumo VideoEditor');
       mainWindow.show();
       mainWindow.focus();
+      // Automatically check GitHub Releases on launch and every 15 minutes
+      setTimeout(() => checkForReleaseUpdates().catch(() => {}), 3000);
+      setInterval(() => checkForReleaseUpdates().catch(() => {}), 15 * 60 * 1000);
     }
   } catch (err) {
     console.error('Failed to connect to local Next.js server:', err);
