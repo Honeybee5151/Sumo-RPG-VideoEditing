@@ -49,3 +49,14 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #a39a88;
 }
+
+/* Hide Next.js bottom-left dev indicator / portal in all modes */
+nextjs-portal,
+[data-nextjs-toast],
+[data-nextjs-dev-tools-button],
+[data-nextjs-dialog-overlay] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

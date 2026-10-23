@@ -105,6 +105,28 @@ function generateWin32IcoFromPng(pngPath, icoTargets) {
   }
 }
 
+function setupDefaultElectronAppEntry(distDir) {
+  const resourcesAppDir = path.join(distDir, 'resources', 'app');
+  fs.mkdirSync(resourcesAppDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(resourcesAppDir, 'package.json'),
+    JSON.stringify(
+      {
+        name: 'sumo-rpg-video-editing',
+        productName: 'Sumo VideoEditor',
+        version: '0.0.11',
+        main: 'index.js',
+      },
+      null,
+      2
+    )
+  );
+  fs.writeFileSync(
+    path.join(resourcesAppDir, 'index.js'),
+    "require('../../../../../electron/main.cjs');\n"
+  );
+}
+
 async function main() {
   const rootDir = path.join(__dirname, '..');
   const pngPath = path.join(rootDir, 'public', 'sumo-logo.png');
@@ -115,15 +137,20 @@ async function main() {
 
   if (process.platform !== 'win32') return;
 
-  const exePath = path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron.exe');
+  const distDir = path.join(rootDir, 'node_modules', 'electron', 'dist');
+  const exePath = path.join(distDir, 'electron.exe');
+  const sumoExePath = path.join(distDir, 'Sumo VideoEditor.exe');
+
   if (!fs.existsSync(exePath) || !fs.existsSync(icoPath)) {
     return;
   }
 
+  setupDefaultElectronAppEntry(distDir);
+
   try {
     const rceditModule = require('rcedit');
     const rcedit = rceditModule.rcedit || rceditModule.default || rceditModule;
-    await rcedit(exePath, {
+    const opts = {
       icon: icoPath,
       'version-string': {
         ProductName: 'Sumo VideoEditor',
@@ -132,10 +159,13 @@ async function main() {
         InternalName: 'Sumo VideoEditor',
         OriginalFilename: 'Sumo VideoEditor.exe',
       },
-    });
-    console.log('Successfully applied Sumo VideoEditor icon to electron.exe');
+    };
+    await rcedit(exePath, opts);
+    fs.copyFileSync(exePath, sumoExePath);
+    await rcedit(sumoExePath, opts);
+    console.log('Successfully created and patched Sumo VideoEditor.exe');
   } catch (err) {
-    console.warn('Could not patch electron.exe icon:', err.message);
+    console.warn('Could not patch executable icon:', err.message);
   }
 }
 

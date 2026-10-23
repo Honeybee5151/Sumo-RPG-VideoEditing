@@ -1,9 +1,9 @@
-const { app, BrowserWindow, shell, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, nativeImage } = require('electron');
 const http = require('http');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 
 const APP_USER_MODEL_ID = 'com.sumo.videoeditor';
 
@@ -13,15 +13,42 @@ if (process.platform === 'win32') {
 }
 
 let mainWindow = null;
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+let internalServerProc = null;
 const PORT = process.env.PORT || 3000;
 const APP_URL = `http://127.0.0.1:${PORT}`;
-const ICON_PATH = path.join(__dirname, '..', 'public', 'sumo-icon.ico');
+const ROOT_DIR = path.join(__dirname, '..');
+const ICON_PATH = path.join(ROOT_DIR, 'public', 'sumo-icon.ico');
 const GITHUB_REPO = 'Honeybee5151/Sumo-RPG-VideoEditing';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
 function ensureWindowsTaskbarIconRegistration() {
   if (process.platform !== 'win32' || !fs.existsSync(ICON_PATH)) return;
   try {
+    const sumoExe = path.join(path.dirname(process.execPath), 'Sumo VideoEditor.exe');
+    const targetExe = fs.existsSync(sumoExe) ? sumoExe : process.execPath;
+    const shortcutDetails = {
+      target: targetExe,
+      args: '',
+      cwd: ROOT_DIR,
+      description: 'Sumo VideoEditor',
+      icon: ICON_PATH,
+      iconIndex: 0,
+      appUserModelId: APP_USER_MODEL_ID,
+    };
+
     const startMenuShortcut = path.join(
       app.getPath('appData'),
       'Microsoft',
@@ -30,15 +57,13 @@ function ensureWindowsTaskbarIconRegistration() {
       'Programs',
       'Sumo VideoEditor.lnk'
     );
-    shell.writeShortcutLink(startMenuShortcut, 'replace', {
-      target: process.execPath,
-      args: `"${__filename}"`,
-      cwd: path.join(__dirname, '..'),
-      description: 'Sumo VideoEditor',
-      icon: ICON_PATH,
-      iconIndex: 0,
-      appUserModelId: APP_USER_MODEL_ID,
-    });
+    shell.writeShortcutLink(startMenuShortcut, 'replace', shortcutDetails);
+
+    const desktopShortcut = path.join(app.getPath('desktop'), 'Sumo VideoEditor.lnk');
+    shell.writeShortcutLink(desktopShortcut, 'replace', shortcutDetails);
+
+    const rootShortcut = path.join(ROOT_DIR, 'Sumo VideoEditor.lnk');
+    shell.writeShortcutLink(rootShortcut, 'replace', shortcutDetails);
   } catch {
     // Ignore shortcut registration errors on restricted filesystems
   }
@@ -177,6 +202,53 @@ async function checkForReleaseUpdates() {
   }
 }
 
+function checkServerOnce(url) {
+  return new Promise((resolve) => {
+    const req = http
+      .get(url, (res) => {
+        res.resume();
+        resolve(res.statusCode >= 200 && res.statusCode < 400);
+      })
+      .on('error', () => resolve(false));
+    req.setTimeout(1500, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function ensureLocalServerRunning() {
+  const alreadyUp = await checkServerOnce(APP_URL);
+  if (alreadyUp || internalServerProc) return;
+
+  const nextBin = path.join(ROOT_DIR, 'node_modules', 'next', 'dist', 'bin', 'next');
+  if (!fs.existsSync(nextBin)) return;
+
+  const hasProdBuild = fs.existsSync(path.join(ROOT_DIR, '.next', 'BUILD_ID'));
+  const subcommand = hasProdBuild ? 'start' : 'dev';
+  const nodeExe = fs.existsSync('C:\\Program Files\\nodejs\\node.exe')
+    ? 'C:\\Program Files\\nodejs\\node.exe'
+    : 'node';
+
+  internalServerProc = spawn(
+    nodeExe,
+    [nextBin, subcommand, '-p', String(PORT)],
+    {
+      cwd: ROOT_DIR,
+      env: {
+        ...process.env,
+        NODE_ENV: hasProdBuild ? 'production' : 'development',
+      },
+      stdio: 'ignore',
+      windowsHide: true,
+    }
+  );
+
+  internalServerProc.on('exit', () => {
+    internalServerProc = null;
+  });
+}
+
 function waitForServer(url, timeout = 120000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
@@ -208,6 +280,8 @@ function waitForServer(url, timeout = 120000) {
 
 async function createWindow() {
   ensureWindowsTaskbarIconRegistration();
+  Menu.setApplicationMenu(null);
+
   const appIcon = fs.existsSync(ICON_PATH)
     ? nativeImage.createFromPath(ICON_PATH)
     : ICON_PATH;
@@ -219,7 +293,7 @@ async function createWindow() {
     minHeight: 720,
     show: false,
     title: 'Sumo VideoEditor',
-    icon: appIcon,
+    icon: ICON_PATH,
     backgroundColor: '#f4f1ea',
     autoHideMenuBar: true,
     webPreferences: {
@@ -237,7 +311,17 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents
+      .insertCSS(
+        'nextjs-portal, [data-nextjs-toast], [data-nextjs-dev-tools-button], [data-nextjs-dialog-overlay] { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }'
+      )
+      .catch(() => {});
+  });
+
   try {
+    await ensureLocalServerRunning();
     await waitForServer(APP_URL);
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(APP_URL);
@@ -258,6 +342,17 @@ async function createWindow() {
 }
 
 app.whenReady().then(createWindow);
+
+app.on('will-quit', () => {
+  if (internalServerProc) {
+    try {
+      internalServerProc.kill();
+    } catch {
+      // Ignore cleanup errors
+    }
+    internalServerProc = null;
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
