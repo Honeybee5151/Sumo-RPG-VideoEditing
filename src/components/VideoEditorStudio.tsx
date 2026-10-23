@@ -121,6 +121,7 @@ export default function VideoEditorStudio() {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [loopIntervalOnly, setLoopIntervalOnly] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [masterVolume, setMasterVolume] = useState<number>(1);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
 
   // Left Media Library State (Current Project & Persistent Favorites across sessions)
@@ -1249,6 +1250,42 @@ export default function VideoEditorStudio() {
     drawMediaContain,
   ]);
 
+  const editAudioMapRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaGainNodesRef = useRef<
+    WeakMap<HTMLMediaElement, { ctx: AudioContext; gain: GainNode }>
+  >(new WeakMap());
+
+  const applyMediaElementVolume = useCallback(
+    (el: HTMLMediaElement, gainMultiplier: number, muted: boolean) => {
+      const effectiveGain = muted ? 0 : Math.max(0, Math.min(2, gainMultiplier));
+      el.muted = muted || effectiveGain === 0;
+      el.volume = Math.min(1, effectiveGain);
+
+      let entry = mediaGainNodesRef.current.get(el);
+      if (effectiveGain > 1 && !entry && typeof AudioContext !== 'undefined') {
+        try {
+          const ctx = new AudioContext();
+          const source = ctx.createMediaElementSource(el);
+          const gain = ctx.createGain();
+          source.connect(gain);
+          gain.connect(ctx.destination);
+          entry = { ctx, gain };
+          mediaGainNodesRef.current.set(el, entry);
+        } catch {
+          // ignore if element is already bound to another context
+        }
+      }
+      if (entry) {
+        if (entry.ctx.state === 'suspended' && effectiveGain > 0) {
+          entry.ctx.resume().catch(() => {});
+        }
+        entry.gain.gain.value = effectiveGain > 1 ? effectiveGain : 1;
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     if (isExporting || isExportingRef.current) return;
 
@@ -1256,7 +1293,7 @@ export default function VideoEditorStudio() {
     if (vid && videoUrl) {
       const { rate, freeze } = getActivePlaybackRate(currentTime);
       vid.playbackRate = freeze ? 0.0625 : rate;
-      vid.muted = isMuted;
+      applyMediaElementVolume(vid, masterVolume, isMuted);
 
       if (isPlaying) {
         if (vid.paused) {
@@ -1274,7 +1311,7 @@ export default function VideoEditorStudio() {
 
     const aud = audioRef.current;
     if (aud && activeAudioUrl && !videoUrl && !activeImageUrl) {
-      aud.muted = isMuted;
+      applyMediaElementVolume(aud, masterVolume, isMuted);
       if (isPlaying) {
         if (aud.paused) {
           aud.play().catch(() => {});
@@ -1329,8 +1366,8 @@ export default function VideoEditorStudio() {
         editAudioMapRef.current.set(ed.id, clipAud);
       }
 
-      clipAud.muted = isMuted;
-      clipAud.volume = Math.min(1, Math.max(0, ed.params.audioVolume ?? 1));
+      const clipGain = (ed.params.audioVolume ?? 1) * masterVolume;
+      applyMediaElementVolume(clipAud, clipGain, isMuted);
 
       const inEditWindow =
         currentTime >= ed.startTime && currentTime <= ed.endTime;
@@ -1374,10 +1411,12 @@ export default function VideoEditorStudio() {
     activeAudioUrl,
     currentTime,
     isMuted,
+    masterVolume,
     duration,
     edits,
     mediaLibrary,
     getActivePlaybackRate,
+    applyMediaElementVolume,
   ]);
 
   const activateMediaAsset = useCallback(
@@ -1521,6 +1560,7 @@ export default function VideoEditorStudio() {
             previewAudioRef.current.pause();
           }
           const preview = new Audio(asset.url);
+          applyMediaElementVolume(preview, masterVolume, isMuted);
           previewAudioRef.current = preview;
           preview.play().catch(() => {});
           setStatusMessage(
@@ -1562,6 +1602,9 @@ export default function VideoEditorStudio() {
       activeColor,
       colorPrompts,
       imageHasAiTime,
+      masterVolume,
+      isMuted,
+      applyMediaElementVolume,
     ]
   );
 
@@ -1687,8 +1730,6 @@ export default function VideoEditorStudio() {
   const audioStreamRef = useRef<MediaStream | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const recordingStartWallRef = useRef<number>(0);
-  const editAudioMapRef = useRef<Map<string, HTMLAudioElement>>(new Map());
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const refreshMicrophoneDevices = useCallback(async (requestPermission = false) => {
     if (
@@ -4839,18 +4880,61 @@ export default function VideoEditorStudio() {
                   )}
                 </button>
 
-                {videoUrl && (
+                <div className="h-7 flex items-center gap-1.5 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg px-1.5 shrink-0">
                   <button
+                    type="button"
                     onClick={() => setIsMuted((m) => !m)}
-                    className="h-7 w-7 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg flex items-center justify-center text-[#26231f] cursor-pointer shrink-0"
+                    title={isMuted ? 'Unmute sound' : 'Mute sound'}
+                    className="h-5 w-5 rounded flex items-center justify-center text-[#26231f] hover:bg-[#e5dfd0] cursor-pointer shrink-0"
                   >
-                    {isMuted ? (
+                    {isMuted || masterVolume === 0 ? (
                       <VolumeX className="w-3.5 h-3.5 text-[#b82d23]" />
                     ) : (
                       <Volume2 className="w-3.5 h-3.5 text-[#50793e]" />
                     )}
                   </button>
-                )}
+
+                  <input
+                    type="range"
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    value={isMuted ? 0 : masterVolume}
+                    onChange={(e) => {
+                      const nextVol = parseFloat(e.target.value);
+                      setMasterVolume(nextVol);
+                      if (nextVol > 0 && isMuted) {
+                        setIsMuted(false);
+                      }
+                      if (previewAudioRef.current) {
+                        applyMediaElementVolume(
+                          previewAudioRef.current,
+                          nextVol,
+                          false
+                        );
+                      }
+                    }}
+                    onDoubleClick={() => {
+                      setMasterVolume(1);
+                      setIsMuted(false);
+                    }}
+                    title={`Volume: ${Math.round(
+                      (isMuted ? 0 : masterVolume) * 100
+                    )}% (0%–200%, double-click to reset to 100%)`}
+                    className="w-20 h-1.5 accent-[#50793e] cursor-pointer shrink-0"
+                  />
+
+                  <span
+                    onClick={() => {
+                      setMasterVolume(1);
+                      setIsMuted(false);
+                    }}
+                    title="Click to reset volume to 100%"
+                    className="w-9 text-right font-mono text-[10px] tabular-nums text-[#26231f] cursor-pointer select-none shrink-0"
+                  >
+                    {Math.round((isMuted ? 0 : masterVolume) * 100)}%
+                  </span>
+                </div>
 
                 <span className="w-24 min-w-[6rem] max-w-[6rem] text-center font-mono text-[11px] tabular-nums text-[#6e655c] truncate shrink-0">
                   {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
