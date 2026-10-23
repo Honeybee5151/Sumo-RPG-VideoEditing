@@ -125,8 +125,9 @@ export default function VideoEditorStudio() {
   const [splitCompareEnabled, setSplitCompareEnabled] = useState<boolean>(false);
   const [splitCompareX, setSplitCompareX] = useState<number>(0.5);
 
-  // AI Prompt, Timeline Edits, & Smart Interval Suggestions
+  // AI Prompt, Per-Color AI Prompts, Timeline Edits, & Smart Interval Suggestions
   const [prompt, setPrompt] = useState<string>('');
+  const [colorPrompts, setColorPrompts] = useState<Partial<Record<MarkColor, string>>>({});
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [edits, setEdits] = useState<TimelineEditItem[]>([]);
   const [undoStack, setUndoStack] = useState<TimelineEditItem[][]>([]);
@@ -738,13 +739,29 @@ export default function VideoEditorStudio() {
     return offscreen.toDataURL('image/png', 0.85);
   };
 
-  const handleApplyAiPrompt = async (customPrompt?: string) => {
-    const textToCompile = (customPrompt ?? prompt).trim();
-    if (!textToCompile) return;
+  const handleApplyAiPrompt = async (
+    customPrompt?: string,
+    targetSpecificColor?: MarkColor
+  ) => {
+    const rawText = (customPrompt ?? prompt).trim();
+    if (!rawText) return;
+
+    // If writing to a specific color's AI, scope annotations to that color and ensure color context
+    const scopedAnnotations = targetSpecificColor
+      ? timeframeAnnotations.filter((a) => a.color === targetSpecificColor)
+      : timeframeAnnotations;
+
+    const textToCompile =
+      targetSpecificColor &&
+      !new RegExp(`\\b${targetSpecificColor}\\b`, 'i').test(rawText)
+        ? `${rawText} on the ${targetSpecificColor} area`
+        : rawText;
 
     setIsCompiling(true);
     setStatusMessage(
-      `Applying AI edit for timeframe [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
+      targetSpecificColor
+        ? `${MARK_COLORS[targetSpecificColor].name} AI applying "${rawText}" in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
+        : `Applying AI edit for timeframe [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
     );
 
     try {
@@ -756,7 +773,7 @@ export default function VideoEditorStudio() {
           prompt: textToCompile,
           startTime: intervalStart,
           endTime: intervalEnd,
-          annotations: timeframeAnnotations,
+          annotations: scopedAnnotations,
           compositeFrameDataUrl,
           geminiApiKey,
         }),
@@ -774,7 +791,11 @@ export default function VideoEditorStudio() {
         setStatusMessage(
           `Applied ${data.edits.length} edit(s) in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s] via ${data.provider}`
         );
-        if (!customPrompt) setPrompt('');
+        if (targetSpecificColor) {
+          setColorPrompts((prev) => ({ ...prev, [targetSpecificColor]: '' }));
+        } else if (!customPrompt) {
+          setPrompt('');
+        }
       }
     } catch (error) {
       console.error('Failed to apply AI edit:', error);
@@ -1818,6 +1839,66 @@ export default function VideoEditorStudio() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+            {/* PER-COLOR AI CONNECTIONS FOR CURRENT TIMEFRAME */}
+            {colorSummaries.length > 0 && (
+              <div className="space-y-2 pb-2 border-b-2 border-[#1d1a16]/25">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#544b43] flex items-center justify-between">
+                  <span>Color AI Connections ({intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s)</span>
+                </div>
+                {colorSummaries.map((cs) => {
+                  const cfg = MARK_COLORS[cs.color];
+                  const val = colorPrompts[cs.color] ?? '';
+                  return (
+                    <div
+                      key={cs.color}
+                      className="bg-[#f5f2e8] border-2 border-[#1d1a16] p-2 shadow-[2px_2px_0px_#1d1a16] space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-xs font-bold text-[#1d1a16]">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full border border-[#1d1a16]"
+                            style={{ backgroundColor: cfg.hex }}
+                          />
+                          <span>{cfg.name} AI</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-[#544b43]">
+                          {cs.isMotionTracked ? 'Tracked ↗' : 'Connected'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={val}
+                          onChange={(e) =>
+                            setColorPrompts((prev) => ({
+                              ...prev,
+                              [cs.color]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && val.trim()) {
+                              handleApplyAiPrompt(val, cs.color);
+                            }
+                          }}
+                          placeholder={`Tell ${cfg.name} AI what to do...`}
+                          className="flex-1 px-2 py-1 bg-[#ece5d3] border border-[#1d1a16] text-xs text-[#1d1a16] placeholder-[#837a6d] focus:outline-none"
+                        />
+                        <button
+                          onClick={() => {
+                            if (val.trim()) handleApplyAiPrompt(val, cs.color);
+                          }}
+                          disabled={!val.trim() || isCompiling}
+                          className={`px-2 py-1 border border-[#1d1a16] text-xs font-bold cursor-pointer disabled:opacity-40 ${cfg.badgeBg} ${cfg.badgeText}`}
+                        >
+                          ▶
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {edits.length === 0 ? (
               <div className="relative bg-[#ece5d3] border-2 border-[#1d1a16] p-5 text-center space-y-2 shadow-[3px_3px_0px_#1d1a16]">
                 <CornerRivets />
