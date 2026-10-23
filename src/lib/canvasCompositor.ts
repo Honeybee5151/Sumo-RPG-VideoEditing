@@ -1542,16 +1542,13 @@ export function renderCompositedFrame(
           };
 
           const lagEffectFn = (intensity = 1.0) => {
-            // Choppy 3.2 FPS frame-freeze + periodic rubberband jump + packet-loss horizontal slice tears + hitching playback speed
+            // Pure visual video lag: choppy ~3.2 FPS frame-freeze + periodic visual rubberband jump to past frame + packet-loss horizontal slice tears (never alters <video> playback speed or audio!)
             const stepSec = Math.max(0.18, 0.32 / Math.max(0.4, intensity));
             const held = holdFrameFn(stepSec);
             const bucket = Math.floor(elapsed / stepSec);
             const subPhase = (elapsed % stepSec) / stepSec;
             const isJumpMoment = subPhase < 0.24;
             const isSevereSpike = bucket % 3 === 1;
-
-            // Hitch underlying video playback rate between freeze-stall (0.12x) and catch-up snap (1.65x)
-            setPlaybackRateFn(isSevereSpike ? 0.12 : isJumpMoment ? 1.65 : 0.35);
 
             const hash = (n: number) => {
               const s = Math.sin(n * 91.7 + 17.3) * 43758.5453;

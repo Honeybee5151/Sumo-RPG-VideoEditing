@@ -129,8 +129,8 @@ Do whatever the user asks at the target position and timeframe by returning a JS
 - \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count, or \`startTime + soundDuration\` if the user asks to lengthen the dot/color interval to fit a sound).
 - \`"audioAssetName"\` (string, optional): If the user asks to use or play a sound from Available Project Sounds (e.g. "use the sound Recorded Sound 1 here"), set this to the exact sound name (e.g. \`"Recorded Sound 1.webm"\`). IMPORTANT: When the user asks ONLY to play a sound on the video without any visual effect, keep the video visible and do NOT provide \`renderCode\` or \`svg\`; when the user asks for BOTH a visual/screen effect (e.g. bounce, zoom, fire, text) AND a sound, provide BOTH \`renderCode\` AND \`audioAssetName\`.
 - \`"duration"\` (number, optional): ONLY use when \`Active Media Type\` is \`image\` and the user asks to change the total timeline duration of the static image. Never set \`duration\` when editing a video (to change the length of a color/dot interval on a video, set \`"endTime"\` instead!).
-- \`"playbackRate"\` (number, optional): Set video playback speed during \`[startTime, endTime]\` (e.g. \`0.25\` to \`4.0\`; works simultaneously with \`renderCode\`).
-- \`"freezeFrame"\` (boolean, optional): Freeze video playback during \`[startTime, endTime]\`.
+- \`"playbackRate"\` (number, optional): ONLY set when the user explicitly asks for slow-motion, fast-forward, or a speed change (e.g. \`"2x speed"\`, \`"slow motion"\`). NEVER set \`playbackRate\` for visual effects like lag, stutter, choppy FPS, or glitch, because changing \`playbackRate\` alters the video timeline clock and distorts audio!
+- \`"freezeFrame"\` (boolean, optional): ONLY set when the user explicitly asks to pause/freeze the timeline player itself. For visual frame-holds or lag, use \`holdFrame(stepSeconds)\` inside \`renderCode\` instead so the video timeline & audio continue at normal 1.0x speed.
 - \`"customCssFilter"\` (string, optional): CSS filter applied to the region/frame (e.g. \`"contrast(160%) saturate(180%) hue-rotate(45deg)"\`).
 - \`"renderCode"\` (string, optional): JavaScript code body executed every frame on the HTML5 2D Canvas during \`[startTime, endTime]\`.
   Your \`renderCode\` runs inside \`function(ctx, env) { ... }\` where both \`ctx\` and all properties & low-level engine primitives of \`env\` are directly in scope so you can invent ANY visual, temporal, physics, or audio-reactive effect from first principles:
@@ -140,9 +140,9 @@ Do whatever the user asks at the target position and timeframe by returning a JS
   - **General-Purpose Engine Primitives (directly callable in \`renderCode\`)**:
     - \`clearFrame(color = '#000000')\`: Clears the pre-drawn live video frame from \`ctx\`.
     - \`createBuffer(id = 'buf', bw = width, bh = height)\`: Returns a persistent offscreen \`{ canvas, ctx }\` preserved across frames for multi-pass effects, motion blur, feedback loops, pixel manipulation, or custom caching.
-    - \`holdFrame(stepSeconds = 0.28)\`: Captures and holds a frozen video frame for \`stepSeconds\` real seconds at a time and returns that \`HTMLCanvasElement\`.
-    - \`getPastFrame(secondsAgo = 0.35)\`: Returns a real historical \`HTMLCanvasElement\` snapshot from \`secondsAgo\` real seconds in the past (up to \`1.8\` seconds ago) for time-echo, rewind, rubberbanding, datamoshing, or ghost trails.
-    - \`setPlaybackRate(rate)\`: Dynamically controls the \`<video>\` playback speed (\`0.0625\` to \`4.0\`) on the fly every frame.
+    - \`holdFrame(stepSeconds = 0.28)\`: Captures and holds a frozen video frame on the canvas for \`stepSeconds\` real seconds at a time while the underlying video continues playing at normal 1.0x speed, and returns that frozen \`HTMLCanvasElement\`.
+    - \`getPastFrame(secondsAgo = 0.35)\`: Returns a real historical \`HTMLCanvasElement\` snapshot from \`secondsAgo\` real seconds in the past (up to \`1.8\` seconds ago) for visual rubberbanding, time-echo, rewind, datamoshing, or ghost trails.
+    - \`setPlaybackRate(rate)\`: Dynamically controls the \`<video>\` player speed (\`0.0625\` to \`4.0\`). ONLY call if the user explicitly asks to change playback/audio speed (e.g. speed ramp, slow-mo); NEVER call \`setPlaybackRate\` for visual lag/stutter effects!
     - \`playTone(freqHz = 440, durationSec = 0.08, type = 'sine', volume = 0.15)\`: Plays a procedural Web Audio tone (\`type\`: \`'sine' | 'square' | 'sawtooth' | 'triangle'\`, rate-limited per edit) if the effect calls for synthesized sound.
     - \`hash(n)\`: Deterministic pseudo-random float in \`[0, 1)\` for any seed number \`n\`.
     - \`noise(nx, ny = 0)\`: Smooth 2D value noise in \`[0, 1]\` for organic motion, camera shake, fire, water, or procedural textures.
@@ -413,6 +413,21 @@ export function parseAiEditResponse(
       }
     } else if (rawSoundName) {
       rawParams.audioAssetName = rawSoundName;
+    }
+
+    // Guard against an LLM accidentally changing <video> playback speed (which alters timeline & audio speed) on visual-only prompts like lag, stutter, bounce, etc.
+    const userAskedForSpeedChange = /\b(speed|slow\s*mo|slow-mo|slow\s+motion|fast\s*forward|faster|slower|\d+(\.\d+)?x\b|playback\s*rate|time\s*lapse|timelapse)\b/i.test(
+      ctx.prompt
+    );
+    if (!userAskedForSpeedChange) {
+      delete rawParams.playbackRate;
+      delete rawParams.freezeFrame;
+      if (typeof rawParams.renderCode === 'string') {
+        rawParams.renderCode = rawParams.renderCode.replace(
+          /\bsetPlaybackRate\s*\([^)]*\)\s*;?/g,
+          ''
+        );
+      }
     }
 
     const hasOpenEndedAiPayload = Boolean(
