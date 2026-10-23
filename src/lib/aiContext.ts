@@ -108,6 +108,7 @@ Do whatever the user asks at the target position and timeframe by returning a JS
 - \`"targetColor"\`: The target position's \`targetColor\` ID (e.g. \`"${focusedColorId || (colorSummary[0]?.color ?? 'all')}"\`).
 - \`"startTime"\`: Start time in seconds (default \`${ctx.startTime.toFixed(2)}\`).
 - \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count).
+- \`"duration"\` (number, optional): If the loaded media is a static image (or if the user asks to add time / set duration on the timeline, e.g. "make this image 8 seconds long"), set the total timeline duration in seconds.
 - \`"renderCode"\` (string, optional): JavaScript code body executed every frame on the HTML5 2D Canvas during \`[startTime, endTime]\`.
   Your \`renderCode\` runs inside \`function(ctx, env) { ... }\` where both \`ctx\` and all properties of \`env\` are directly in scope:
   - \`ctx\`: \`CanvasRenderingContext2D\` of the output video canvas
@@ -143,6 +144,7 @@ export interface ParsedAiResponseResult {
   edits: TimelineEditItem[];
   cutsToAdd: Array<{ startTime: number; endTime: number }>;
   splitsToAdd: number[];
+  newDuration?: number;
 }
 
 /**
@@ -222,8 +224,12 @@ export function parseAiEditResponse(
   const edits: TimelineEditItem[] = [];
   const cutsToAdd: Array<{ startTime: number; endTime: number }> = [];
   const splitsToAdd: number[] = [];
+  let newDuration: number | undefined;
 
   rawItems.forEach((item, idx) => {
+    if (typeof item.duration === 'number' && item.duration > 0) {
+      newDuration = item.duration;
+    }
     const action = typeof item.action === 'string' ? item.action.toLowerCase() : '';
     if (action === 'cut' || action === 'delete' || item.effectType === 'cut') {
       const s =
@@ -354,5 +360,5 @@ export function parseAiEditResponse(
     });
   });
 
-  return { edits, cutsToAdd, splitsToAdd };
+  return { edits, cutsToAdd, splitsToAdd, newDuration };
 }

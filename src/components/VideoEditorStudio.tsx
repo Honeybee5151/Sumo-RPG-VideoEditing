@@ -112,6 +112,7 @@ export default function VideoEditorStudio() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [activeImageUrl, setActiveImageUrl] = useState<string | null>(null);
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
+  const [imageHasAiTime, setImageHasAiTime] = useState<boolean>(false);
   const [videoFileName, setVideoFileName] = useState<string>('No media loaded');
   const [duration, setDuration] = useState<number>(DEFAULT_DURATION);
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -982,6 +983,7 @@ export default function VideoEditorStudio() {
       } else if (asset.category === 'image') {
         setVideoUrl(null);
         setActiveImageUrl(asset.url);
+        setImageHasAiTime(false);
         setVideoFileName(asset.name);
         setDuration(10);
         setCurrentTime(0);
@@ -1766,9 +1768,23 @@ export default function VideoEditorStudio() {
       const hasCuts = Array.isArray(data.cutsToAdd) && data.cutsToAdd.length > 0;
       const hasSplits =
         Array.isArray(data.splitsToAdd) && data.splitsToAdd.length > 0;
+      const hasNewDuration =
+        typeof data.newDuration === 'number' && data.newDuration > 0;
 
-      if (hasEdits || hasCuts || hasSplits) {
+      if (hasEdits || hasCuts || hasSplits || hasNewDuration) {
         recordHistorySnapshot();
+        if (hasNewDuration) {
+          setDuration(data.newDuration);
+          setIntervalEnd(Math.min(data.newDuration, Math.max(intervalEnd, data.newDuration)));
+          if (activeImageUrl) {
+            setImageHasAiTime(true);
+          }
+        } else if (
+          activeImageUrl &&
+          /\b(seconds?|sec|frames?|duration|time|timeline|long)\b/i.test(rawText)
+        ) {
+          setImageHasAiTime(true);
+        }
         if (hasEdits) {
           setEdits((prev) => [...prev, ...data.edits]);
           setSelectedEditId(data.edits[0].id);
@@ -1866,7 +1882,9 @@ export default function VideoEditorStudio() {
     [visibleTimelineSpan]
   );
 
-  const hasMediaLoaded = Boolean(videoUrl || activeImageUrl || activeAudioUrl);
+  const hasMediaLoaded = Boolean(
+    videoUrl || activeAudioUrl || (activeImageUrl && imageHasAiTime)
+  );
 
   const handleTimelineZoomChange = useCallback(
     (nextZoomRaw: number) => {

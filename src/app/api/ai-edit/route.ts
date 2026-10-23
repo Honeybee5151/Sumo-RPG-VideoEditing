@@ -631,7 +631,8 @@ export async function POST(req: NextRequest) {
         if (
           parsed.edits.length > 0 ||
           parsed.cutsToAdd.length > 0 ||
-          parsed.splitsToAdd.length > 0
+          parsed.splitsToAdd.length > 0 ||
+          parsed.newDuration
         ) {
           const editsWithTokens = parsed.edits.map((ed) => ({
             ...ed,
@@ -641,6 +642,7 @@ export async function POST(req: NextRequest) {
             edits: editsWithTokens,
             cutsToAdd: parsed.cutsToAdd,
             splitsToAdd: parsed.splitsToAdd,
+            newDuration: parsed.newDuration,
             provider: providerLabel,
             usage: {
               ...usage,
