@@ -167,6 +167,17 @@ export default function VideoEditorStudio() {
       edits: TimelineEditItem[];
       cuts: Array<{ id: string; startTime: number; endTime: number }>;
       splitPoints: number[];
+      intervalStart: number;
+      intervalEnd: number;
+      focusedColor: MarkColor | 'all';
+      selectedEditId: string | null;
+      selectedSegment: { startTime: number; endTime: number } | null;
+      mediaLibrary: MediaAssetItem[];
+      videoUrl: string | null;
+      activeImageUrl: string | null;
+      activeAudioUrl: string | null;
+      videoFileName: string;
+      duration: number;
     }>
   >([]);
   const [redoStack, setRedoStack] = useState<
@@ -175,6 +186,17 @@ export default function VideoEditorStudio() {
       edits: TimelineEditItem[];
       cuts: Array<{ id: string; startTime: number; endTime: number }>;
       splitPoints: number[];
+      intervalStart: number;
+      intervalEnd: number;
+      focusedColor: MarkColor | 'all';
+      selectedEditId: string | null;
+      selectedSegment: { startTime: number; endTime: number } | null;
+      mediaLibrary: MediaAssetItem[];
+      videoUrl: string | null;
+      activeImageUrl: string | null;
+      activeAudioUrl: string | null;
+      videoFileName: string;
+      duration: number;
     }>
   >([]);
   const [selectedEditId, setSelectedEditId] = useState<string | null>(null);
@@ -250,11 +272,43 @@ export default function VideoEditorStudio() {
 
   const recordHistorySnapshot = useCallback(() => {
     setUndoStack((stack) => [
-      ...stack.slice(-24),
-      { annotations, edits, cuts, splitPoints },
+      ...stack.slice(-30),
+      {
+        annotations,
+        edits,
+        cuts,
+        splitPoints,
+        intervalStart,
+        intervalEnd,
+        focusedColor,
+        selectedEditId,
+        selectedSegment,
+        mediaLibrary,
+        videoUrl,
+        activeImageUrl,
+        activeAudioUrl,
+        videoFileName,
+        duration,
+      },
     ]);
     setRedoStack([]);
-  }, [annotations, edits, cuts, splitPoints]);
+  }, [
+    annotations,
+    edits,
+    cuts,
+    splitPoints,
+    intervalStart,
+    intervalEnd,
+    focusedColor,
+    selectedEditId,
+    selectedSegment,
+    mediaLibrary,
+    videoUrl,
+    activeImageUrl,
+    activeAudioUrl,
+    videoFileName,
+    duration,
+  ]);
 
   const pushEditsWithUndo = useCallback(
     (updater: (prev: TimelineEditItem[]) => TimelineEditItem[]) => {
@@ -290,13 +344,11 @@ export default function VideoEditorStudio() {
     const boundaries = [0, ...nextSplits, duration];
     const idx = nextSplits.indexOf(t);
     if (idx > 0) {
-      // Automatically select the segment between the previous cut and this cut!
       setSelectedSegment({
         startTime: boundaries[idx],
         endTime: boundaries[idx + 1],
       });
     } else {
-      // First cut: select [0, t] so clicking Delete removes the leading section (or click the other side on timeline)
       setSelectedSegment({
         startTime: 0,
         endTime: t,
@@ -345,7 +397,6 @@ export default function VideoEditorStudio() {
       return;
     }
 
-    // Fallback: delete active interval if nothing else is split or focused
     const s = Number(Math.max(0, Math.min(intervalStart, intervalEnd - 0.2)).toFixed(2));
     const e = Number(Math.min(duration, Math.max(intervalEnd, s + 0.2)).toFixed(2));
     recordHistorySnapshot();
@@ -373,35 +424,160 @@ export default function VideoEditorStudio() {
     if (undoStack.length === 0) return;
     const previous = undoStack[undoStack.length - 1];
     setRedoStack((r) => [
-      ...r.slice(-24),
-      { annotations, edits, cuts, splitPoints },
+      ...r.slice(-30),
+      {
+        annotations,
+        edits,
+        cuts,
+        splitPoints,
+        intervalStart,
+        intervalEnd,
+        focusedColor,
+        selectedEditId,
+        selectedSegment,
+        mediaLibrary,
+        videoUrl,
+        activeImageUrl,
+        activeAudioUrl,
+        videoFileName,
+        duration,
+      },
     ]);
     setUndoStack((s) => s.slice(0, -1));
     setAnnotations(previous.annotations);
     setEdits(previous.edits);
     setCuts(previous.cuts);
     setSplitPoints(previous.splitPoints);
-  }, [undoStack, annotations, edits, cuts, splitPoints]);
+    setIntervalStart(previous.intervalStart);
+    setIntervalEnd(previous.intervalEnd);
+    setFocusedColor(previous.focusedColor);
+    setSelectedEditId(previous.selectedEditId);
+    setSelectedSegment(previous.selectedSegment);
+    setMediaLibrary(previous.mediaLibrary);
+    setVideoUrl(previous.videoUrl);
+    setActiveImageUrl(previous.activeImageUrl);
+    setActiveAudioUrl(previous.activeAudioUrl);
+    setVideoFileName(previous.videoFileName);
+    setDuration(previous.duration);
+  }, [
+    undoStack,
+    annotations,
+    edits,
+    cuts,
+    splitPoints,
+    intervalStart,
+    intervalEnd,
+    focusedColor,
+    selectedEditId,
+    selectedSegment,
+    mediaLibrary,
+    videoUrl,
+    activeImageUrl,
+    activeAudioUrl,
+    videoFileName,
+    duration,
+  ]);
 
   const handleRedoEdit = useCallback(() => {
     if (redoStack.length === 0) return;
     const next = redoStack[redoStack.length - 1];
     setUndoStack((s) => [
-      ...s.slice(-24),
-      { annotations, edits, cuts, splitPoints },
+      ...s.slice(-30),
+      {
+        annotations,
+        edits,
+        cuts,
+        splitPoints,
+        intervalStart,
+        intervalEnd,
+        focusedColor,
+        selectedEditId,
+        selectedSegment,
+        mediaLibrary,
+        videoUrl,
+        activeImageUrl,
+        activeAudioUrl,
+        videoFileName,
+        duration,
+      },
     ]);
     setRedoStack((r) => r.slice(0, -1));
     setAnnotations(next.annotations);
     setEdits(next.edits);
     setCuts(next.cuts);
     setSplitPoints(next.splitPoints);
-  }, [redoStack, annotations, edits, cuts, splitPoints]);
+    setIntervalStart(next.intervalStart);
+    setIntervalEnd(next.intervalEnd);
+    setFocusedColor(next.focusedColor);
+    setSelectedEditId(next.selectedEditId);
+    setSelectedSegment(next.selectedSegment);
+    setMediaLibrary(next.mediaLibrary);
+    setVideoUrl(next.videoUrl);
+    setActiveImageUrl(next.activeImageUrl);
+    setActiveAudioUrl(next.activeAudioUrl);
+    setVideoFileName(next.videoFileName);
+    setDuration(next.duration);
+  }, [
+    redoStack,
+    annotations,
+    edits,
+    cuts,
+    splitPoints,
+    intervalStart,
+    intervalEnd,
+    focusedColor,
+    selectedEditId,
+    selectedSegment,
+    mediaLibrary,
+    videoUrl,
+    activeImageUrl,
+    activeAudioUrl,
+    videoFileName,
+    duration,
+  ]);
 
   // Keyboard shortcuts (Space, C to Cut on red playhead, Delete/Backspace, Cmd/Ctrl+Z Undo, Cmd/Ctrl+X or Shift+Z/Y Redo)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      const inputType = (target as HTMLInputElement | null)?.type;
+      const isTextInput =
+        tag === 'TEXTAREA' ||
+        (tag === 'INPUT' &&
+          inputType !== 'range' &&
+          inputType !== 'checkbox' &&
+          inputType !== 'button');
+
+      // Allow Ctrl+Z / Ctrl+X / Ctrl+Y even when focused on sliders, checkboxes, or empty inputs!
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        const textVal = (target as HTMLInputElement | null)?.value ?? '';
+        if (!isTextInput || textVal.length === 0) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleRedoEdit();
+          } else {
+            handleUndoEdit();
+          }
+          return;
+        }
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key.toLowerCase() === 'x' || e.key.toLowerCase() === 'y')
+      ) {
+        const hasSelection =
+          isTextInput &&
+          typeof (target as HTMLInputElement).selectionStart === 'number' &&
+          (target as HTMLInputElement).selectionStart !==
+            (target as HTMLInputElement).selectionEnd;
+        if (!hasSelection) {
+          e.preventDefault();
+          handleRedoEdit();
+          return;
+        }
+      }
+
+      if (isTextInput || tag === 'SELECT') return;
 
       if (e.code === 'Space') {
         e.preventDefault();
@@ -410,28 +586,13 @@ export default function VideoEditorStudio() {
         e.preventDefault();
         handleDeleteSelected();
       } else if (e.key === '[') {
+        recordHistorySnapshot();
         setIntervalStart(Math.min(currentTime, intervalEnd - 0.3));
       } else if (e.key === ']') {
+        recordHistorySnapshot();
         setIntervalEnd(Math.max(currentTime, intervalStart + 0.3));
       } else if (e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey) {
         handleCutInterval();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleRedoEdit();
-        } else {
-          handleUndoEdit();
-        }
-      } else if (
-        (e.ctrlKey || e.metaKey) &&
-        (e.key.toLowerCase() === 'y' || e.key.toLowerCase() === 'x')
-      ) {
-        e.preventDefault();
-        if (redoStack.length > 0) {
-          handleRedoEdit();
-        } else {
-          handleUndoEdit();
-        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -440,7 +601,7 @@ export default function VideoEditorStudio() {
     currentTime,
     intervalStart,
     intervalEnd,
-    redoStack.length,
+    recordHistorySnapshot,
     handleCutInterval,
     handleDeleteSelected,
     handleUndoEdit,
@@ -631,46 +792,56 @@ export default function VideoEditorStudio() {
     }
   }, [isPlaying, videoUrl, activeAudioUrl, currentTime, isMuted, duration, getActivePlaybackRate]);
 
-  const activateMediaAsset = useCallback((asset: MediaAssetItem) => {
-    if (asset.category === 'video') {
-      setActiveImageUrl(null);
-      setVideoUrl(asset.url);
-      setVideoFileName(asset.name);
-      setIsMuted(false);
-      setCurrentTime(0);
-      setAnnotations([]);
-      setEdits([]);
-      setCuts([]);
-      setSelectedEditId(null);
-      setFocusedColor('all');
-      if (asset.blob instanceof File) {
-        extractAudioPeaksFromFile(asset.blob, 96).then((peaks) =>
-          setWaveformPeaks(peaks)
-        );
+  const activateMediaAsset = useCallback(
+    (asset: MediaAssetItem, recordUndo = true) => {
+      if (recordUndo) {
+        recordHistorySnapshot();
       }
-    } else if (asset.category === 'image') {
-      setVideoUrl(null);
-      setActiveImageUrl(asset.url);
-      setVideoFileName(asset.name);
-      setDuration(10);
-      setCurrentTime(0);
-      setIntervalStart(0);
-      setIntervalEnd(5);
-      setAnnotations([]);
-      setEdits([]);
-      setCuts([]);
-      setSelectedEditId(null);
-      setFocusedColor('all');
-    } else if (asset.category === 'audio') {
-      setActiveAudioUrl(asset.url);
-      setIsMuted(false);
-      if (asset.blob instanceof File) {
-        extractAudioPeaksFromFile(asset.blob, 96).then((peaks) =>
-          setWaveformPeaks(peaks)
-        );
+      if (asset.category === 'video') {
+        setActiveImageUrl(null);
+        setVideoUrl(asset.url);
+        setVideoFileName(asset.name);
+        setIsMuted(false);
+        setCurrentTime(0);
+        setAnnotations([]);
+        setEdits([]);
+        setCuts([]);
+        setSplitPoints([]);
+        setSelectedSegment(null);
+        setSelectedEditId(null);
+        setFocusedColor('all');
+        if (asset.blob instanceof File) {
+          extractAudioPeaksFromFile(asset.blob, 96).then((peaks) =>
+            setWaveformPeaks(peaks)
+          );
+        }
+      } else if (asset.category === 'image') {
+        setVideoUrl(null);
+        setActiveImageUrl(asset.url);
+        setVideoFileName(asset.name);
+        setDuration(10);
+        setCurrentTime(0);
+        setIntervalStart(0);
+        setIntervalEnd(5);
+        setAnnotations([]);
+        setEdits([]);
+        setCuts([]);
+        setSplitPoints([]);
+        setSelectedSegment(null);
+        setSelectedEditId(null);
+        setFocusedColor('all');
+      } else if (asset.category === 'audio') {
+        setActiveAudioUrl(asset.url);
+        setIsMuted(false);
+        if (asset.blob instanceof File) {
+          extractAudioPeaksFromFile(asset.blob, 96).then((peaks) =>
+            setWaveformPeaks(peaks)
+          );
+        }
       }
-    }
-  }, []);
+    },
+    [recordHistorySnapshot]
+  );
 
   const toggleFavoriteAsset = useCallback((assetId: string) => {
     setMediaLibrary((prev) =>
@@ -696,6 +867,7 @@ export default function VideoEditorStudio() {
         try {
           const parsed = JSON.parse(String(reader.result)) as ProjectFileSchema;
           if (parsed.edits && Array.isArray(parsed.edits)) {
+            recordHistorySnapshot();
             if (parsed.sceneId) setSceneId(parsed.sceneId);
             setIntervalStart(parsed.intervalStart ?? 1.0);
             setIntervalEnd(parsed.intervalEnd ?? 6.0);
@@ -710,6 +882,7 @@ export default function VideoEditorStudio() {
       return;
     }
 
+    recordHistorySnapshot();
     const category = detectMediaCategory(file);
     const url = URL.createObjectURL(file);
     const newItem: MediaAssetItem = {
@@ -725,7 +898,7 @@ export default function VideoEditorStudio() {
 
     setMediaLibrary((prev) => [newItem, ...prev]);
     setLibraryCategory(category);
-    activateMediaAsset(newItem);
+    activateMediaAsset(newItem, false);
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1952,6 +2125,7 @@ export default function VideoEditorStudio() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              recordHistorySnapshot();
                               setMediaLibrary((prev) =>
                                 prev
                                   .map((m) =>
@@ -2187,6 +2361,7 @@ export default function VideoEditorStudio() {
                           (a) => a.color === ann.color
                         ).length;
                         if (sameColorCount > 1) {
+                          recordHistorySnapshot();
                           setAnnotations((prev) =>
                             prev.filter((a) => a.id !== ann.id)
                           );
@@ -2209,6 +2384,7 @@ export default function VideoEditorStudio() {
                           | 'e'
                       ) => {
                         e.stopPropagation();
+                        recordHistorySnapshot();
                         overlaySvgRef.current?.setPointerCapture(e.pointerId);
                         selectColorForAi(ann.color);
                         canvasTransformRef.current = {
@@ -2654,6 +2830,7 @@ export default function VideoEditorStudio() {
                 <button
                   type="button"
                   onClick={() => {
+                    recordHistorySnapshot();
                     setDraftIntervalStart(intervalStart.toFixed(1));
                     setDraftIntervalEnd(intervalEnd.toFixed(1));
                     setIsEditingIntervalBadge(true);
@@ -2677,6 +2854,7 @@ export default function VideoEditorStudio() {
                 <button
                   type="button"
                   onClick={() => {
+                    recordHistorySnapshot();
                     setDraftIntervalStart(intervalStart.toFixed(1));
                     setDraftIntervalEnd(intervalEnd.toFixed(1));
                     setIsEditingIntervalBadge(true);
@@ -2949,6 +3127,7 @@ export default function VideoEditorStudio() {
                 <div
                   onPointerDown={(e) => {
                     e.stopPropagation();
+                    recordHistorySnapshot();
                     draggingHandleRef.current = 'start';
                   }}
                   className="pointer-events-auto absolute -left-2 top-1 w-4 h-5 bg-[#26231f] hover:bg-[#b82d23] rounded-xs flex items-center justify-center cursor-ew-resize"
@@ -2960,6 +3139,7 @@ export default function VideoEditorStudio() {
                 <div
                   onPointerDown={(e) => {
                     e.stopPropagation();
+                    recordHistorySnapshot();
                     draggingHandleRef.current = 'end';
                   }}
                   className="pointer-events-auto absolute -right-2 top-1 w-4 h-5 bg-[#26231f] hover:bg-[#b82d23] rounded-xs flex items-center justify-center cursor-ew-resize"
@@ -3001,6 +3181,7 @@ export default function VideoEditorStudio() {
                     <div
                       onPointerDown={(e) => {
                         e.stopPropagation();
+                        recordHistorySnapshot();
                         selectColorForAi(selectedGroup.color);
                         draggingColorEdgeRef.current = {
                           color: selectedGroup.color,
@@ -3022,6 +3203,7 @@ export default function VideoEditorStudio() {
                       <div
                         onPointerDown={(e) => {
                           e.stopPropagation();
+                          recordHistorySnapshot();
                           selectColorForAi(selectedGroup.color);
                           draggingColorEdgeRef.current = {
                             color: selectedGroup.color,
@@ -3060,6 +3242,7 @@ export default function VideoEditorStudio() {
                       <div
                         onPointerDown={(e) => {
                           e.stopPropagation();
+                          recordHistorySnapshot();
                           selectColorForAi(selectedGroup.color);
                           draggingColorEdgeRef.current = {
                             color: selectedGroup.color,
@@ -3119,12 +3302,21 @@ export default function VideoEditorStudio() {
               )}
               <button
                 onClick={() => {
+                  recordHistorySnapshot();
                   setAnnotations([]);
-                  pushEditsWithUndo(() => []);
+                  setEdits([]);
+                  setCuts([]);
+                  setSplitPoints([]);
                   setSelectedEditId(null);
+                  setSelectedSegment(null);
                   setFocusedColor('all');
                 }}
-                disabled={allColorGroups.length === 0 && edits.length === 0}
+                disabled={
+                  allColorGroups.length === 0 &&
+                  edits.length === 0 &&
+                  cuts.length === 0 &&
+                  splitPoints.length === 0
+                }
                 className="text-xs text-[#6e655c] hover:text-[#b82d23] disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
               >
                 Clear All
@@ -3361,6 +3553,7 @@ export default function VideoEditorStudio() {
                     max={duration}
                     step={0.1}
                     value={selectedEdit.startTime}
+                    onPointerDown={() => recordHistorySnapshot()}
                     onChange={(e) => {
                       const val = Math.min(
                         parseFloat(e.target.value),
@@ -3387,6 +3580,7 @@ export default function VideoEditorStudio() {
                     max={duration}
                     step={0.1}
                     value={selectedEdit.endTime}
+                    onPointerDown={() => recordHistorySnapshot()}
                     onChange={(e) => {
                       const val = Math.max(
                         parseFloat(e.target.value),
@@ -3416,6 +3610,7 @@ export default function VideoEditorStudio() {
                     max={3.5}
                     step={0.1}
                     value={selectedEdit.params.zoomScale ?? 1.8}
+                    onPointerDown={() => recordHistorySnapshot()}
                     onChange={(e) => {
                       const zoomScale = parseFloat(e.target.value);
                       setEdits((prev) =>
@@ -3450,6 +3645,7 @@ export default function VideoEditorStudio() {
                         max={36}
                         step={1}
                         value={selectedEdit.params.blurRadius ?? 16}
+                        onPointerDown={() => recordHistorySnapshot()}
                         onChange={(e) => {
                           const blurRadius = parseInt(e.target.value, 10);
                           setEdits((prev) =>
@@ -3472,6 +3668,7 @@ export default function VideoEditorStudio() {
                       type="checkbox"
                       checked={Boolean(selectedEdit.params.invertMask)}
                       onChange={(e) => {
+                        recordHistorySnapshot();
                         const invertMask = e.target.checked;
                         setEdits((prev) =>
                           prev.map((it) =>
@@ -3498,6 +3695,7 @@ export default function VideoEditorStudio() {
                   <input
                     type="text"
                     value={selectedEdit.params.text ?? ''}
+                    onFocus={() => recordHistorySnapshot()}
                     onChange={(e) => {
                       const text = e.target.value;
                       setEdits((prev) =>
@@ -3525,6 +3723,7 @@ export default function VideoEditorStudio() {
                   <select
                     value={selectedEdit.params.generativeStyle ?? 'gold_aura'}
                     onChange={(e) => {
+                      recordHistorySnapshot();
                       const generativeStyle = e.target.value as
                         | 'fire'
                         | 'hologram'
