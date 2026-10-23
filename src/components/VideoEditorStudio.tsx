@@ -2644,32 +2644,12 @@ export default function VideoEditorStudio() {
     }
   };
 
-  // Highlights visible at the current playhead timestamp (`currentTime`), plus the actively focused color while paused so the Red Playhead and color bar are 100% independent
+  // Only show the currently selected Box/Dot (`focusedColor !== 'all'`), and hide all other Boxes/Dots while playing or while creating a new Box/Dot (`currentStroke`)
   const timeframeAnnotations = annotations.filter((a) => {
-    if (
-      isPlaying &&
-      edits.some(
-        (ed) =>
-          ed.enabled &&
-          ed.targetColor === a.color &&
-          currentTime >= ed.startTime &&
-          currentTime <= ed.endTime
-      )
-    ) {
-      return false;
-    }
-    if (activeImageUrl && !videoUrl && !imageHasAiTime) {
-      return true;
-    }
-    const s = a.startTime ?? 0;
-    const e = a.endTime ?? duration;
-    return (
-      (currentTime >= s - 0.05 && currentTime <= e + 0.05) ||
-      (!isPlaying &&
-        ((focusedColor !== 'all' && a.color === focusedColor) ||
-          (Math.abs(s - intervalStart) < 0.08 &&
-            Math.abs(e - intervalEnd) < 0.08)))
-    );
+    if (isPlaying) return false;
+    if (currentStroke && currentStroke.length > 0) return false;
+    if (focusedColor === 'all') return false;
+    return a.color === focusedColor;
   });
 
   // Automatically pick the next unused distinct color whenever the timeframe changes
@@ -2762,6 +2742,7 @@ export default function VideoEditorStudio() {
     if (canvasTransformRef.current) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const pt = getNormalizedPoint(e);
+    setFocusedColor('all');
     setCurrentStroke([pt]);
   };
 
@@ -4616,7 +4597,10 @@ export default function VideoEditorStudio() {
                 ).map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
-                    onClick={() => setActiveTool(id)}
+                    onClick={() => {
+                      setActiveTool(id);
+                      setFocusedColor('all');
+                    }}
                     className={`w-14 h-6 flex items-center justify-center gap-1 rounded-md text-[11px] font-medium whitespace-nowrap transition cursor-pointer shrink-0 ${
                       activeTool === id
                         ? 'bg-[#26231f] text-white'
@@ -5954,7 +5938,9 @@ export default function VideoEditorStudio() {
                   return (
                     <div
                       key={cg.color}
-                      onClick={() => selectColorForAi(cg.color)}
+                      onClick={() =>
+                        selectColorForAi(isFocused ? 'all' : cg.color)
+                      }
                       className={`w-full border transition cursor-pointer space-y-2 shrink-0 overflow-hidden ${
                         isDotOnly
                           ? colorEdits.length > 0
