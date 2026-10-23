@@ -120,7 +120,12 @@ export default function VideoEditorStudio() {
   const [libraryScope, setLibraryScope] = useState<'project' | 'favorites'>('project');
   const [libraryCategory, setLibraryCategory] = useState<MediaCategory>('video');
 
-  // Timeline Cut Segments (sections cut out of the video)
+  // Timeline Cut Points (placed on the Red Playhead) & Deleted Segments
+  const [splitPoints, setSplitPoints] = useState<number[]>([]);
+  const [selectedSegment, setSelectedSegment] = useState<{
+    startTime: number;
+    endTime: number;
+  } | null>(null);
   const [cuts, setCuts] = useState<Array<{ id: string; startTime: number; endTime: number }>>([]);
 
   const [videoMeta, setVideoMeta] = useState<VideoMetadataInfo>({
@@ -151,12 +156,27 @@ export default function VideoEditorStudio() {
   const [splitCompareEnabled, setSplitCompareEnabled] = useState<boolean>(false);
   const [splitCompareX, setSplitCompareX] = useState<number>(0.5);
 
-  // AI Prompt, Per-Color AI Prompts, Timeline Edits, & Smart Interval Suggestions
+  // AI Prompt, Per-Color AI Prompts, Timeline Edits, & Full Undo/Redo History
   const [prompt, setPrompt] = useState<string>('');
   const [colorPrompts, setColorPrompts] = useState<Partial<Record<MarkColor, string>>>({});
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [edits, setEdits] = useState<TimelineEditItem[]>([]);
-  const [undoStack, setUndoStack] = useState<TimelineEditItem[][]>([]);
+  const [undoStack, setUndoStack] = useState<
+    Array<{
+      annotations: ScreenAnnotation[];
+      edits: TimelineEditItem[];
+      cuts: Array<{ id: string; startTime: number; endTime: number }>;
+      splitPoints: number[];
+    }>
+  >([]);
+  const [redoStack, setRedoStack] = useState<
+    Array<{
+      annotations: ScreenAnnotation[];
+      edits: TimelineEditItem[];
+      cuts: Array<{ id: string; startTime: number; endTime: number }>;
+      splitPoints: number[];
+    }>
+  >([]);
   const [selectedEditId, setSelectedEditId] = useState<string | null>(null);
   const [suggestedIntervals, setSuggestedIntervals] = useState<SuggestedInterval[]>([]);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -228,30 +248,107 @@ export default function VideoEditorStudio() {
     });
   }, []);
 
+  const recordHistorySnapshot = useCallback(() => {
+    setUndoStack((stack) => [
+      ...stack.slice(-24),
+      { annotations, edits, cuts, splitPoints },
+    ]);
+    setRedoStack([]);
+  }, [annotations, edits, cuts, splitPoints]);
+
   const pushEditsWithUndo = useCallback(
     (updater: (prev: TimelineEditItem[]) => TimelineEditItem[]) => {
-      setEdits((prev) => {
-        setUndoStack((stack) => [...stack.slice(-15), prev]);
-        return updater(prev);
-      });
+      recordHistorySnapshot();
+      setEdits((prev) => updater(prev));
     },
-    []
+    [recordHistorySnapshot]
   );
 
   const deleteColor = useCallback(
     (color: MarkColor) => {
+      recordHistorySnapshot();
       setAnnotations((prev) => prev.filter((a) => a.color !== color));
-      pushEditsWithUndo((prev) => prev.filter((e) => e.targetColor !== color));
+      setEdits((prev) => prev.filter((e) => e.targetColor !== color));
       if (focusedColor === color) {
         setFocusedColor('all');
       }
     },
-    [focusedColor, pushEditsWithUndo]
+    [focusedColor, recordHistorySnapshot]
   );
 
+  // Cut right on the Red Playhead (`currentTime`)
   const handleCutInterval = useCallback(() => {
+    const t = Number(
+      Math.max(0.05, Math.min(duration - 0.05, currentTime)).toFixed(2)
+    );
+    recordHistorySnapshot();
+    const nextSplits = Array.from(
+      new Set([...splitPoints.filter((p) => Math.abs(p - t) > 0.05), t])
+    ).sort((a, b) => a - b);
+    setSplitPoints(nextSplits);
+
+    const boundaries = [0, ...nextSplits, duration];
+    const idx = nextSplits.indexOf(t);
+    if (idx > 0) {
+      // Automatically select the segment between the previous cut and this cut!
+      setSelectedSegment({
+        startTime: boundaries[idx],
+        endTime: boundaries[idx + 1],
+      });
+    } else {
+      // First cut: select [0, t] so clicking Delete removes the leading section (or click the other side on timeline)
+      setSelectedSegment({
+        startTime: 0,
+        endTime: t,
+      });
+    }
+  }, [currentTime, duration, recordHistorySnapshot, splitPoints]);
+
+  // Delete the selected cut segment (or segment under the Red Playhead / focused Box or Dot)
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedSegment) {
+      recordHistorySnapshot();
+      setCuts((prev) => [
+        ...prev,
+        {
+          id: `cut-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          startTime: selectedSegment.startTime,
+          endTime: selectedSegment.endTime,
+        },
+      ]);
+      setSelectedSegment(null);
+      return;
+    }
+
+    if (splitPoints.length > 0) {
+      const boundaries = [0, ...splitPoints, duration];
+      for (let i = 0; i < boundaries.length - 1; i++) {
+        const s = boundaries[i];
+        const e = boundaries[i + 1];
+        if (currentTime >= s - 0.02 && currentTime <= e + 0.02) {
+          recordHistorySnapshot();
+          setCuts((prev) => [
+            ...prev,
+            {
+              id: `cut-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+              startTime: s,
+              endTime: e,
+            },
+          ]);
+          return;
+        }
+      }
+    }
+
+    if (focusedColor !== 'all') {
+      deleteColor(focusedColor);
+      return;
+    }
+
+    // Fallback: delete active interval if nothing else is split or focused
     const s = Number(Math.max(0, Math.min(intervalStart, intervalEnd - 0.2)).toFixed(2));
     const e = Number(Math.min(duration, Math.max(intervalEnd, s + 0.2)).toFixed(2));
+    recordHistorySnapshot();
     setCuts((prev) => [
       ...prev,
       {
@@ -260,18 +357,47 @@ export default function VideoEditorStudio() {
         endTime: e,
       },
     ]);
-  }, [intervalStart, intervalEnd, duration]);
+  }, [
+    selectedSegment,
+    splitPoints,
+    duration,
+    currentTime,
+    focusedColor,
+    intervalStart,
+    intervalEnd,
+    recordHistorySnapshot,
+    deleteColor,
+  ]);
 
   const handleUndoEdit = useCallback(() => {
-    setUndoStack((stack) => {
-      if (stack.length === 0) return stack;
-      const previous = stack[stack.length - 1];
-      setEdits(previous);
-      return stack.slice(0, -1);
-    });
-  }, []);
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack((r) => [
+      ...r.slice(-24),
+      { annotations, edits, cuts, splitPoints },
+    ]);
+    setUndoStack((s) => s.slice(0, -1));
+    setAnnotations(previous.annotations);
+    setEdits(previous.edits);
+    setCuts(previous.cuts);
+    setSplitPoints(previous.splitPoints);
+  }, [undoStack, annotations, edits, cuts, splitPoints]);
 
-  // Keyboard shortcuts (Space, [, ], c to Cut, Delete/Backspace, Ctrl+Z)
+  const handleRedoEdit = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((s) => [
+      ...s.slice(-24),
+      { annotations, edits, cuts, splitPoints },
+    ]);
+    setRedoStack((r) => r.slice(0, -1));
+    setAnnotations(next.annotations);
+    setEdits(next.edits);
+    setCuts(next.cuts);
+    setSplitPoints(next.splitPoints);
+  }, [redoStack, annotations, edits, cuts, splitPoints]);
+
+  // Keyboard shortcuts (Space, C to Cut on red playhead, Delete/Backspace, Cmd/Ctrl+Z Undo, Cmd/Ctrl+X or Shift+Z/Y Redo)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -281,10 +407,8 @@ export default function VideoEditorStudio() {
         e.preventDefault();
         setIsPlaying((p) => !p);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (focusedColor !== 'all') {
-          e.preventDefault();
-          deleteColor(focusedColor);
-        }
+        e.preventDefault();
+        handleDeleteSelected();
       } else if (e.key === '[') {
         setIntervalStart(Math.min(currentTime, intervalEnd - 0.3));
       } else if (e.key === ']') {
@@ -293,12 +417,35 @@ export default function VideoEditorStudio() {
         handleCutInterval();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        handleUndoEdit();
+        if (e.shiftKey) {
+          handleRedoEdit();
+        } else {
+          handleUndoEdit();
+        }
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key.toLowerCase() === 'y' || e.key.toLowerCase() === 'x')
+      ) {
+        e.preventDefault();
+        if (redoStack.length > 0) {
+          handleRedoEdit();
+        } else {
+          handleUndoEdit();
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentTime, intervalStart, intervalEnd, focusedColor, deleteColor, handleCutInterval, handleUndoEdit]);
+  }, [
+    currentTime,
+    intervalStart,
+    intervalEnd,
+    redoStack.length,
+    handleCutInterval,
+    handleDeleteSelected,
+    handleUndoEdit,
+    handleRedoEdit,
+  ]);
 
   const getActivePlaybackRate = useCallback(
     (t: number) => {
@@ -1128,6 +1275,7 @@ export default function VideoEditorStudio() {
       endTime: targetEnd,
     };
     const nextAllAnns = [...annotations, newAnnotation];
+    recordHistorySnapshot();
     setAnnotations(nextAllAnns);
     setCurrentStroke(null);
 
@@ -1856,27 +2004,54 @@ export default function VideoEditorStudio() {
                 ))}
               </div>
 
-              {/* Dedicated Cut Tool Button */}
+              {/* Cut on Red Playhead Button */}
               <button
                 onClick={handleCutInterval}
-                title={`Cut out selected interval (${intervalStart.toFixed(1)}s–${intervalEnd.toFixed(1)}s) [Shortcut: C]`}
+                title={`Cut at red playhead (${currentTime.toFixed(1)}s) [Shortcut: C]`}
                 className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer"
               >
                 <Scissors className="w-3.5 h-3.5" />
+                <span>Cut ({currentTime.toFixed(1)}s)</span>
+              </button>
+
+              {/* Delete Selected Segment / Box / Dot Button */}
+              <button
+                onClick={handleDeleteSelected}
+                title={
+                  selectedSegment
+                    ? `Delete selected segment (${selectedSegment.startTime.toFixed(1)}s–${selectedSegment.endTime.toFixed(1)}s) [Del / Backspace]`
+                    : 'Delete cut segment or selected Box/Dot [Del / Backspace]'
+                }
+                className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
                 <span>
-                  Cut ({intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s)
+                  {selectedSegment
+                    ? `Delete (${selectedSegment.startTime.toFixed(1)}s–${selectedSegment.endTime.toFixed(1)}s)`
+                    : 'Delete'}
                 </span>
               </button>
 
-              {cuts.length > 0 && (
-                <button
-                  onClick={() => setCuts((prev) => prev.slice(0, -1))}
-                  className="px-2 py-1 text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
-                  title="Undo last cut"
-                >
-                  Undo Cut ({cuts.length})
-                </button>
-              )}
+              {/* Undo & Redo Buttons (Cmd+Z / Cmd+X / Cmd+Shift+Z) */}
+              <button
+                onClick={handleUndoEdit}
+                disabled={undoStack.length === 0}
+                title="Undo (Ctrl+Z / Cmd+Z)"
+                className="flex items-center gap-1 px-2 py-1 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+                <span>Undo</span>
+              </button>
+
+              <button
+                onClick={handleRedoEdit}
+                disabled={redoStack.length === 0}
+                title="Redo (Ctrl+X / Cmd+X / Ctrl+Y)"
+                className="flex items-center gap-1 px-2 py-1 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 scale-x-[-1]" />
+                <span>Redo</span>
+              </button>
 
               <button
                 onClick={() => setShowMarkingsOverlay((v) => !v)}
@@ -2663,7 +2838,78 @@ export default function VideoEditorStudio() {
                 })}
               </div>
 
-              {/* Cut Out Segments on Timeline */}
+              {/* Split Segments (Created by Cutting on the Red Playhead — click any segment to select & Delete) */}
+              {splitPoints.length > 0 &&
+                (() => {
+                  const boundaries = [0, ...splitPoints, duration];
+                  return boundaries.slice(0, -1).map((segStart, idx) => {
+                    const segEnd = boundaries[idx + 1];
+                    const isDeleted = cuts.some(
+                      (c) =>
+                        Math.abs(c.startTime - segStart) < 0.05 &&
+                        Math.abs(c.endTime - segEnd) < 0.05
+                    );
+                    if (isDeleted) return null;
+                    const isSegSelected =
+                      selectedSegment !== null &&
+                      Math.abs(selectedSegment.startTime - segStart) < 0.05 &&
+                      Math.abs(selectedSegment.endTime - segEnd) < 0.05;
+                    return (
+                      <div
+                        key={`seg-${segStart}-${segEnd}`}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          setSelectedSegment({
+                            startTime: segStart,
+                            endTime: segEnd,
+                          });
+                        }}
+                        style={{
+                          left: `${(segStart / duration) * 100}%`,
+                          width: `${((segEnd - segStart) / duration) * 100}%`,
+                        }}
+                        title={`Cut segment ${segStart.toFixed(1)}s–${segEnd.toFixed(1)}s (Click to select, then click Delete)`}
+                        className={`absolute top-0 bottom-0 z-10 flex items-end justify-between px-1.5 pb-1 transition cursor-pointer ${
+                          isSegSelected
+                            ? 'bg-[#b82d23]/15 ring-2 ring-inset ring-[#b82d23]'
+                            : 'hover:bg-black/5'
+                        }`}
+                      >
+                        <span className="text-[10px] font-mono text-[#6e655c] truncate">
+                          {segStart.toFixed(1)}s–{segEnd.toFixed(1)}s
+                        </span>
+                        {isSegSelected && (
+                          <button
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteSelected();
+                            }}
+                            title="Delete this cut segment"
+                            className="px-1.5 py-0.5 rounded bg-[#b82d23] text-white text-[10px] font-medium cursor-pointer"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+
+              {/* Split Lines placed by the Red Playhead */}
+              {splitPoints.map((pt) => (
+                <div
+                  key={`split-${pt}`}
+                  style={{ left: `${(pt / duration) * 100}%` }}
+                  className="absolute top-0 bottom-0 w-0.5 border-l border-dashed border-[#b82d23] z-15 pointer-events-none"
+                >
+                  <span className="absolute bottom-0.5 -left-2 text-[10px] text-[#b82d23] font-bold">
+                    ✂
+                  </span>
+                </div>
+              ))}
+
+              {/* Deleted Segments on Timeline */}
               {cuts.map((cut) => (
                 <div
                   key={cut.id}
@@ -2672,18 +2918,19 @@ export default function VideoEditorStudio() {
                     width: `${((cut.endTime - cut.startTime) / duration) * 100}%`,
                   }}
                   className="absolute top-0 bottom-0 bg-[#b82d23]/25 border-x border-[#b82d23] z-10 flex items-end justify-between px-1.5 pb-1"
-                  title={`Cut out: ${cut.startTime.toFixed(1)}s–${cut.endTime.toFixed(1)}s`}
+                  title={`Deleted: ${cut.startTime.toFixed(1)}s–${cut.endTime.toFixed(1)}s`}
                 >
                   <span className="text-[10px] font-medium text-[#b82d23] truncate">
-                    ✂ Cut
+                    Deleted
                   </span>
                   <button
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
+                      recordHistorySnapshot();
                       setCuts((prev) => prev.filter((c) => c.id !== cut.id));
                     }}
-                    title="Restore cut segment"
+                    title="Restore deleted segment"
                     className="text-xs font-bold text-[#b82d23] hover:text-[#26231f] cursor-pointer"
                   >
                     ×
@@ -2829,12 +3076,23 @@ export default function VideoEditorStudio() {
                 })()}
               </div>
 
-              {/* Current Time Playhead Line */}
+              {/* Current Time Red Playhead Line with On-Playhead Cut Button */}
               <div
                 style={{ left: `${(currentTime / duration) * 100}%` }}
                 className="absolute top-0 bottom-0 w-0.5 bg-[#b82d23] pointer-events-none z-20"
               >
-                <div className="w-2.5 h-2.5 -ml-[4px] rounded-full bg-[#b82d23]" />
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCutInterval();
+                  }}
+                  title={`Cut at ${currentTime.toFixed(1)}s (Shortcut: C)`}
+                  className="pointer-events-auto -ml-2.5 top-0.5 w-5 h-5 rounded-full bg-[#b82d23] hover:bg-[#26231f] text-white flex items-center justify-center shadow-xs cursor-pointer transition"
+                >
+                  <Scissors className="w-2.5 h-2.5" />
+                </button>
               </div>
             </div>
           </div>
