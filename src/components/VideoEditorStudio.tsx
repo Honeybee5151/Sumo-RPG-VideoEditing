@@ -2123,7 +2123,7 @@ export default function VideoEditorStudio() {
           : chosenMime.includes('ogg')
           ? 'ogg'
           : 'webm';
-        const fileName = `Recorded Sound ${existingAudioCount + 1}.${ext}`;
+        const fileName = `Sound ${existingAudioCount + 1}.${ext}`;
         const file = new File(chunks, fileName, {
           type: (chosenMime || 'audio/webm').split(';')[0],
         });
@@ -4006,7 +4006,7 @@ export default function VideoEditorStudio() {
           </div>
 
           {/* Category Tabs: Videos | Images | Sound (Locked h-11 height & tabular-nums counts) */}
-          <div className="h-11 px-2.5 border-b border-[#ded7c8] grid grid-cols-3 gap-1.5 items-center text-xs font-medium shrink-0">
+          <div className="h-11 px-2 border-b border-[#ded7c8] grid grid-cols-3 gap-1 items-center text-[11px] font-medium shrink-0">
             {(
               [
                 { id: 'video', label: 'Videos', icon: Film },
@@ -4026,14 +4026,14 @@ export default function VideoEditorStudio() {
                   type="button"
                   key={id}
                   onClick={() => setLibraryCategory(id)}
-                  className={`w-full h-7 flex items-center justify-center gap-1 px-1 rounded-lg border transition cursor-pointer tabular-nums ${
+                  className={`w-full h-7 flex items-center justify-center gap-0.5 px-1 rounded-lg border transition cursor-pointer tabular-nums whitespace-nowrap ${
                     active
                       ? 'bg-[#26231f] border-[#26231f] text-white'
                       : 'bg-[#f4f1ea] border-[#ded7c8] text-[#6e655c] hover:text-[#26231f] hover:bg-[#f0ece1]'
                   }`}
                 >
-                  <Icon className="w-3 h-3 shrink-0" />
-                  <span className="truncate">
+                  <Icon className="w-2.5 h-2.5 shrink-0" />
+                  <span>
                     {label}
                     {count > 0 ? ` (${count})` : ''}
                   </span>
@@ -4043,11 +4043,11 @@ export default function VideoEditorStudio() {
           </div>
 
           {/* Full-Height Media Asset List (Stable Scrollbar Gutter & Fixed Item Heights) */}
-          <div className="flex-1 flex flex-col p-2.5 gap-2 overflow-hidden min-h-0">
+          <div className="flex-1 flex flex-col p-2 gap-2 overflow-hidden min-h-0">
             {libraryCategory === 'audio' ? (
               <div className="w-full h-8 grid grid-cols-2 gap-1.5 shrink-0">
-                <label className="w-full h-full flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
-                  <span className="truncate">Add Sound</span>
+                <label className="w-full h-full flex items-center justify-center px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] whitespace-nowrap transition cursor-pointer">
+                  <span>Add Sound</span>
                   <input
                     type="file"
                     multiple
@@ -4065,7 +4065,7 @@ export default function VideoEditorStudio() {
                       ? 'Stop microphone recording'
                       : 'Record sound from microphone'
                   }
-                  className={`w-full h-full flex items-center justify-center gap-1.5 px-2 rounded-lg border text-xs font-medium tabular-nums transition cursor-pointer ${
+                  className={`w-full h-full flex items-center justify-center gap-1 px-1.5 rounded-lg border text-[11px] font-medium tabular-nums whitespace-nowrap transition cursor-pointer ${
                     isRecordingAudio
                       ? 'bg-[#b82d23] hover:bg-[#a1261d] border-[#b82d23] text-white animate-pulse'
                       : 'bg-[#f0ece1] hover:bg-[#e5dfd0] border-[#d6cfc2] text-[#26231f]'
@@ -4074,14 +4074,14 @@ export default function VideoEditorStudio() {
                   {isRecordingAudio ? (
                     <>
                       <Square className="w-3 h-3 fill-current shrink-0" />
-                      <span className="truncate">
+                      <span>
                         Stop {recordingSeconds.toFixed(1)}s
                       </span>
                     </>
                   ) : (
                     <>
-                      <Mic className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
-                      <span className="truncate">Record Sound</span>
+                      <Mic className="w-3 h-3 text-[#b82d23] shrink-0" />
+                      <span>Record Sound</span>
                     </>
                   )}
                 </button>
@@ -4089,8 +4089,8 @@ export default function VideoEditorStudio() {
             ) : libraryCategory === 'image' ? (
               <>
                 <div className="w-full h-8 grid grid-cols-2 gap-1.5 shrink-0">
-                  <label className="w-full h-full flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
-                    <span className="truncate">Add Image</span>
+                  <label className="w-full h-full flex items-center justify-center px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] whitespace-nowrap transition cursor-pointer">
+                    <span>Add Image</span>
                     <input
                       type="file"
                       multiple
@@ -4104,14 +4104,14 @@ export default function VideoEditorStudio() {
                     type="button"
                     onClick={() => setShowAiDrawPanel((prev) => !prev)}
                     title="Ask AI (DeepSeek, Gemini, OpenAI, etc.) to draw a custom 1920x1080 image via code"
-                    className={`w-full h-full flex items-center justify-center gap-1.5 px-2 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                    className={`w-full h-full flex items-center justify-center gap-1 px-1.5 rounded-lg border text-[11px] font-medium whitespace-nowrap transition cursor-pointer ${
                       showAiDrawPanel || isAiDrawing
                         ? 'bg-[#26231f] border-[#26231f] text-[#faf8f4]'
                         : 'bg-[#f0ece1] hover:bg-[#e5dfd0] border-[#d6cfc2] text-[#26231f]'
                     }`}
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[#c6923a] shrink-0" />
-                    <span className="truncate">
+                    <Sparkles className="w-3 h-3 text-[#c6923a] shrink-0" />
+                    <span>
                       {isAiDrawing ? 'Drawing...' : 'AI Draw'}
                     </span>
                   </button>
@@ -4120,7 +4120,7 @@ export default function VideoEditorStudio() {
                 {showAiDrawPanel && (
                   <div className="w-full bg-[#f4f1ea] border border-[#d6cfc2] rounded-xl p-2 flex flex-col gap-1.5 shrink-0">
                     <div className="flex items-center justify-between text-[10px]">
-                      <span className="font-medium text-[#6e655c] truncate">
+                      <span className="font-medium text-[#6e655c] whitespace-nowrap">
                         {(aiSettings.imageApiKey || '').trim()
                           ? 'Linked: Separate Image Key'
                           : 'Linked: Dual Mode (Main Key)'}
@@ -4162,7 +4162,7 @@ export default function VideoEditorStudio() {
                 )}
               </>
             ) : (
-              <label className="w-full h-8 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
+              <label className="w-full h-8 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] whitespace-nowrap transition cursor-pointer shrink-0">
                 <span>Add Video</span>
                 <input
                   type="file"
@@ -4191,21 +4191,28 @@ export default function VideoEditorStudio() {
                   isThisAudioActive && previewAudioState.duration > 0
                     ? previewAudioState.duration
                     : asset.durationSec || 0;
+                const displayAssetName = asset.name
+                  .replace(/^Recorded Sound /i, 'Sound ')
+                  .replace(
+                    /\.(webm|mp3|wav|ogg|m4a|aac|flac|mp4|mov|mkv|avi|png|jpe?g|webp|gif|svg)$/i,
+                    ''
+                  );
 
                 return (
                   <div
                     key={asset.id}
                     onClick={() => activateMediaAsset(asset)}
+                    title={asset.name}
                     className={`w-full ${
-                      isAudio ? 'py-1.5 px-2.5' : 'h-9 px-2.5'
+                      isAudio ? 'py-1.5 px-2' : 'h-9 px-2'
                     } group flex flex-col justify-center gap-1 rounded-xl border transition cursor-pointer ${
                       isActive || isThisAudioPlaying
                         ? 'bg-[#f0ece1] border-[#26231f]'
                         : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
                     }`}
                   >
-                    <div className="w-full flex items-center justify-between gap-1.5 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-full flex items-center justify-between gap-1 min-w-0">
+                      <div className="flex-1 flex items-center gap-1.5 min-w-0">
                         {asset.category === 'video' ? (
                           <Film className="w-3.5 h-3.5 text-[#234c7a] shrink-0" />
                         ) : asset.category === 'image' ? (
@@ -4222,28 +4229,28 @@ export default function VideoEditorStudio() {
                                 ? 'Pause sound'
                                 : 'Play sound'
                             }
-                            className={`w-6 h-6 rounded-full flex items-center justify-center transition cursor-pointer shrink-0 ${
+                            className={`w-5 h-5 rounded-full flex items-center justify-center transition cursor-pointer shrink-0 ${
                               isThisAudioPlaying
                                 ? 'bg-[#b82d23] text-white shadow-xs'
                                 : 'bg-[#b82d23]/15 hover:bg-[#b82d23] text-[#b82d23] hover:text-white'
                             }`}
                           >
                             {isThisAudioPlaying ? (
-                              <Pause className="w-3 h-3 fill-current" />
+                              <Pause className="w-2.5 h-2.5 fill-current" />
                             ) : (
-                              <Play className="w-3 h-3 fill-current ml-0.5" />
+                              <Play className="w-2.5 h-2.5 fill-current ml-0.5" />
                             )}
                           </button>
                         )}
-                        <span className="text-xs font-medium text-[#26231f] truncate">
-                          {asset.name}
+                        <span className="text-[11px] font-medium text-[#26231f] overflow-hidden whitespace-nowrap text-clip">
+                          {displayAssetName}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-1 shrink-0">
+                      <div className="flex items-center gap-0.5 shrink-0">
                         {isAudio && (
                           <span
-                            className={`text-[10px] font-mono tabular-nums px-1 rounded ${
+                            className={`text-[10px] font-mono tabular-nums px-0.5 rounded whitespace-nowrap ${
                               isThisAudioFinished
                                 ? 'text-[#50793e] font-semibold'
                                 : isThisAudioPlaying
@@ -4252,11 +4259,11 @@ export default function VideoEditorStudio() {
                             }`}
                           >
                             {isThisAudioFinished
-                              ? `Done (${totalDurSec.toFixed(1)}s)`
+                              ? `✓ ${totalDurSec.toFixed(1)}s`
                               : isThisAudioActive
                               ? `${previewAudioState.currentTime.toFixed(
                                   1
-                                )}s/${totalDurSec.toFixed(1)}s`
+                                )}/${totalDurSec.toFixed(1)}s`
                               : totalDurSec > 0
                               ? `${totalDurSec.toFixed(1)}s`
                               : ''}
@@ -4274,10 +4281,10 @@ export default function VideoEditorStudio() {
                               ? 'Remove from Favorites'
                               : 'Save to Favorites (persisted across sessions)'
                           }
-                          className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 cursor-pointer"
+                          className="w-5 h-5 flex items-center justify-center rounded hover:bg-black/5 cursor-pointer"
                         >
                           <Star
-                            className={`w-3.5 h-3.5 ${
+                            className={`w-3 h-3 ${
                               asset.isFavorite
                                 ? 'text-[#c6923a] fill-[#c6923a]'
                                 : 'text-[#8c8277]'
@@ -4333,7 +4340,7 @@ export default function VideoEditorStudio() {
                               );
                             }}
                             title="Remove from project"
-                            className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
+                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -4392,29 +4399,29 @@ export default function VideoEditorStudio() {
                   <button
                     key={id}
                     onClick={() => setActiveTool(id)}
-                    className={`w-14 h-6 flex items-center justify-center gap-1 rounded-md text-[11px] font-medium transition cursor-pointer shrink-0 ${
+                    className={`w-14 h-6 flex items-center justify-center gap-1 rounded-md text-[11px] font-medium whitespace-nowrap transition cursor-pointer shrink-0 ${
                       activeTool === id
                         ? 'bg-[#26231f] text-white'
                         : 'text-[#6e655c] hover:text-[#26231f]'
                     }`}
                   >
                     <Icon className="w-3 h-3 shrink-0" />
-                    <span className="truncate">{label}</span>
+                    <span>{label}</span>
                   </button>
                 ))}
               </div>
 
-              {/* Cut on Red Playhead Button (Rigid w-24 width) */}
+              {/* Cut on Red Playhead Button (Rigid w-28 width so time never clips) */}
               <button
                 onClick={handleCutInterval}
                 title={`Cut at red playhead (${currentTime.toFixed(1)}s) [Shortcut: C]`}
-                className="w-24 min-w-[6rem] max-w-[6rem] h-7 flex items-center justify-center gap-1 px-2 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-[11px] font-medium tabular-nums text-[#26231f] transition cursor-pointer shrink-0 overflow-hidden"
+                className="w-28 min-w-[7rem] max-w-[7rem] h-7 flex items-center justify-center gap-1 px-2 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-[11px] font-medium tabular-nums whitespace-nowrap text-[#26231f] transition cursor-pointer shrink-0 overflow-hidden"
               >
                 <Scissors className="w-3 h-3 shrink-0" />
-                <span className="truncate">Cut ({currentTime.toFixed(1)}s)</span>
+                <span>Cut ({currentTime.toFixed(1)}s)</span>
               </button>
 
-              {/* Delete Selected Segment / Box / Dot Button (Rigid w-28 width; text adapts to fit) */}
+              {/* Delete Selected Segment / Box / Dot Button (Rigid w-32 width; text adapts to fit) */}
               <button
                 onClick={handleDeleteSelected}
                 title={
@@ -4422,12 +4429,12 @@ export default function VideoEditorStudio() {
                     ? `Delete selected segment (${selectedSegment.startTime.toFixed(1)}s–${selectedSegment.endTime.toFixed(1)}s) [Del / Backspace]`
                     : 'Delete cut segment or selected Box/Dot [Del / Backspace]'
                 }
-                className={`w-28 min-w-[7rem] max-w-[7rem] h-7 flex items-center justify-center gap-1 px-2 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg font-medium tabular-nums text-[#26231f] transition cursor-pointer shrink-0 overflow-hidden ${
+                className={`w-32 min-w-[8rem] max-w-[8rem] h-7 flex items-center justify-center gap-1 px-2 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg font-medium tabular-nums whitespace-nowrap text-[#26231f] transition cursor-pointer shrink-0 overflow-hidden ${
                   selectedSegment ? 'text-[10px]' : 'text-[11px]'
                 }`}
               >
                 <Trash2 className="w-3 h-3 shrink-0" />
-                <span className="truncate">
+                <span>
                   {selectedSegment
                     ? `Del ${selectedSegment.startTime.toFixed(1)}–${selectedSegment.endTime.toFixed(1)}s`
                     : 'Delete'}
@@ -4439,20 +4446,20 @@ export default function VideoEditorStudio() {
                 onClick={handleUndoEdit}
                 disabled={undoStack.length === 0}
                 title="Undo (Ctrl+Z / Cmd+Z)"
-                className="w-16 min-w-[4rem] max-w-[4rem] h-7 flex items-center justify-center gap-1 px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] cursor-pointer shrink-0"
+                className="w-16 min-w-[4rem] max-w-[4rem] h-7 flex items-center justify-center gap-1 px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-[11px] font-medium whitespace-nowrap text-[#26231f] cursor-pointer shrink-0"
               >
                 <Undo2 className="w-3 h-3 shrink-0" />
-                <span className="truncate">Undo</span>
+                <span>Undo</span>
               </button>
 
               <button
                 onClick={handleRedoEdit}
                 disabled={redoStack.length === 0}
                 title="Redo (Ctrl+X / Cmd+X / Ctrl+Y)"
-                className="w-16 min-w-[4rem] max-w-[4rem] h-7 flex items-center justify-center gap-1 px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] cursor-pointer shrink-0"
+                className="w-16 min-w-[4rem] max-w-[4rem] h-7 flex items-center justify-center gap-1 px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none border border-[#d6cfc2] rounded-lg text-[11px] font-medium whitespace-nowrap text-[#26231f] cursor-pointer shrink-0"
               >
                 <RotateCcw className="w-3 h-3 scale-x-[-1] shrink-0" />
-                <span className="truncate">Redo</span>
+                <span>Redo</span>
               </button>
 
               <button
@@ -4485,11 +4492,11 @@ export default function VideoEditorStudio() {
                 <button
                   onClick={startHighDefinitionExport}
                   disabled={isExporting}
-                  className="w-28 min-w-[7rem] max-w-[7rem] h-6 flex items-center justify-center gap-1 px-2 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-50 rounded-md text-[11px] font-medium tabular-nums text-white transition cursor-pointer shrink-0 overflow-hidden"
+                  className="w-32 min-w-[8rem] max-w-[8rem] h-6 flex items-center justify-center gap-1 px-2 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-50 rounded-md text-[11px] font-medium tabular-nums whitespace-nowrap text-white transition cursor-pointer shrink-0 overflow-hidden"
                   title="Export video"
                 >
                   <Download className="w-3 h-3 shrink-0" />
-                  <span className="truncate">
+                  <span>
                     {isExporting
                       ? `${exportProgress}%`
                       : `Export ${exportConfig.resolution.toUpperCase()}`}
@@ -4952,14 +4959,14 @@ export default function VideoEditorStudio() {
                       }}
                       className="w-64 min-w-[16rem] max-w-[16rem] h-9 flex items-center justify-between gap-2 px-3 rounded-lg border border-black/15 text-xs font-medium shrink-0 select-none"
                     >
-                      <span className="flex items-center gap-1.5 truncate">
+                      <span className="flex items-center gap-1.5 whitespace-nowrap">
                         <span
                           className="w-2 h-2 rounded-full border border-white/70 shrink-0"
                           style={{
                             backgroundColor: MARK_COLORS[focusedColor].hex,
                           }}
                         />
-                        <span className="truncate">
+                        <span>
                           {MARK_COLORS[focusedColor].name}
                         </span>
                       </span>
@@ -5069,7 +5076,7 @@ export default function VideoEditorStudio() {
                   )
                 }
                 disabled={isCompiling || !prompt.trim()}
-                className="w-20 min-w-[5rem] max-w-[5rem] h-9 flex items-center justify-center px-2 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-40 rounded-lg text-[11px] font-medium text-white transition cursor-pointer shrink-0 truncate"
+                className="w-20 min-w-[5rem] max-w-[5rem] h-9 flex items-center justify-center px-2 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-40 rounded-lg text-[11px] font-medium whitespace-nowrap text-white transition cursor-pointer shrink-0"
               >
                 {isCompiling ? 'Applying...' : 'Apply'}
               </button>
@@ -5148,20 +5155,20 @@ export default function VideoEditorStudio() {
                   </span>
                 </div>
 
-                <span className="w-24 min-w-[6rem] max-w-[6rem] text-center font-mono text-[11px] tabular-nums text-[#6e655c] truncate shrink-0">
+                <span className="w-28 min-w-[7rem] max-w-[7rem] text-center font-mono text-[11px] tabular-nums text-[#6e655c] whitespace-nowrap shrink-0">
                   {currentTime.toFixed(1)}s / {duration.toFixed(1)}s
                 </span>
 
                 <button
                   onClick={() => setLoopIntervalOnly((l) => !l)}
-                  className={`w-16 min-w-[4rem] max-w-[4rem] h-6 flex items-center justify-center gap-1 px-1.5 rounded-md text-[11px] font-medium border transition cursor-pointer shrink-0 ${
+                  className={`w-16 min-w-[4rem] max-w-[4rem] h-6 flex items-center justify-center gap-1 px-1.5 rounded-md text-[11px] font-medium whitespace-nowrap border transition cursor-pointer shrink-0 ${
                     loopIntervalOnly
                       ? 'bg-[#50793e] text-white border-[#50793e]'
                       : 'bg-[#f0ece1] text-[#6e655c] border-[#d6cfc2] hover:text-[#26231f]'
                   }`}
                 >
                   <Repeat className="w-3 h-3 shrink-0" />
-                  <span className="truncate">Loop</span>
+                  <span>Loop</span>
                 </button>
 
                 {/* Timeframe Zoom Out / Zoom In Controls right beside Loop */}
@@ -5194,7 +5201,7 @@ export default function VideoEditorStudio() {
                         ? 'Reset timeframe zoom to 1x'
                         : 'Load a video or sound to zoom timeframe'
                     }
-                    className="w-9 min-w-[2.25rem] max-w-[2.25rem] text-center text-[10px] font-mono font-medium text-[#26231f] hover:text-[#b82d23] disabled:opacity-50 disabled:pointer-events-none cursor-pointer tabular-nums truncate shrink-0"
+                    className="w-9 min-w-[2.25rem] max-w-[2.25rem] text-center text-[10px] font-mono font-medium text-[#26231f] hover:text-[#b82d23] disabled:opacity-50 disabled:pointer-events-none cursor-pointer tabular-nums whitespace-nowrap shrink-0"
                   >
                     {timelineZoom % 1 === 0
                       ? `${timelineZoom}x`
@@ -5222,19 +5229,19 @@ export default function VideoEditorStudio() {
                 </div>
               </div>
 
-              <div className="w-40 min-w-[10rem] max-w-[10rem] flex items-center justify-end gap-1.5 text-[11px] text-[#6e655c] shrink-0 overflow-hidden">
+              <div className="w-44 min-w-[11rem] max-w-[11rem] flex items-center justify-end gap-1.5 text-[11px] text-[#6e655c] shrink-0 overflow-hidden">
                 {focusedColor !== 'all' ? (
-                  <span className="flex items-center gap-1.5 truncate">
+                  <span className="flex items-center gap-1.5 whitespace-nowrap">
                     <span
                       className="w-2 h-2 rounded-full shrink-0"
                       style={{ backgroundColor: MARK_COLORS[focusedColor].hex }}
                     />
-                    <span className="truncate">
+                    <span>
                       Editing <strong className="text-[#26231f]">{MARK_COLORS[focusedColor].name}</strong>
                     </span>
                   </span>
                 ) : (
-                  <span className="text-[#8c8277] font-mono tabular-nums truncate">
+                  <span className="text-[#8c8277] font-mono tabular-nums whitespace-nowrap">
                     {intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s
                   </span>
                 )}
@@ -5748,7 +5755,7 @@ export default function VideoEditorStudio() {
                               title="Box marker"
                             />
                           )}
-                          <span className="text-[11px] font-semibold text-[#26231f] truncate">
+                          <span className="text-[11px] font-semibold text-[#26231f] whitespace-nowrap">
                             {cfg.name}
                           </span>
                           {isDotOnly ? (
@@ -5760,7 +5767,7 @@ export default function VideoEditorStudio() {
                             </span>
                           ) : (
                             <span
-                              className="w-11 min-w-[2.75rem] max-w-[2.75rem] text-center py-0.5 rounded-[2px] bg-[#faf8f4] border border-[#d6cfc2] text-[9px] font-medium text-[#6e655c] truncate shrink-0"
+                              className="px-1.5 py-0.5 rounded-[2px] bg-[#faf8f4] border border-[#d6cfc2] text-[9px] font-medium text-[#6e655c] whitespace-nowrap shrink-0"
                               title="Box indicator (Rectangle)"
                             >
                               {shapeLabel}
