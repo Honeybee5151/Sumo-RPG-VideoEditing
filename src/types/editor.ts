@@ -576,6 +576,8 @@ export type ImageGenModeId =
   | 'stability'
   | 'code_draw';
 
+export type AiReasoningEffort = 'low' | 'medium' | 'high';
+
 export interface AiSettingsConfig {
   provider: AiProviderId;
   model: string;
@@ -584,6 +586,7 @@ export interface AiSettingsConfig {
   customContextPrompt: string;
   imageApiKey?: string;
   imageGenMode?: ImageGenModeId;
+  reasoningEffort?: AiReasoningEffort;
 }
 
 export interface AiProviderDefinition {

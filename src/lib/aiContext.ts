@@ -30,6 +30,7 @@ export interface AiEditorContextInput {
   mediaFileName?: string;
   mediaCategory?: 'video' | 'image' | 'audio';
   customContextPrompt?: string;
+  reasoningEffort?: 'low' | 'medium' | 'high';
   projectSounds?: Array<{
     id: string;
     name: string;
@@ -143,7 +144,13 @@ Do whatever the user asks at the target position and timeframe by returning a JS
   - \`progress\`: \`0.0\` to \`1.0\` progress through the timeframe
   - \`frame\`: Current frame number within the timeframe (\`0\` to \`totalFrames\`)
   - \`totalFrames\`: Total frames in the timeframe (\`Math.round(duration * 30)\`)
-- \`"svg"\` (string, optional): A complete \`<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">...</svg>\` illustration to render centered at \`(cx, cy)\`. You can provide \`renderCode\`, \`svg\`, or both.
+- \`"svg"\` (string, optional): A complete \`<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">...</svg>\` illustration to render centered at \`(cx, cy)\`. You can provide \`renderCode\`, \`svg\`, or both.${
+    ctx.reasoningEffort === 'high'
+      ? `\n\n### HIGH EFFORT MODE (MAXIMUM VISUAL QUALITY & PHYSICS DETAIL)\nThe user selected HIGH EFFORT. Put maximum craft into your \`renderCode\` / \`svg\`:\n- Build rich multi-layered visuals (core layer, secondary harmonic motion/squash-and-stretch, atmospheric glow/lighting gradients, and fine procedural particle/detail passes).\n- Use smooth easing, multi-stop radial/linear gradients, and lively \`elapsed\`-driven physics so the effect looks studio-grade and unmistakable on screen.`
+      : ctx.reasoningEffort === 'low'
+      ? `\n\n### LOW EFFORT MODE (FAST & CONCISE)\nThe user selected LOW EFFORT. Keep \`renderCode\` direct, clean, and minimal for instant generation.`
+      : ''
+  }
 
 ### OUTPUT FORMAT (STRICT JSON ARRAY ONLY)
 Return ONLY a valid JSON array:

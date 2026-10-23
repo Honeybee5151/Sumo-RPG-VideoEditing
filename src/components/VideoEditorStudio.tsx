@@ -44,6 +44,7 @@ import {
 import {
   AI_PROVIDER_CATALOG,
   AiProviderId,
+  AiReasoningEffort,
   AiSettingsConfig,
   BuiltInSceneId,
   COLOR_PROGRESSION,
@@ -231,6 +232,7 @@ export default function VideoEditorStudio() {
     apiKeys: {},
     imageApiKey: '',
     imageGenMode: 'auto',
+    reasoningEffort: 'medium',
     customBaseUrl: 'http://localhost:11434/v1/chat/completions',
     customContextPrompt: '',
   });
@@ -730,6 +732,7 @@ export default function VideoEditorStudio() {
           mode: 'test',
           provider: aiSettings.provider,
           model: aiSettings.model,
+          reasoningEffort: aiSettings.reasoningEffort || 'medium',
           apiKey: activeKey,
           apiKeys: aiSettings.apiKeys,
           geminiApiKey,
@@ -2334,6 +2337,7 @@ export default function VideoEditorStudio() {
           prompt: cleanPrompt,
           provider: aiSettings.provider,
           model: aiSettings.model,
+          reasoningEffort: aiSettings.reasoningEffort || 'medium',
           apiKey: activeKey,
           apiKeys: aiSettings.apiKeys,
           imageApiKey: aiSettings.imageApiKey || '',
@@ -3117,6 +3121,7 @@ export default function VideoEditorStudio() {
           compositeFrameDataUrl,
           provider: aiSettings.provider,
           model: aiSettings.model,
+          reasoningEffort: aiSettings.reasoningEffort || 'medium',
           apiKey: activeKey,
           apiKeys: aiSettings.apiKeys,
           geminiApiKey,
@@ -5293,6 +5298,44 @@ export default function VideoEditorStudio() {
               >
                 {isCompiling ? 'Applying...' : 'Apply'}
               </button>
+
+              {/* Model Effort Selector (Low / Med / High) */}
+              <div
+                title="AI Model Effort: High Effort uses deep reasoning models (e.g. DeepSeek R1 / Gemini 2.5 Pro / GPT-4o / 8K output) and multi-layer visual physics for better results"
+                className="h-9 flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 shrink-0 select-none"
+              >
+                {(
+                  [
+                    { id: 'low', label: 'Low' },
+                    { id: 'medium', label: 'Med' },
+                    { id: 'high', label: 'High' },
+                  ] as const
+                ).map((opt) => {
+                  const activeEffort =
+                    (aiSettings.reasoningEffort || 'medium') === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() =>
+                        updateAiSettings((prev) => ({
+                          ...prev,
+                          reasoningEffort: opt.id,
+                        }))
+                      }
+                      className={`h-7 px-2 rounded-md text-[10px] font-semibold transition cursor-pointer whitespace-nowrap ${
+                        activeEffort
+                          ? opt.id === 'high'
+                            ? 'bg-[#b82d23] text-white shadow-xs'
+                            : 'bg-[#26231f] text-white shadow-xs'
+                          : 'text-[#6e655c] hover:text-[#26231f]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -6665,6 +6708,56 @@ export default function VideoEditorStudio() {
                       {aiTestStatus.message}
                     </div>
                   )}
+
+                  {/* AI Model Reasoning Effort (Low / Medium / High) */}
+                  <div className="pt-2 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-[#26231f]">
+                        AI Model Effort
+                      </label>
+                      <span className="text-[10px] text-[#6e655c]">
+                        {(aiSettings.reasoningEffort || 'medium') === 'high'
+                          ? 'Deep Reasoning (R1 / Pro / GPT-4o + 8K tokens)'
+                          : (aiSettings.reasoningEffort || 'medium') === 'low'
+                          ? 'Fast & Lightweight'
+                          : 'Balanced Speed & Quality'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          { id: 'low', label: 'Low Effort', sub: 'Fastest' },
+                          { id: 'medium', label: 'Medium', sub: 'Balanced' },
+                          { id: 'high', label: 'High Effort', sub: 'Best Quality' },
+                        ] as const
+                      ).map((opt) => {
+                        const isSelected =
+                          (aiSettings.reasoningEffort || 'medium') === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() =>
+                              updateAiSettings((prev) => ({
+                                ...prev,
+                                reasoningEffort: opt.id as AiReasoningEffort,
+                              }))
+                            }
+                            className={`py-1.5 px-2 rounded-lg border text-center transition cursor-pointer ${
+                              isSelected
+                                ? opt.id === 'high'
+                                  ? 'bg-[#b82d23] text-white border-[#b82d23]'
+                                  : 'bg-[#26231f] text-white border-[#26231f]'
+                                : 'bg-[#f0ece1] text-[#26231f] border-[#d6cfc2] hover:bg-[#e5dfd0]'
+                            }`}
+                          >
+                            <div className="text-xs font-semibold">{opt.label}</div>
+                            <div className="text-[10px] opacity-80">{opt.sub}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Image Generation Model (Dual Mode or Separate Linked Key) */}

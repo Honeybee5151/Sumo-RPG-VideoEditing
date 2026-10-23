@@ -11,6 +11,7 @@ import { compilePromptLocally } from '@/lib/editCompiler';
 import {
   AI_PROVIDER_CATALOG,
   AiProviderId,
+  AiReasoningEffort,
   EffectType,
   ImageGenModeId,
   MarkColor,
@@ -120,6 +121,7 @@ interface AiEditRequestBody {
   // Separate or Dual Image Generation Model configuration
   imageApiKey?: string;
   imageGenMode?: ImageGenModeId;
+  reasoningEffort?: AiReasoningEffort;
 }
 
 function detectProviderFromKey(key: string): AiProviderId {
@@ -230,29 +232,50 @@ function resolveActiveProviderAndKey(body: AiEditRequestBody): Array<{
   }> = [];
 
   const autoKey = (keys.auto || explicitKey || '').trim();
+  const isHighEffort = body.reasoningEffort === 'high';
   if (autoKey) {
     const detected = detectProviderFromKey(autoKey);
     if (detected !== 'auto' && detected !== 'local') {
       const def = AI_PROVIDER_CATALOG.find((p) => p.id === detected);
+      const primaryModel = isHighEffort
+        ? detected === 'deepseek'
+          ? 'deepseek-reasoner'
+          : detected === 'openai'
+          ? 'gpt-4o'
+          : detected === 'gemini'
+          ? 'gemini-2.5-pro'
+          : detected === 'openrouter'
+          ? 'deepseek/deepseek-r1'
+          : def?.defaultModel || 'deepseek-chat'
+        : def?.defaultModel || 'deepseek-chat';
       candidates.push({
         provider: detected,
         key: autoKey,
-        model: def?.defaultModel || 'deepseek-chat',
+        model: primaryModel,
         baseUrl: def?.baseUrl,
       });
+      // If high effort upgraded the model (e.g. R1 or Pro), also keep the fast default model as immediate fallback
+      if (isHighEffort && def?.defaultModel && primaryModel !== def.defaultModel) {
+        candidates.push({
+          provider: detected,
+          key: autoKey,
+          model: def.defaultModel,
+          baseUrl: def?.baseUrl,
+        });
+      }
       // Only try OpenAI fallback if it's not a 32-hex DeepSeek key
       if (detected === 'deepseek' && !/^sk-[0-9a-f]{28,40}$/i.test(autoKey)) {
         candidates.push({
           provider: 'openai',
           key: autoKey,
-          model: 'gpt-4o-mini',
+          model: isHighEffort ? 'gpt-4o' : 'gpt-4o-mini',
           baseUrl: 'https://api.openai.com/v1/chat/completions',
         });
       } else if (detected === 'openai') {
         candidates.push({
           provider: 'deepseek',
           key: autoKey,
-          model: 'deepseek-chat',
+          model: isHighEffort ? 'deepseek-reasoner' : 'deepseek-chat',
           baseUrl: 'https://api.deepseek.com/chat/completions',
         });
       }
@@ -295,6 +318,7 @@ async function callProviderLlm(params: {
   userPrompt: string;
   compositeFrameDataUrl?: string;
   jsonSuffix?: string;
+  reasoningEffort?: AiReasoningEffort;
 }): Promise<{
   rawText: string;
   providerLabel: string;
@@ -309,7 +333,20 @@ async function callProviderLlm(params: {
     userPrompt,
     compositeFrameDataUrl,
     jsonSuffix = 'Return ONLY a valid JSON array of edit objects.',
+    reasoningEffort = 'medium',
   } = params;
+  const maxOutTokens =
+    reasoningEffort === 'high' ? 8192 : reasoningEffort === 'low' ? 2048 : 4096;
+  const timeoutMs =
+    reasoningEffort === 'high' || model.includes('reasoner') || model.includes('r1')
+      ? 90000
+      : 45000;
+  const effortSuffix =
+    reasoningEffort === 'high'
+      ? ' • High Effort'
+      : reasoningEffort === 'low'
+      ? ' • Low Effort'
+      : '';
   const fallbackPromptTokens = Math.max(
     24,
     Math.ceil((systemPrompt.length + userPrompt.length) / 4)
@@ -344,9 +381,11 @@ async function callProviderLlm(params: {
         contents: [{ parts }],
         generationConfig: {
           responseMimeType: 'application/json',
-          temperature: 0.15,
+          temperature: reasoningEffort === 'high' ? 0.2 : 0.15,
+          maxOutputTokens: maxOutTokens,
         },
-      }
+      },
+      timeoutMs
     );
 
     if (!res.ok) {
@@ -364,7 +403,7 @@ async function callProviderLlm(params: {
       Number(data?.usageMetadata?.totalTokenCount) || pTok + cTok;
     return {
       rawText,
-      providerLabel: `Google Gemini (${geminiModel})`,
+      providerLabel: `Google Gemini (${geminiModel}${effortSuffix})`,
       usage: { promptTokens: pTok, completionTokens: cTok, totalTokens: tTok },
     };
   }
@@ -403,11 +442,12 @@ async function callProviderLlm(params: {
       },
       {
         model: claudeModel,
-        max_tokens: 4096,
+        max_tokens: maxOutTokens,
         temperature: 0.2,
         system: systemPrompt,
         messages: [{ role: 'user', content: contentBlocks }],
-      }
+      },
+      timeoutMs
     );
 
     if (!res.ok) {
@@ -425,7 +465,7 @@ async function callProviderLlm(params: {
       Math.max(12, Math.ceil(rawText.length / 4));
     return {
       rawText,
-      providerLabel: `Anthropic Claude (${claudeModel})`,
+      providerLabel: `Anthropic Claude (${claudeModel}${effortSuffix})`,
       usage: {
         promptTokens: pTok,
         completionTokens: cTok,
@@ -484,18 +524,25 @@ async function callProviderLlm(params: {
 
   const requestPayload: Record<string, unknown> = {
     model,
+    max_tokens: maxOutTokens,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ],
   };
 
-  // DeepSeek Reasoner (R1) and o3-mini do not accept temperature
-  if (!model.includes('reasoner') && !model.startsWith('o3')) {
-    requestPayload.temperature = 0.15;
+  if (model.startsWith('o3') || model.startsWith('o1')) {
+    requestPayload.reasoning_effort = reasoningEffort;
+  } else if (provider === 'openrouter' && reasoningEffort === 'high') {
+    requestPayload.reasoning = { effort: 'high' };
   }
 
-  const res = await postJsonRequest(endpoint, headers, requestPayload);
+  // DeepSeek Reasoner (R1) and o3-mini do not accept temperature
+  if (!model.includes('reasoner') && !model.startsWith('o3') && !model.startsWith('o1')) {
+    requestPayload.temperature = reasoningEffort === 'high' ? 0.2 : 0.15;
+  }
+
+  const res = await postJsonRequest(endpoint, headers, requestPayload, timeoutMs);
 
   if (!res.ok) {
     throw new Error(`${provider.toUpperCase()} API HTTP ${res.status}: ${res.text.slice(0, 220)}`);
@@ -510,18 +557,18 @@ async function callProviderLlm(params: {
   const tTok = Number(data?.usage?.total_tokens) || pTok + cTok;
 
   const friendlyLabels: Record<string, string> = {
-    deepseek: `DeepSeek (${model})`,
-    openai: `OpenAI (${model})`,
-    openrouter: `OpenRouter (${model})`,
-    groq: `Groq (${model})`,
-    xai: `xAI Grok (${model})`,
-    mistral: `Mistral (${model})`,
-    custom: `Custom LLM (${model})`,
+    deepseek: `DeepSeek (${model}${effortSuffix})`,
+    openai: `OpenAI (${model}${effortSuffix})`,
+    openrouter: `OpenRouter (${model}${effortSuffix})`,
+    groq: `Groq (${model}${effortSuffix})`,
+    xai: `xAI Grok (${model}${effortSuffix})`,
+    mistral: `Mistral (${model}${effortSuffix})`,
+    custom: `Custom LLM (${model}${effortSuffix})`,
   };
 
   return {
     rawText,
-    providerLabel: friendlyLabels[provider] || `${provider} (${model})`,
+    providerLabel: friendlyLabels[provider] || `${provider} (${model}${effortSuffix})`,
     usage: {
       promptTokens: pTok,
       completionTokens: cTok,
@@ -1039,6 +1086,7 @@ async function tryNativeImageGeneration(params: {
             userPrompt: `Draw a detailed 1920x1080 illustration of: ${prompt.trim()}`,
             jsonSuffix:
               'Return ONLY a valid JSON object: {"title": "...", "renderCode": "..."}',
+            reasoningEffort: body.reasoningEffort,
           });
 
           const parsedArt = parseDrawImageResponse(rawText, prompt);
@@ -1098,6 +1146,7 @@ async function tryNativeImageGeneration(params: {
       mediaFileName,
       mediaCategory,
       customContextPrompt,
+      reasoningEffort: body.reasoningEffort || 'medium',
       projectSounds,
     };
 
@@ -1115,6 +1164,7 @@ async function tryNativeImageGeneration(params: {
           systemPrompt,
           userPrompt: prompt.trim(),
           compositeFrameDataUrl,
+          reasoningEffort: body.reasoningEffort || 'medium',
         });
 
         const parsed = parseAiEditResponse(rawText, ctxInput, providerLabel);
