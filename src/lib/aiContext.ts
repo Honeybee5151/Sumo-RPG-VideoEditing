@@ -1,4 +1,4 @@
-import { summarizeColorGroups } from '@/lib/editCompiler';
+import { formatShortEditSummary, summarizeColorGroups } from '@/lib/editCompiler';
 import {
   EffectType,
   MARK_COLORS,
@@ -122,7 +122,7 @@ ${soundLines}${
   }
 ### HOW TO DO WHAT THE USER ASKS
 Do whatever the user asks at the target position and timeframe by returning a JSON array with an object containing:
-- \`"summary"\`: Brief label describing what you did.
+- \`"summary"\`: Ultra-short 1–2 word effect name (e.g. \`"Bounce Effect"\`, \`"Fire Effect"\`, \`"Text Effect"\`, \`"Zoom Effect"\`, \`"Sound 4"\`). Keep it <= 15 characters; never write a full sentence.
 - \`"targetColor"\`: The target position's \`targetColor\` ID (e.g. \`"${focusedColorId || (colorSummary[0]?.color ?? 'all')}"\`).
 - \`"startTime"\`: Start time in seconds (default \`${ctx.startTime.toFixed(2)}\`).
 - \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count, or \`startTime + soundDuration\` if the user asks to lengthen the dot/color interval to fit a sound).
@@ -460,18 +460,14 @@ export function parseAiEditResponse(
       itemEnd = Number((itemStart + frameCount / DEFAULT_FPS).toFixed(2));
     }
 
-    const colorDisplay =
-      targetColor !== 'all'
-        ? MARK_COLORS[targetColor]?.name || targetColor
-        : 'Full Frame';
-
     edits.push({
       id: `ai-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
       prompt: ctx.prompt,
-      summary:
-        typeof item.summary === 'string' && item.summary.trim()
-          ? item.summary.trim()
-          : `${effectType === 'custom_ai' ? 'AI Custom Visual' : effectType.replace('_', ' ')} → ${colorDisplay}`,
+      summary: formatShortEditSummary(
+        typeof item.summary === 'string' ? item.summary : undefined,
+        ctx.prompt,
+        effectType
+      ),
       startTime: itemStart,
       endTime: itemEnd,
       effectType,

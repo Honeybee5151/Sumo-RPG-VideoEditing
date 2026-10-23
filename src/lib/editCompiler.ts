@@ -370,7 +370,7 @@ export function compilePromptLocally(
         {
           id: `${id}-zoom`,
           prompt: clause,
-          summary: `Impact Zoom 2.1x → ${colorDisplay || 'Center'}`,
+          summary: 'Impact Zoom',
           startTime: clauseStart,
           endTime: clauseEnd,
           effectType: 'zoom',
@@ -383,7 +383,7 @@ export function compilePromptLocally(
         {
           id: `${id}-rgb`,
           prompt: clause,
-          summary: `Chromatic RGB Split → ${colorDisplay || 'Frame'}`,
+          summary: 'RGB Split',
           startTime: clauseStart,
           endTime: clauseEnd,
           effectType: 'chromatic_aberration',
@@ -396,7 +396,7 @@ export function compilePromptLocally(
         {
           id: `${id}-spot`,
           prompt: clause,
-          summary: `Dramatic Spotlight → ${colorDisplay || 'Center'}`,
+          summary: 'Spotlight',
           startTime: clauseStart,
           endTime: clauseEnd,
           effectType: 'spotlight',
@@ -416,7 +416,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Manga Halftone Ink ${invertMask ? '(Background) ' : ''}${colorDisplay ? `→ ${colorDisplay}` : ''}`,
+        summary: 'Manga Ink',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'halftone_ink',
@@ -440,7 +440,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Chromatic RGB Split ${colorDisplay ? `→ ${colorDisplay}` : '(Full)'}`,
+        summary: 'RGB Split',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'chromatic_aberration',
@@ -481,8 +481,16 @@ export function compilePromptLocally(
         id,
         prompt: clause,
         summary: isCoolOrange
-          ? `Cool Orange ${colorDisplay ? `→ ${colorDisplay}` : ''}`.trim()
-          : `AI Custom Synthesis (${generativeStyle.toUpperCase()}) ${colorDisplay ? `→ ${colorDisplay}` : ''}`,
+          ? 'Cool Orange'
+          : generativeStyle === 'fire'
+          ? 'Fire Effect'
+          : generativeStyle === 'hologram'
+          ? 'Hologram Effect'
+          : generativeStyle === 'watercolor'
+          ? 'Watercolor Effect'
+          : generativeStyle === 'cyber'
+          ? 'Cyber Effect'
+          : 'Gold Aura',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: isCoolOrange ? 'custom_ai' : 'generative_replace',
@@ -513,7 +521,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Zoom ${zoomScale.toFixed(1)}x ${colorDisplay ? `→ ${colorDisplay}` : 'in'}`,
+        summary: 'Zoom Effect',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'zoom',
@@ -535,7 +543,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Pixelate ${invertMask ? 'outside ' : ''}${colorDisplay || 'frame'}`,
+        summary: 'Pixelate Effect',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'pixelate',
@@ -557,7 +565,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Gaussian Blur ${invertMask ? '(Background) ' : ''}${colorDisplay ? `→ ${colorDisplay}` : '(Full)'}`,
+        summary: 'Blur Effect',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'blur',
@@ -578,7 +586,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Spotlight ${colorDisplay || 'center'}`,
+        summary: 'Spotlight',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'spotlight',
@@ -602,7 +610,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Warm Glow (${glowColor}) ${colorDisplay ? `on ${colorDisplay}` : ''}`,
+        summary: 'Glow Effect',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'neon_glow',
@@ -636,7 +644,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Callout "${extractedText}" ${colorDisplay ? `@ ${colorDisplay}` : ''}`,
+        summary: 'Text Effect',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'text_overlay',
@@ -668,7 +676,12 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Animated ${shapeType} ${colorDisplay ? `@ ${colorDisplay}` : ''}`,
+        summary:
+          shapeType === 'arrow'
+            ? 'Arrow Effect'
+            : shapeType === 'brackets'
+            ? 'Box Frame'
+            : 'Ring Effect',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'callout_shape',
@@ -698,7 +711,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: isFreeze ? 'Freeze Frame' : `Playback Speed ${playbackRate}x`,
+        summary: isFreeze ? 'Freeze Frame' : isSlow ? 'Slow Motion' : 'Speed Effect',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'speed',
@@ -719,7 +732,7 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Bounce Effect ${colorDisplay ? `→ ${colorDisplay}` : '(Screen)'}`,
+        summary: 'Bounce Effect',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'custom_ai',
@@ -749,7 +762,16 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Camera FX: ${cameraEffect.replace('_', ' ').toUpperCase()}`,
+        summary:
+          cameraEffect === 'shake'
+            ? 'Shake Effect'
+            : cameraEffect === 'vhs_glitch'
+            ? 'Glitch Effect'
+            : cameraEffect === 'cinema_bars'
+            ? 'Cinema Bars'
+            : cameraEffect === 'flash'
+            ? 'Flash Effect'
+            : 'Vignette',
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'camera_fx',
@@ -786,12 +808,12 @@ export function compilePromptLocally(
       id,
       prompt: clause,
       summary: isGrayscale
-        ? `Black & White ${invertMask ? '(Color Splash) ' : ''}${colorDisplay ? `→ ${colorDisplay}` : ''}`
+        ? 'Black & White'
         : isInvert
-        ? `Invert Colors ${colorDisplay ? `→ ${colorDisplay}` : ''}`
+        ? 'Invert Effect'
         : hasExplicitTint
-        ? `Color Tint (${tintHex}) ${colorDisplay ? `→ ${colorDisplay}` : ''}`
-        : `Color Grade ${colorDisplay ? `→ ${colorDisplay}` : '(Interval)'}`,
+        ? 'Color Tint'
+        : 'Color Grade',
       startTime: clauseStart,
       endTime: clauseEnd,
       effectType: 'color_grade',
@@ -814,4 +836,128 @@ export function compilePromptLocally(
   });
 
   return results;
+}
+
+/**
+ * Condenses any verbose AI summary or user prompt into a crisp 1–2 word edit name
+ * (e.g., "Bounce Effect", "Fire Effect", "Text Effect", "Sound 4", "Zoom Effect")
+ * so edit labels never overflow or show ellipses across the UI.
+ */
+export function formatShortEditSummary(
+  rawSummary?: string,
+  prompt?: string,
+  effectType?: string
+): string {
+  const combined = `${rawSummary || ''} ${prompt || ''}`.toLowerCase();
+
+  if (/\b(bounce|bouncing|jump|jumping|hop|hopping|boing)\b/i.test(combined)) {
+    return 'Bounce Effect';
+  }
+  if (/\b(fire|flames?|burning|burn|inferno|blaze)\b/i.test(combined)) {
+    return 'Fire Effect';
+  }
+  if (/\b(water|waves?|splash|ripple|ocean|liquid)\b/i.test(combined)) {
+    return 'Water Effect';
+  }
+  if (/\b(lightning|thunder|electric|shock|zap)\b/i.test(combined)) {
+    return 'Lightning Effect';
+  }
+  if (/\b(snow|blizzard|frost|ice)\b/i.test(combined)) {
+    return 'Snow Effect';
+  }
+  if (/\b(rain|storm|drizzle)\b/i.test(combined)) {
+    return 'Rain Effect';
+  }
+  if (/\b(smoke|fog|mist|steam)\b/i.test(combined)) {
+    return 'Smoke Effect';
+  }
+  if (/\b(spark|sparkles?|glitter|stars?)\b/i.test(combined)) {
+    return 'Sparkle Effect';
+  }
+  if (/\b(explosion|explode|blast|boom)\b/i.test(combined)) {
+    return 'Explosion Effect';
+  }
+  if (/\b(shake|earthquake|vibrate|tremor)\b/i.test(combined)) {
+    return 'Shake Effect';
+  }
+  if (/\b(rgb\s*split|chromatic|aberration)\b/i.test(combined) || effectType === 'chromatic_aberration') {
+    return 'RGB Split';
+  }
+  if (/\b(glitch|vhs)\b/i.test(combined)) {
+    return 'Glitch Effect';
+  }
+  if (/\b(manga|halftone|ink|woodblock|sketch)\b/i.test(combined) || effectType === 'halftone_ink') {
+    return 'Manga Ink';
+  }
+  if (/\b(blur|defocus|bokeh)\b/i.test(combined) || effectType === 'blur') {
+    return 'Blur Effect';
+  }
+  if (/\b(pixel|pixelate|mosaic|censor|8-bit)\b/i.test(combined) || effectType === 'pixelate') {
+    return 'Pixelate Effect';
+  }
+  if (/\b(spotlight|darken\s+background|dim\s+background)\b/i.test(combined) || effectType === 'spotlight') {
+    return 'Spotlight';
+  }
+  if (/\b(neon|glow|aura|shine|radiate)\b/i.test(combined) || effectType === 'neon_glow') {
+    return 'Glow Effect';
+  }
+  if (/\b(zoom|close\s*up|punch\s*in|magnify)\b/i.test(combined) || effectType === 'zoom') {
+    return 'Zoom Effect';
+  }
+  if (/\b(spin|spinning|rotate|rotating|twirl|swirl|vortex)\b/i.test(combined)) {
+    return 'Spin Effect';
+  }
+  if (/\b(pulse|pulsing|heartbeat|throb)\b/i.test(combined)) {
+    return 'Pulse Effect';
+  }
+  if (/\b(wave|waving|wobble|warp|distort)\b/i.test(combined)) {
+    return 'Wave Effect';
+  }
+  if (/\b(hologram|holo)\b/i.test(combined)) {
+    return 'Hologram Effect';
+  }
+  if (/\b(black\s*&\s*white|black\s*and\s*white|grayscale|monochrome|b&w|noir)\b/i.test(combined)) {
+    return 'Black & White';
+  }
+  if (/\b(invert|negative|x-ray)\b/i.test(combined)) {
+    return 'Invert Effect';
+  }
+  if (/\b(freeze|pause\s+frame)\b/i.test(combined)) {
+    return 'Freeze Frame';
+  }
+  if (/\b(slow|slomo|slow-mo)\b/i.test(combined)) {
+    return 'Slow Motion';
+  }
+  if (/\b(fast|speed|timelapse)\b/i.test(combined) || effectType === 'speed') {
+    return 'Speed Effect';
+  }
+  if (/\b(orange)\b/i.test(combined)) {
+    return 'Orange Effect';
+  }
+  if (
+    /\b(type|typing|text|caption|title|subtitle|write|say|label|quote)\b/i.test(combined) ||
+    effectType === 'text_overlay'
+  ) {
+    return 'Text Effect';
+  }
+  if (/\b(sound|audio|recorded)\b/i.test(combined)) {
+    const numMatch = combined.match(/sound\s*(\d+)/i);
+    return numMatch ? `Sound ${numMatch[1]}` : 'Sound Effect';
+  }
+
+  // Fallback: clean rawSummary into a short 2-word title
+  const base = (rawSummary || prompt || 'Custom Effect')
+    .replace(/\s*[→@•].*$/g, '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/^(?:added|created|applied|animated|ai\s+custom|custom)\s+/i, '')
+    .replace(/\b(?:at|on|in|inside|around|across|over|with|to|for|of)\s+(?:the\s+)?(?:marked|selected|target|screen|video|frame|box|dot|position|region|area|interval).*$/i, '')
+    .replace(/["']/g, '')
+    .trim();
+
+  const words = base.split(/\s+/).filter(Boolean).slice(0, 2);
+  if (words.length === 0) return 'AI Effect';
+  const titled = words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+  return titled.length > 16 ? titled.slice(0, 16).trim() : titled;
 }

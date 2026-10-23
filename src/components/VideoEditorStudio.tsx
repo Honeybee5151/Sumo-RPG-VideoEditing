@@ -62,6 +62,7 @@ import {
 } from '@/types/editor';
 import {
   computeBoundingBox,
+  formatShortEditSummary,
   getInterpolatedAnnotations,
   summarizeColorGroups,
 } from '@/lib/editCompiler';
@@ -410,6 +411,11 @@ export default function VideoEditorStudio() {
               })
               .reverse()
               .map((ed) => {
+                const shortSummary = formatShortEditSummary(
+                  ed.summary,
+                  ed.prompt,
+                  ed.effectType
+                );
                 if (ed.targetColor && ed.targetColor !== 'all') {
                   const matchingAnns = restoredAnnotations.filter(
                     (a) => a.color === ed.targetColor
@@ -423,13 +429,17 @@ export default function VideoEditorStudio() {
                   if (starts.length > 0 && ends.length > 0) {
                     return {
                       ...ed,
+                      summary: shortSummary,
                       startTime: Math.min(...starts),
                       endTime: Math.max(...ends),
                       annotations: matchingAnns,
                     };
                   }
                 }
-                return ed;
+                return {
+                  ...ed,
+                  summary: shortSummary,
+                };
               });
             setEdits(dedupedEdits);
           }
@@ -1707,6 +1717,11 @@ export default function VideoEditorStudio() {
           setIntervalEnd(savedTl.intervalEnd ?? 5);
           const tlAnns = savedTl.annotations || [];
           const tlEdits = (savedTl.edits || []).map((ed) => {
+            const shortSummary = formatShortEditSummary(
+              ed.summary,
+              ed.prompt,
+              ed.effectType
+            );
             if (ed.targetColor && ed.targetColor !== 'all') {
               const matchingAnns = tlAnns.filter(
                 (a) => a.color === ed.targetColor
@@ -1720,13 +1735,17 @@ export default function VideoEditorStudio() {
               if (starts.length > 0 && ends.length > 0) {
                 return {
                   ...ed,
+                  summary: shortSummary,
                   startTime: Math.min(...starts),
                   endTime: Math.max(...ends),
                   annotations: matchingAnns,
                 };
               }
             }
-            return ed;
+            return {
+              ...ed,
+              summary: shortSummary,
+            };
           });
           setAnnotations(tlAnns);
           setEdits(tlEdits);
@@ -1773,6 +1792,11 @@ export default function VideoEditorStudio() {
           setIntervalEnd(savedTl.intervalEnd ?? 5);
           const tlAnns = savedTl.annotations || [];
           const tlEdits = (savedTl.edits || []).map((ed) => {
+            const shortSummary = formatShortEditSummary(
+              ed.summary,
+              ed.prompt,
+              ed.effectType
+            );
             if (ed.targetColor && ed.targetColor !== 'all') {
               const matchingAnns = tlAnns.filter(
                 (a) => a.color === ed.targetColor
@@ -1786,13 +1810,17 @@ export default function VideoEditorStudio() {
               if (starts.length > 0 && ends.length > 0) {
                 return {
                   ...ed,
+                  summary: shortSummary,
                   startTime: Math.min(...starts),
                   endTime: Math.max(...ends),
                   annotations: matchingAnns,
                 };
               }
             }
-            return ed;
+            return {
+              ...ed,
+              summary: shortSummary,
+            };
           });
           setAnnotations(tlAnns);
           setEdits(tlEdits);
@@ -5588,11 +5616,11 @@ export default function VideoEditorStudio() {
                         <span className="text-[9px] text-white">[</span>
                       </div>
 
-                      <div className="flex items-center gap-1.5 min-w-0 truncate px-1">
-                        <span className="text-[10px] truncate">
+                      <div className="flex items-center gap-1.5 min-w-0 overflow-hidden px-1">
+                        <span className="text-[10px] whitespace-nowrap overflow-hidden text-clip">
                           {cfg.name} ({selectedGroup.startTime.toFixed(1)}s–{selectedGroup.endTime.toFixed(1)}s)
                           {colorEdits.length > 0
-                            ? ` • ${colorEdits.map((e) => e.prompt).join(', ')}`
+                            ? ` • ${colorEdits.map((e) => formatShortEditSummary(e.summary, e.prompt, e.effectType)).join(', ')}`
                             : ''}
                         </span>
                       </div>
@@ -5860,11 +5888,11 @@ export default function VideoEditorStudio() {
                               }`}
                             >
                               <span
-                                className={`truncate font-medium text-[#26231f] ${
+                                className={`whitespace-nowrap overflow-hidden text-clip font-medium text-[#26231f] ${
                                   !edit.enabled ? 'line-through opacity-50' : ''
                                 }`}
                               >
-                                {edit.summary}
+                                {formatShortEditSummary(edit.summary, edit.prompt, edit.effectType)}
                               </span>
                               <div className="flex items-center gap-1 shrink-0">
                                 {typeof edit.tokensUsed === 'number' && (
@@ -5940,8 +5968,8 @@ export default function VideoEditorStudio() {
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-[#26231f] truncate">
-                            {edit.summary}
+                          <span className="text-xs font-medium text-[#26231f] whitespace-nowrap overflow-hidden text-clip">
+                            {formatShortEditSummary(edit.summary, edit.prompt, edit.effectType)}
                           </span>
                           <div className="flex items-center gap-1 shrink-0">
                             <button
@@ -6012,7 +6040,11 @@ export default function VideoEditorStudio() {
                 ? selectedEdit.endTime
                 : intervalEnd;
               const inspectorTitle = selectedEdit
-                ? selectedEdit.summary
+                ? formatShortEditSummary(
+                    selectedEdit.summary,
+                    selectedEdit.prompt,
+                    selectedEdit.effectType
+                  )
                 : targetColorForSlider
                 ? `${MARK_COLORS[targetColorForSlider].name} Interval`
                 : 'Timeframe Interval';
@@ -6053,9 +6085,9 @@ export default function VideoEditorStudio() {
               return (
                 <div className="p-3.5 border-t border-[#ded7c8] bg-[#f4f1ea] space-y-3 shrink-0">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-[#26231f] flex items-center gap-1.5 truncate">
+                    <span className="text-xs font-medium text-[#26231f] flex items-center gap-1.5 overflow-hidden">
                       <Sliders className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
-                      <span className="truncate">{inspectorTitle}</span>
+                      <span className="whitespace-nowrap overflow-hidden text-clip">{inspectorTitle}</span>
                     </span>
                   </div>
 
