@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, shell, dialog, nativeImage, screen } = require('electron');
 const http = require('http');
 const https = require('https');
+const net = require('net');
 const path = require('path');
 const fs = require('fs');
 const { exec, spawn } = require('child_process');
@@ -57,13 +58,19 @@ function ensureWindowsTaskbarIconRegistration() {
       'Programs',
       'Sumo VideoEditor.lnk'
     );
-    shell.writeShortcutLink(startMenuShortcut, 'replace', shortcutDetails);
+    if (!fs.existsSync(startMenuShortcut)) {
+      shell.writeShortcutLink(startMenuShortcut, 'create', shortcutDetails);
+    }
 
     const desktopShortcut = path.join(app.getPath('desktop'), 'Sumo VideoEditor.lnk');
-    shell.writeShortcutLink(desktopShortcut, 'replace', shortcutDetails);
+    if (!fs.existsSync(desktopShortcut)) {
+      shell.writeShortcutLink(desktopShortcut, 'create', shortcutDetails);
+    }
 
     const rootShortcut = path.join(ROOT_DIR, 'Sumo VideoEditor.lnk');
-    shell.writeShortcutLink(rootShortcut, 'replace', shortcutDetails);
+    if (!fs.existsSync(rootShortcut)) {
+      shell.writeShortcutLink(rootShortcut, 'create', shortcutDetails);
+    }
   } catch {
     // Ignore shortcut registration errors on restricted filesystems
   }
@@ -202,23 +209,26 @@ async function checkForReleaseUpdates() {
   }
 }
 
-function checkServerOnce(url) {
+function isPortOpenFast(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
-    const req = http
-      .get(url, (res) => {
-        res.resume();
-        resolve(res.statusCode >= 200 && res.statusCode < 400);
-      })
-      .on('error', () => resolve(false));
-    req.setTimeout(1500, () => {
-      req.destroy();
-      resolve(false);
-    });
+    const socket = new net.Socket();
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(120);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+    socket.connect(Number(port), host);
   });
 }
 
 async function ensureLocalServerRunning() {
-  const alreadyUp = await checkServerOnce(APP_URL);
+  const alreadyUp = await isPortOpenFast(PORT);
   if (alreadyUp || internalServerProc) return;
 
   const nextBin = path.join(ROOT_DIR, 'node_modules', 'next', 'dist', 'bin', 'next');
@@ -239,14 +249,21 @@ async function ensureLocalServerRunning() {
         ...process.env,
         NODE_ENV: hasProdBuild ? 'production' : 'development',
       },
+      detached: true,
       stdio: 'ignore',
       windowsHide: true,
     }
   );
+  internalServerProc.unref();
 
   internalServerProc.on('exit', () => {
     internalServerProc = null;
   });
+}
+
+// Start warming the local server immediately before Chromium finishes initializing
+if (gotSingleInstanceLock) {
+  ensureLocalServerRunning().catch(() => {});
 }
 
 function waitForServer(url, timeout = 120000) {
@@ -255,7 +272,6 @@ function waitForServer(url, timeout = 120000) {
     const check = () => {
       http
         .get(url, (res) => {
-          // Consume response data to free memory
           res.resume();
           if (res.statusCode >= 200 && res.statusCode < 400) {
             resolve();
@@ -270,7 +286,7 @@ function waitForServer(url, timeout = 120000) {
       if (Date.now() - start > timeout) {
         reject(new Error('Timed out waiting for local server'));
       } else {
-        setTimeout(check, 250);
+        setTimeout(check, 50);
       }
     };
 
@@ -296,6 +312,7 @@ async function createWindow() {
     minWidth: 1080,
     minHeight: 720,
     show: false,
+    opacity: 0,
     title: 'Sumo VideoEditor',
     icon: ICON_PATH,
     backgroundColor: '#f4f1ea',
@@ -330,9 +347,18 @@ async function createWindow() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(APP_URL);
       mainWindow.setTitle('Sumo VideoEditor');
+      // Maximize while opacity is 0 so Win32 never shows a resize/restore-to-maximize transition
       mainWindow.maximize();
-      mainWindow.show();
-      mainWindow.focus();
+      await mainWindow.webContents
+        .executeJavaScript(
+          'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))'
+        )
+        .catch(() => {});
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show();
+        mainWindow.setOpacity(1);
+        mainWindow.focus();
+      }
       // Automatically check GitHub Releases on launch and every 15 minutes
       setTimeout(() => checkForReleaseUpdates().catch(() => {}), 3000);
       setInterval(() => checkForReleaseUpdates().catch(() => {}), 15 * 60 * 1000);
@@ -347,17 +373,6 @@ async function createWindow() {
 }
 
 app.whenReady().then(createWindow);
-
-app.on('will-quit', () => {
-  if (internalServerProc) {
-    try {
-      internalServerProc.kill();
-    } catch {
-      // Ignore cleanup errors
-    }
-    internalServerProc = null;
-  }
-});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
