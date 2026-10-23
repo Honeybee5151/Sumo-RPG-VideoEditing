@@ -24,9 +24,6 @@ import {
   Film,
   RotateCcw,
   Wand2,
-  Camera,
-  FolderOpen,
-  Save,
   SplitSquareHorizontal,
   Volume2,
   VolumeX,
@@ -71,9 +68,6 @@ import {
   renderProceduralDemoScene,
 } from '@/lib/canvasCompositor';
 import {
-  exportBinaryMaskPng,
-  exportHighDefinitionSnapshotPng,
-  exportProjectFile,
   getOptimalVideoMimeType,
   resolveExportDimensions,
 } from '@/lib/hdExporter';
@@ -258,6 +252,7 @@ export default function VideoEditorStudio() {
   });
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportProgress, setExportProgress] = useState<number>(0);
+  const isExportingRef = useRef<boolean>(false);
 
   // Refs for rendering loop & interaction
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -1166,6 +1161,8 @@ export default function VideoEditorStudio() {
   ]);
 
   useEffect(() => {
+    if (isExporting || isExportingRef.current) return;
+
     const vid = videoRef.current;
     if (vid && videoUrl) {
       const { rate, freeze } = getActivePlaybackRate(currentTime);
@@ -1202,7 +1199,16 @@ export default function VideoEditorStudio() {
         }
       }
     }
-  }, [isPlaying, videoUrl, activeAudioUrl, currentTime, isMuted, duration, getActivePlaybackRate]);
+  }, [
+    isPlaying,
+    isExporting,
+    videoUrl,
+    activeAudioUrl,
+    currentTime,
+    isMuted,
+    duration,
+    getActivePlaybackRate,
+  ]);
 
   const activateMediaAsset = useCallback(
     (asset: MediaAssetItem, recordUndo = true) => {
@@ -2366,19 +2372,62 @@ export default function VideoEditorStudio() {
     visibleTimelineSpan,
   ]);
 
-  // TRUE HIGH-DEFINITION EXPORT ENGINE (720p, 1080p, 1440p, 4K UHD)
+  // TRUE HIGH-DEFINITION VIDEO EXPORT ENGINE (720p, 1080p, 1440p, 4K UHD)
   const startHighDefinitionExport = async () => {
-    if (isExporting) return;
+    if (isExporting || isExportingRef.current) return;
     const { width, height, label } = resolveExportDimensions(
       exportConfig.resolution,
       videoMeta
     );
-    const { mimeType, extension } = getOptimalVideoMimeType();
 
-    const startT = exportConfig.range === 'interval' ? intervalStart : 0;
-    const endT = exportConfig.range === 'interval' ? intervalEnd : duration;
-    const totalExportSeconds = Math.max(1, endT - startT);
+    const actualDuration =
+      videoRef.current &&
+      videoUrl &&
+      Number.isFinite(videoRef.current.duration) &&
+      videoRef.current.duration > 0
+        ? Math.max(duration, videoRef.current.duration)
+        : Math.max(0.5, duration);
 
+    const startT =
+      exportConfig.range === 'interval'
+        ? Math.max(0, Math.min(intervalStart, actualDuration - 0.2))
+        : 0;
+    const endT =
+      exportConfig.range === 'interval'
+        ? Math.min(actualDuration, Math.max(intervalEnd, startT + 0.2))
+        : actualDuration;
+
+    // Build kept segments in [startT, endT] after subtracting any deleted cut intervals
+    const sortedCuts = [...cuts].sort((a, b) => a.startTime - b.startTime);
+    let keptSegments: Array<{ start: number; end: number }> = [
+      { start: startT, end: endT },
+    ];
+    for (const c of sortedCuts) {
+      const nextList: Array<{ start: number; end: number }> = [];
+      for (const seg of keptSegments) {
+        if (c.endTime <= seg.start || c.startTime >= seg.end) {
+          nextList.push(seg);
+        } else {
+          if (c.startTime > seg.start + 0.04) {
+            nextList.push({ start: seg.start, end: c.startTime });
+          }
+          if (c.endTime < seg.end - 0.04) {
+            nextList.push({ start: c.endTime, end: seg.end });
+          }
+        }
+      }
+      keptSegments = nextList;
+    }
+    if (keptSegments.length === 0) {
+      keptSegments = [{ start: startT, end: endT }];
+    }
+
+    const totalExportSeconds = Math.max(
+      0.2,
+      keptSegments.reduce((acc, s) => acc + Math.max(0, s.end - s.start), 0)
+    );
+
+    isExportingRef.current = true;
     setIsExporting(true);
     setExportProgress(0);
     setIsPlaying(false);
@@ -2396,36 +2445,133 @@ export default function VideoEditorStudio() {
     const srcCtx = hdSourceCanvas.getContext('2d');
     const outCtx = hdOutCanvas.getContext('2d');
     if (!srcCtx || !outCtx) {
+      isExportingRef.current = false;
       setIsExporting(false);
       return;
     }
 
-    const stream = hdOutCanvas.captureStream(exportConfig.fps);
+    const firstStartT = keptSegments[0].start;
 
-    // Attach source video audio track if enabled and available
-    if (exportConfig.includeAudio && videoRef.current && videoUrl) {
-      try {
-        const vidWithCapture = videoRef.current as HTMLVideoElement & {
-          captureStream?: () => MediaStream;
-          mozCaptureStream?: () => MediaStream;
-        };
-        const vidStream =
-          vidWithCapture.captureStream?.() || vidWithCapture.mozCaptureStream?.();
-        const audioTracks = vidStream?.getAudioTracks() || [];
-        if (audioTracks.length > 0) {
-          stream.addTrack(audioTracks[0]);
-        }
-      } catch {
-        // Ignore audio capture errors on cross-origin or muted streams
+    // Prepare <video> at the exact starting timestamp before starting MediaRecorder
+    if (videoRef.current && videoUrl) {
+      const vid = videoRef.current;
+      vid.pause();
+      vid.loop = false;
+      vid.playbackRate = 1.0;
+      if (exportConfig.includeAudio) {
+        vid.muted = false;
+      }
+      if (Math.abs(vid.currentTime - firstStartT) > 0.03) {
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            vid.removeEventListener('seeked', finish);
+            resolve();
+          };
+          vid.addEventListener('seeked', finish);
+          vid.currentTime = firstStartT;
+          window.setTimeout(finish, 450);
+        });
       }
     }
+
+    // Draw the initial frame onto hdOutCanvas before capturing stream
+    const drawSingleExportFrame = (simTime: number) => {
+      if (videoUrl && videoRef.current && videoRef.current.readyState >= 2) {
+        drawMediaContain(
+          srcCtx,
+          videoRef.current,
+          width,
+          height,
+          videoRef.current.videoWidth || width,
+          videoRef.current.videoHeight || height
+        );
+      } else if (
+        activeImageUrl &&
+        imageRef.current &&
+        imageRef.current.complete
+      ) {
+        drawMediaContain(
+          srcCtx,
+          imageRef.current,
+          width,
+          height,
+          imageRef.current.naturalWidth || width,
+          imageRef.current.naturalHeight || height
+        );
+      } else {
+        srcCtx.fillStyle = '#181614';
+        srcCtx.fillRect(0, 0, width, height);
+      }
+
+      renderCompositedFrame(outCtx, hdSourceCanvas, width, height, simTime, edits);
+
+      const disp = displayCanvasRef.current;
+      if (disp) {
+        const dCtx = disp.getContext('2d');
+        dCtx?.drawImage(hdOutCanvas, 0, 0, disp.width, disp.height);
+      }
+    };
+
+    drawSingleExportFrame(firstStartT);
+
+    const stream = hdOutCanvas.captureStream(exportConfig.fps);
+    const videoTrack = stream.getVideoTracks()[0] as
+      | (MediaStreamTrack & { requestFrame?: () => void })
+      | undefined;
+
+    // Attach live audio track if enabled and available
+    if (exportConfig.includeAudio) {
+      try {
+        if (videoRef.current && videoUrl) {
+          const vidWithCapture = videoRef.current as HTMLVideoElement & {
+            captureStream?: () => MediaStream;
+            mozCaptureStream?: () => MediaStream;
+          };
+          const vidStream =
+            vidWithCapture.captureStream?.() ||
+            vidWithCapture.mozCaptureStream?.();
+          const audioTracks =
+            vidStream
+              ?.getAudioTracks()
+              .filter((t) => t.readyState === 'live') || [];
+          if (audioTracks.length > 0) {
+            stream.addTrack(audioTracks[0]);
+          }
+        } else if (audioRef.current && activeAudioUrl) {
+          const audWithCapture = audioRef.current as HTMLAudioElement & {
+            captureStream?: () => MediaStream;
+            mozCaptureStream?: () => MediaStream;
+          };
+          const audStream =
+            audWithCapture.captureStream?.() ||
+            audWithCapture.mozCaptureStream?.();
+          const audioTracks =
+            audStream
+              ?.getAudioTracks()
+              .filter((t) => t.readyState === 'live') || [];
+          if (audioTracks.length > 0) {
+            stream.addTrack(audioTracks[0]);
+          }
+        }
+      } catch {
+        // Ignore audio capture errors on restricted streams
+      }
+    }
+
+    const hasLiveAudio = stream
+      .getAudioTracks()
+      .some((t) => t.readyState === 'live');
+    const { mimeType, extension } = getOptimalVideoMimeType(hasLiveAudio);
 
     let recorder: MediaRecorder;
     try {
       recorder = new MediaRecorder(stream, {
         mimeType,
         videoBitsPerSecond: exportConfig.bitrateMbps * 1_000_000,
-        audioBitsPerSecond: 192_000,
+        ...(hasLiveAudio ? { audioBitsPerSecond: 192_000 } : {}),
       });
     } catch {
       recorder = new MediaRecorder(stream);
@@ -2438,7 +2584,21 @@ export default function VideoEditorStudio() {
       }
     };
 
+    let exportTimerId: number | null = null;
+
     recorder.onstop = () => {
+      if (exportTimerId !== null) {
+        window.clearInterval(exportTimerId);
+        exportTimerId = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.muted = isMuted;
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.muted = isMuted;
+      }
       const blob = new Blob(chunks, { type: mimeType.split(';')[0] });
       const dlUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2446,68 +2606,149 @@ export default function VideoEditorStudio() {
       a.download = `sumo-videoeditor-${exportConfig.resolution}-${width}x${height}-${Date.now()}.${extension}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(dlUrl), 3000);
+      isExportingRef.current = false;
       setIsExporting(false);
       setExportProgress(100);
       setShowExportModal(false);
       setStatusMessage(
-        `Exported ${label} (${width}×${height} @ ${exportConfig.bitrateMbps} Mbps) successfully!`
+        `Exported ${label} (${width}×${height} @ ${exportConfig.bitrateMbps} Mbps, ${totalExportSeconds.toFixed(1)}s) successfully!`
       );
     };
 
+    recorder.start(200);
+
     if (videoRef.current && videoUrl) {
-      videoRef.current.currentTime = startT;
       await videoRef.current.play().catch(() => {});
+    } else if (audioRef.current && activeAudioUrl) {
+      audioRef.current.currentTime = firstStartT;
+      audioRef.current.muted = false;
+      await audioRef.current.play().catch(() => {});
     }
 
-    recorder.start(250);
-    const exportStartWall = performance.now();
+    let currentSegIdx = 0;
+    let accumulatedPriorSec = 0;
+    let segStartWall = performance.now();
+    let lastObservedVideoTime = firstStartT;
+    let lastVideoAdvanceWall = performance.now();
+    let isSeekingToNextSeg = false;
 
-    const stepFrame = (now: number) => {
-      const elapsedSec = (now - exportStartWall) / 1000;
-      const rawTime = Math.min(endT, startT + elapsedSec);
-      const simTime = skipCutSegments(rawTime);
-      const pct = Math.min(99, Math.round((elapsedSec / totalExportSeconds) * 100));
-      setExportProgress(pct);
-      setCurrentTime(simTime);
-
-      if (videoUrl) {
-        if (videoRef.current && videoRef.current.readyState >= 2) {
-          if (Math.abs(videoRef.current.currentTime - simTime) > 0.1) {
-            videoRef.current.currentTime = simTime;
-          }
-          srcCtx.drawImage(videoRef.current, 0, 0, width, height);
-        }
-      } else if (activeImageUrl && imageRef.current && imageRef.current.complete) {
-        srcCtx.fillStyle = '#181614';
-        srcCtx.fillRect(0, 0, width, height);
-        srcCtx.drawImage(imageRef.current, 0, 0, width, height);
-      } else {
-        srcCtx.fillStyle = '#181614';
-        srcCtx.fillRect(0, 0, width, height);
+    const stepExportTick = () => {
+      if (!isExportingRef.current || recorder.state !== 'recording') {
+        return;
       }
 
-      renderCompositedFrame(outCtx, hdSourceCanvas, width, height, simTime, edits);
-
-      // Also mirror onto displayCanvas so user watches the live HD render
-      const disp = displayCanvasRef.current;
-      if (disp) {
-        const dCtx = disp.getContext('2d');
-        dCtx?.drawImage(hdOutCanvas, 0, 0, disp.width, disp.height);
-      }
-
-      if (elapsedSec < totalExportSeconds && recorder.state === 'recording') {
-        requestAnimationFrame(stepFrame);
-      } else {
-        if (videoRef.current && videoUrl) {
-          videoRef.current.pause();
-        }
+      const activeSeg = keptSegments[currentSegIdx];
+      if (!activeSeg) {
         if (recorder.state === 'recording') {
           recorder.stop();
         }
+        return;
       }
+
+      const now = performance.now();
+      let simTime = activeSeg.start;
+      let segElapsed = 0;
+
+      if (videoUrl && videoRef.current) {
+        const vid = videoRef.current;
+        if (isSeekingToNextSeg) {
+          if (!vid.seeking) {
+            isSeekingToNextSeg = false;
+            segStartWall = now;
+            lastObservedVideoTime = vid.currentTime;
+            lastVideoAdvanceWall = now;
+            if (vid.paused) {
+              vid.play().catch(() => {});
+            }
+          }
+          simTime = activeSeg.start;
+          segElapsed = 0;
+        } else {
+          const { rate, freeze } = getActivePlaybackRate(vid.currentTime);
+          const targetRate = freeze ? 0.0625 : rate;
+          if (Math.abs(vid.playbackRate - targetRate) > 0.02) {
+            vid.playbackRate = targetRate;
+          }
+
+          if (Math.abs(vid.currentTime - lastObservedVideoTime) > 0.005) {
+            lastObservedVideoTime = vid.currentTime;
+            lastVideoAdvanceWall = now;
+          } else if (now - lastVideoAdvanceWall > 400 && vid.paused && !vid.ended) {
+            vid.play().catch(() => {});
+          }
+
+          // Use native video clock if advancing, or wall-clock fallback if stalled
+          const wallFallbackTime =
+            activeSeg.start + ((now - segStartWall) / 1000) * targetRate;
+          simTime =
+            now - lastVideoAdvanceWall > 600
+              ? Math.min(activeSeg.end, wallFallbackTime)
+              : vid.currentTime;
+          segElapsed = Math.max(0, simTime - activeSeg.start);
+
+          if (simTime >= activeSeg.end - 0.02 || vid.ended) {
+            accumulatedPriorSec += activeSeg.end - activeSeg.start;
+            currentSegIdx += 1;
+            if (currentSegIdx >= keptSegments.length) {
+              drawSingleExportFrame(activeSeg.end);
+              videoTrack?.requestFrame?.();
+              vid.pause();
+              if (recorder.state === 'recording') {
+                recorder.stop();
+              }
+              return;
+            } else {
+              const nextSeg = keptSegments[currentSegIdx];
+              isSeekingToNextSeg = true;
+              vid.currentTime = nextSeg.start;
+              simTime = nextSeg.start;
+              segElapsed = 0;
+            }
+          }
+        }
+      } else {
+        // Image or audio-only timeline export driven by high-precision wall clock
+        const { rate, freeze } = getActivePlaybackRate(lastObservedVideoTime);
+        const targetRate = freeze ? 1.0 : rate;
+        segElapsed = ((now - segStartWall) / 1000) * targetRate;
+        simTime = Math.min(activeSeg.end, activeSeg.start + segElapsed);
+        lastObservedVideoTime = simTime;
+
+        if (simTime >= activeSeg.end - 0.01) {
+          accumulatedPriorSec += activeSeg.end - activeSeg.start;
+          currentSegIdx += 1;
+          if (currentSegIdx >= keptSegments.length) {
+            drawSingleExportFrame(activeSeg.end);
+            videoTrack?.requestFrame?.();
+            if (recorder.state === 'recording') {
+              recorder.stop();
+            }
+            return;
+          } else {
+            segStartWall = now;
+            simTime = keptSegments[currentSegIdx].start;
+            segElapsed = 0;
+          }
+        }
+      }
+
+      const totalRenderedSec = Math.min(
+        totalExportSeconds,
+        accumulatedPriorSec + segElapsed
+      );
+      const pct = Math.min(
+        99,
+        Math.max(1, Math.round((totalRenderedSec / totalExportSeconds) * 100))
+      );
+      setExportProgress(pct);
+      setCurrentTime(simTime);
+
+      drawSingleExportFrame(simTime);
+      videoTrack?.requestFrame?.();
     };
 
-    requestAnimationFrame(stepFrame);
+    const frameIntervalMs = Math.max(10, Math.round(1000 / exportConfig.fps));
+    exportTimerId = window.setInterval(stepExportTick, frameIntervalMs);
   };
 
   const colorSummaries = summarizeColorGroups(timeframeAnnotations);
@@ -2952,24 +3193,8 @@ export default function VideoEditorStudio() {
               </button>
             </div>
 
-            {/* Right Actions: Save, Settings, Export + ⋯ (Rigid fixed sizes) */}
+            {/* Right Actions: Settings & Video Export + ⋯ (Rigid fixed sizes) */}
             <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                onClick={() =>
-                  exportProjectFile({
-                    sceneId,
-                    intervalStart,
-                    intervalEnd,
-                    annotations,
-                    edits,
-                  })
-                }
-                title="Save Project (.chromacut.json)"
-                className="w-7 h-7 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer shrink-0"
-              >
-                <Save className="w-3.5 h-3.5 text-[#50793e]" />
-              </button>
-
               <button
                 onClick={() => setShowSettingsModal(true)}
                 title="AI Settings"
@@ -2996,7 +3221,7 @@ export default function VideoEditorStudio() {
                 <button
                   onClick={() => setShowExportModal(true)}
                   className="w-6 h-6 flex items-center justify-center text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer shrink-0"
-                  title="Export settings (Resolution, FPS, Bitrate, Frame PNG)"
+                  title="Video export settings (Resolution, FPS, Bitrate)"
                 >
                   ⋯
                 </button>
@@ -4879,43 +5104,7 @@ export default function VideoEditorStudio() {
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#ded7c8]">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() =>
-                    exportHighDefinitionSnapshotPng({
-                      preset: exportConfig.resolution,
-                      videoMeta,
-                      videoElement: videoRef.current,
-                      videoUrl,
-                      sceneId,
-                      currentTime,
-                      edits,
-                    })
-                  }
-                  disabled={isExporting}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer"
-                >
-                  <Camera className="w-3.5 h-3.5 text-[#234c7a]" />
-                  <span>Frame PNG</span>
-                </button>
-
-                <button
-                  onClick={() =>
-                    exportBinaryMaskPng({
-                      preset: exportConfig.resolution,
-                      videoMeta,
-                      annotations,
-                    })
-                  }
-                  disabled={isExporting}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer"
-                >
-                  <FolderOpen className="w-3.5 h-3.5 text-[#50793e]" />
-                  <span>Mask PNG</span>
-                </button>
-              </div>
-
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#ded7c8]">
               <button
                 onClick={startHighDefinitionExport}
                 disabled={isExporting}
@@ -4925,7 +5114,7 @@ export default function VideoEditorStudio() {
                 <span>
                   {isExporting
                     ? `Rendering (${exportProgress}%)...`
-                    : `Export ${exportConfig.resolution.toUpperCase()}`}
+                    : `Export ${exportConfig.resolution.toUpperCase()} Video`}
                 </span>
               </button>
             </div>
