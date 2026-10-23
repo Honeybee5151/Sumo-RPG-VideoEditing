@@ -50,6 +50,7 @@ import {
   ExportConfig,
   ExportResolutionPreset,
   getNextHighlightColor,
+  ImageGenModeId,
   isAnnotationInTimeframe,
   MARK_COLORS,
   MarkColor,
@@ -228,6 +229,8 @@ export default function VideoEditorStudio() {
     provider: 'auto',
     model: 'auto',
     apiKeys: {},
+    imageApiKey: '',
+    imageGenMode: 'auto',
     customBaseUrl: 'http://localhost:11434/v1/chat/completions',
     customContextPrompt: '',
   });
@@ -1978,6 +1981,8 @@ export default function VideoEditorStudio() {
           model: aiSettings.model,
           apiKey: activeKey,
           apiKeys: aiSettings.apiKeys,
+          imageApiKey: aiSettings.imageApiKey || '',
+          imageGenMode: aiSettings.imageGenMode || 'auto',
           geminiApiKey,
           customBaseUrl: aiSettings.customBaseUrl,
         }),
@@ -2000,7 +2005,24 @@ export default function VideoEditorStudio() {
       ctx.fillStyle = '#0f172a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Execute AI Canvas 2D drawing code
+      // A) If a Native Image Generation model returned a raster imageDataUrl (DALL-E 3, Gemini Imagen 3, Grok Image, FLUX.1, Stability SDXL)
+      if (
+        typeof data.imageDataUrl === 'string' &&
+        data.imageDataUrl.startsWith('data:image/')
+      ) {
+        await new Promise<void>((resolve, reject) => {
+          const nativeImg = new Image();
+          nativeImg.onload = () => {
+            ctx.drawImage(nativeImg, 0, 0, canvas.width, canvas.height);
+            resolve();
+          };
+          nativeImg.onerror = () =>
+            reject(new Error('Could not decode generated image data.'));
+          nativeImg.src = data.imageDataUrl;
+        });
+      }
+
+      // B) Execute AI Canvas 2D drawing code (DeepSeek / Claude / Code Draw mode)
       if (typeof data.renderCode === 'string' && data.renderCode.trim()) {
         try {
           const drawFn = new Function(
@@ -2015,7 +2037,7 @@ export default function VideoEditorStudio() {
         }
       }
 
-      // Optional SVG layer if returned
+      // C) Optional SVG layer if returned
       if (typeof data.svg === 'string' && data.svg.trim().startsWith('<svg')) {
         await new Promise<void>((resolve) => {
           const svgImg = new Image();
@@ -3928,6 +3950,20 @@ export default function VideoEditorStudio() {
 
                 {showAiDrawPanel && (
                   <div className="w-full bg-[#f4f1ea] border border-[#d6cfc2] rounded-xl p-2 flex flex-col gap-1.5 shrink-0">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-medium text-[#6e655c] truncate">
+                        {(aiSettings.imageApiKey || '').trim()
+                          ? 'Linked: Separate Image Key'
+                          : 'Linked: Dual Mode (Main Key)'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowSettingsModal(true)}
+                        className="text-[#b82d23] hover:underline font-medium cursor-pointer shrink-0"
+                      >
+                        Model / Key
+                      </button>
+                    </div>
                     <input
                       type="text"
                       value={aiDrawPrompt}
@@ -3939,7 +3975,7 @@ export default function VideoEditorStudio() {
                         }
                       }}
                       disabled={isAiDrawing}
-                      placeholder="Describe image to draw..."
+                      placeholder="Describe image to generate..."
                       className="w-full h-7 px-2 rounded-lg bg-[#faf8f4] border border-[#d6cfc2] text-xs text-[#26231f] placeholder-[#8a8377] focus:outline-none focus:border-[#26231f]"
                     />
                     <button
@@ -3950,7 +3986,7 @@ export default function VideoEditorStudio() {
                     >
                       <Sparkles className="w-3 h-3 text-[#c6923a] shrink-0" />
                       <span>
-                        {isAiDrawing ? 'AI Drawing via Code...' : 'Draw 1080p Image'}
+                        {isAiDrawing ? 'Generating Image...' : 'Generate 1080p Image'}
                       </span>
                     </button>
                   </div>
@@ -6164,7 +6200,7 @@ export default function VideoEditorStudio() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-[#6e655c] block">
-                    Paste any API Key (Auto-detects DeepSeek, OpenAI, Gemini, Claude, OpenRouter, Groq, or xAI)
+                    Main Video Editing API Key (Auto-detects DeepSeek, OpenAI, Gemini, Claude, OpenRouter, Groq, or xAI)
                   </label>
                   <input
                     type="password"
@@ -6197,6 +6233,80 @@ export default function VideoEditorStudio() {
                       {aiTestStatus.message}
                     </div>
                   )}
+                </div>
+
+                {/* Image Generation Model (Dual Mode or Separate Linked Key) */}
+                <div className="space-y-2 pt-3 border-t border-[#ded7c8]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-[#26231f] flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-[#b82d23]" />
+                      Image Generation Model (Images → AI Draw)
+                    </label>
+                    <span
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                        (aiSettings.imageApiKey || '').trim()
+                          ? 'bg-[#b82d23]/10 text-[#b82d23] border-[#b82d23]/30'
+                          : 'bg-[#50793e]/10 text-[#50793e] border-[#50793e]/30'
+                      }`}
+                    >
+                      {(aiSettings.imageApiKey || '').trim()
+                        ? 'Separate Image Key'
+                        : 'Dual Mode (Uses Main Key)'}
+                    </span>
+                  </div>
+
+                  <select
+                    value={aiSettings.imageGenMode || 'auto'}
+                    onChange={(e) => {
+                      const nextMode = e.target.value as ImageGenModeId;
+                      updateAiSettings((prev) => ({
+                        ...prev,
+                        imageGenMode: nextMode,
+                      }));
+                    }}
+                    className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
+                  >
+                    <option value="auto">
+                      Auto-Detect (Native Image if supported, or AI Code Draw)
+                    </option>
+                    <option value="openai">
+                      OpenAI DALL·E 3 (Native Raster Image)
+                    </option>
+                    <option value="gemini">
+                      Google Gemini / Imagen 3 (Native Raster Image)
+                    </option>
+                    <option value="xai">
+                      xAI Grok Image (Native Raster Image)
+                    </option>
+                    <option value="huggingface">
+                      HuggingFace FLUX.1-schnell (Native Raster Image)
+                    </option>
+                    <option value="stability">
+                      Stability AI SDXL (Native Raster Image)
+                    </option>
+                    <option value="code_draw">
+                      AI Code Draw (DeepSeek / Claude 1080p Canvas Artist)
+                    </option>
+                  </select>
+
+                  <div className="space-y-1">
+                    <input
+                      type="password"
+                      value={aiSettings.imageApiKey || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        updateAiSettings((prev) => ({
+                          ...prev,
+                          imageApiKey: val,
+                        }));
+                      }}
+                      placeholder="Leave blank for Dual Mode (uses Main Key), or paste separate Image API Key..."
+                      className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
+                    />
+                    <p className="text-[10px] text-[#6e655c] leading-snug">
+                      Leave blank if your main key does both (e.g. Gemini, OpenAI, Grok, or DeepSeek Code Draw), or paste a dedicated Image key (OpenAI, Gemini, HuggingFace <code className="font-mono">hf_...</code>, Stability, xAI) just for drawing images.
+                    </p>
+                  </div>
                 </div>
 
                 {/* Microphone Selection & Studio Quality (OBS Mode) */}

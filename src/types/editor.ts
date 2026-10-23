@@ -567,12 +567,23 @@ export type AiProviderId =
   | 'custom'
   | 'local';
 
+export type ImageGenModeId =
+  | 'auto'
+  | 'openai'
+  | 'gemini'
+  | 'xai'
+  | 'huggingface'
+  | 'stability'
+  | 'code_draw';
+
 export interface AiSettingsConfig {
   provider: AiProviderId;
   model: string;
   apiKeys: Partial<Record<AiProviderId, string>>;
   customBaseUrl: string;
   customContextPrompt: string;
+  imageApiKey?: string;
+  imageGenMode?: ImageGenModeId;
 }
 
 export interface AiProviderDefinition {
