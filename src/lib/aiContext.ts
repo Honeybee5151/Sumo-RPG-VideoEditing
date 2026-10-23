@@ -126,12 +126,12 @@ Do whatever the user asks at the target position and timeframe by returning a JS
 - \`"targetColor"\`: The target position's \`targetColor\` ID (e.g. \`"${focusedColorId || (colorSummary[0]?.color ?? 'all')}"\`).
 - \`"startTime"\`: Start time in seconds (default \`${ctx.startTime.toFixed(2)}\`).
 - \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count, or \`startTime + soundDuration\` if the user asks to lengthen the dot/color interval to fit a sound).
-- \`"audioAssetName"\` (string, optional): If the user asks to use or play a sound from Available Project Sounds (e.g. "use the sound Recorded Sound 1 here"), set this to the exact sound name (e.g. \`"Recorded Sound 1.webm"\`). IMPORTANT: When the user asks to play a sound on the video, keep the video visible and do NOT provide \`renderCode\` or \`svg\` unless the user also explicitly asked for a visual graphic.
+- \`"audioAssetName"\` (string, optional): If the user asks to use or play a sound from Available Project Sounds (e.g. "use the sound Recorded Sound 1 here"), set this to the exact sound name (e.g. \`"Recorded Sound 1.webm"\`). IMPORTANT: When the user asks ONLY to play a sound on the video without any visual effect, keep the video visible and do NOT provide \`renderCode\` or \`svg\`; when the user asks for BOTH a visual/screen effect (e.g. bounce, zoom, fire, text) AND a sound, provide BOTH \`renderCode\` AND \`audioAssetName\`.
 - \`"duration"\` (number, optional): ONLY use when \`Active Media Type\` is \`image\` and the user asks to change the total timeline duration of the static image. Never set \`duration\` when editing a video (to change the length of a color/dot interval on a video, set \`"endTime"\` instead!).
 - \`"renderCode"\` (string, optional): JavaScript code body executed every frame on the HTML5 2D Canvas during \`[startTime, endTime]\`.
   Your \`renderCode\` runs inside \`function(ctx, env) { ... }\` where both \`ctx\` and all properties of \`env\` are directly in scope:
   - \`ctx\`: \`CanvasRenderingContext2D\` of the output video canvas
-  - \`sourceCanvas\`: \`HTMLCanvasElement\` containing the unedited video frame (use \`ctx.drawImage(sourceCanvas, ...)\` if you want to manipulate, spin, rotate, zoom, filter, blur, or sample pixels from the video itself; when spinning/rotating/scaling the frame or region, fill the background with pure black \`#000000\` before drawing \`sourceCanvas\` so the old un-transformed frame is not visible behind it)
+  - \`sourceCanvas\`: \`HTMLCanvasElement\` containing the unedited video frame (use \`ctx.drawImage(sourceCanvas, ...)\` if you want to manipulate, bounce, spin, rotate, zoom, filter, blur, or sample pixels from the video itself; when bouncing/spinning/rotating/scaling the frame or region, fill the background with pure black \`#000000\` before drawing \`sourceCanvas\` so the old un-transformed frame is not visible behind it. For rhythmic/physics motion like bounce, shake, wobble, or wave, always drive the frequency using \`elapsed\` in seconds—e.g. \`const phase = elapsed * 8.5; const bounceY = -Math.abs(Math.sin(phase)) * 65 * scale;\`—rather than stretching a few cycles across \`progress\`, so the motion is lively and clearly visible even on 10–20s intervals!)
   - \`cx\`, \`cy\`: Target position center in pixels on the canvas (automatically updated every frame by the engine's real-time optical pixel tracker to follow the marked object as it moves!)
   - \`x\`, \`y\`, \`w\`, \`h\`: Target region top-left and width/height in pixels (also automatically tracked per-frame when following a moving object)
   - \`r\`: Target radius in pixels at that position
@@ -362,11 +362,13 @@ export function parseAiEditResponse(
     if (matchedProjectSound) {
       rawParams.audioAssetId = matchedProjectSound.id;
       rawParams.audioAssetName = matchedProjectSound.name;
-      // If user asked to play/use a sound without asking for a visual effect, keep video clean (no visual overlay)
+      // If user asked ONLY to play/use a sound without asking for a visual effect, keep video clean (no visual overlay)
       const askedForVisualToo =
-        /\b(draw|zoom|blur|glow|text|spin|rotate|color|pixelate|spotlight|shake|flash|box|circle|arrow)\b/i.test(
+        /\b(bounce|bouncing|jump|hop|wobble|wave|pulse|vibrate|effect|animate|animation|move|moving|slide|flip|scale|stretch|squash|draw|zoom|blur|glow|text|spin|rotate|color|pixelate|spotlight|shake|flash|fire|flame|water|rain|snow|spark|particle|screen|frame|box|circle|arrow)\b/i.test(
           ctx.prompt
-        );
+        ) ||
+        (typeof rawParams.renderCode === 'string' &&
+          /\bdrawImage\s*\(\s*sourceCanvas\b/.test(rawParams.renderCode));
       if (!askedForVisualToo) {
         delete rawParams.renderCode;
         delete rawParams.customSvg;
@@ -374,6 +376,16 @@ export function parseAiEditResponse(
       }
     } else if (rawSoundName) {
       rawParams.audioAssetName = rawSoundName;
+    }
+
+    // Ensure screen/region bounce prompts always have an energetic, real-time `elapsed`-driven bounce renderCode (never slow `progress * 3` drift across a 15s interval)
+    if (
+      /\b(bounce|bouncing)\b/i.test(ctx.prompt) &&
+      (!rawParams.renderCode ||
+        (typeof rawParams.renderCode === 'string' &&
+          /\bprogress\s*\*\s*bounces\b/.test(rawParams.renderCode)))
+    ) {
+      rawParams.renderCode = `const phase = elapsed * 8.5;\nconst bounce = Math.abs(Math.sin(phase));\nconst offsetY = -bounce * 64 * scale;\nconst squash = 1 + Math.cos(phase * 2) * 0.045;\nctx.fillStyle = '#000000';\nctx.fillRect(0, 0, width, height);\nctx.save();\nctx.translate(width / 2, height / 2 + offsetY);\nctx.scale(1 / squash, squash);\nctx.translate(-width / 2, -height / 2);\nctx.drawImage(sourceCanvas, 0, 0, width, height);\nctx.restore();`;
     }
 
     const hasOpenEndedAiPayload = Boolean(

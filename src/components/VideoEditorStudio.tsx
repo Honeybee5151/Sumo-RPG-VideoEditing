@@ -408,7 +408,29 @@ export default function VideoEditorStudio() {
                 seenTargetColors.add(ed.targetColor);
                 return true;
               })
-              .reverse();
+              .reverse()
+              .map((ed) => {
+                if (ed.targetColor && ed.targetColor !== 'all') {
+                  const matchingAnns = restoredAnnotations.filter(
+                    (a) => a.color === ed.targetColor
+                  );
+                  const starts = matchingAnns
+                    .map((a) => a.startTime)
+                    .filter((v): v is number => typeof v === 'number');
+                  const ends = matchingAnns
+                    .map((a) => a.endTime)
+                    .filter((v): v is number => typeof v === 'number');
+                  if (starts.length > 0 && ends.length > 0) {
+                    return {
+                      ...ed,
+                      startTime: Math.min(...starts),
+                      endTime: Math.max(...ends),
+                      annotations: matchingAnns,
+                    };
+                  }
+                }
+                return ed;
+              });
             setEdits(dedupedEdits);
           }
           if (Array.isArray(session.cuts)) {
@@ -1683,8 +1705,31 @@ export default function VideoEditorStudio() {
           setCurrentTime(savedTl.currentTime ?? 0);
           setIntervalStart(savedTl.intervalStart ?? 0);
           setIntervalEnd(savedTl.intervalEnd ?? 5);
-          setAnnotations(savedTl.annotations || []);
-          setEdits(savedTl.edits || []);
+          const tlAnns = savedTl.annotations || [];
+          const tlEdits = (savedTl.edits || []).map((ed) => {
+            if (ed.targetColor && ed.targetColor !== 'all') {
+              const matchingAnns = tlAnns.filter(
+                (a) => a.color === ed.targetColor
+              );
+              const starts = matchingAnns
+                .map((a) => a.startTime)
+                .filter((v): v is number => typeof v === 'number');
+              const ends = matchingAnns
+                .map((a) => a.endTime)
+                .filter((v): v is number => typeof v === 'number');
+              if (starts.length > 0 && ends.length > 0) {
+                return {
+                  ...ed,
+                  startTime: Math.min(...starts),
+                  endTime: Math.max(...ends),
+                  annotations: matchingAnns,
+                };
+              }
+            }
+            return ed;
+          });
+          setAnnotations(tlAnns);
+          setEdits(tlEdits);
           setCuts(savedTl.cuts || []);
           setSplitPoints(savedTl.splitPoints || []);
           setFocusedColor(savedTl.focusedColor || 'all');
@@ -1726,8 +1771,31 @@ export default function VideoEditorStudio() {
           setCurrentTime(savedTl.currentTime ?? 0);
           setIntervalStart(savedTl.intervalStart ?? 0);
           setIntervalEnd(savedTl.intervalEnd ?? 5);
-          setAnnotations(savedTl.annotations || []);
-          setEdits(savedTl.edits || []);
+          const tlAnns = savedTl.annotations || [];
+          const tlEdits = (savedTl.edits || []).map((ed) => {
+            if (ed.targetColor && ed.targetColor !== 'all') {
+              const matchingAnns = tlAnns.filter(
+                (a) => a.color === ed.targetColor
+              );
+              const starts = matchingAnns
+                .map((a) => a.startTime)
+                .filter((v): v is number => typeof v === 'number');
+              const ends = matchingAnns
+                .map((a) => a.endTime)
+                .filter((v): v is number => typeof v === 'number');
+              if (starts.length > 0 && ends.length > 0) {
+                return {
+                  ...ed,
+                  startTime: Math.min(...starts),
+                  endTime: Math.max(...ends),
+                  annotations: matchingAnns,
+                };
+              }
+            }
+            return ed;
+          });
+          setAnnotations(tlAnns);
+          setEdits(tlEdits);
           setCuts(savedTl.cuts || []);
           setSplitPoints(savedTl.splitPoints || []);
           setFocusedColor(savedTl.focusedColor || 'all');

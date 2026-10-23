@@ -1216,9 +1216,15 @@ async function tryNativeImageGeneration(params: {
         if (matched) {
           nextParams.audioAssetId = matched.id;
           nextParams.audioAssetName = matched.name;
-          delete nextParams.renderCode;
-          delete nextParams.customSvg;
-          delete nextParams.svg;
+          const askedForVisualToo =
+            /\b(bounce|bouncing|jump|hop|wobble|wave|pulse|vibrate|effect|animate|animation|move|moving|slide|flip|scale|stretch|squash|draw|zoom|blur|glow|text|spin|rotate|color|pixelate|spotlight|shake|flash|fire|flame|water|rain|snow|spark|particle|screen|frame|box|circle|arrow)\b/i.test(
+              lowerPrompt
+            );
+          if (!askedForVisualToo) {
+            delete nextParams.renderCode;
+            delete nextParams.customSvg;
+            delete nextParams.svg;
+          }
           if (typeof matched.durationSec === 'number' && matched.durationSec > 0) {
             const soundEnd = Number((ed.startTime + matched.durationSec).toFixed(2));
             if (

@@ -732,9 +732,28 @@ export function renderCompositedFrame(
   splitComparisonX?: number // Optional 0.0..1.0 split-screen comparison wipe
 ) {
   const resScale = width / 960;
-  const activeEdits = edits.filter(
-    (e) => e.enabled && currentTime >= e.startTime && currentTime <= e.endTime
-  );
+  const activeEdits = edits
+    .map((e) => {
+      if (e.targetColor && e.targetColor !== 'all' && e.annotations.length > 0) {
+        const annStarts = e.annotations
+          .map((a) => a.startTime)
+          .filter((v): v is number => typeof v === 'number');
+        const annEnds = e.annotations
+          .map((a) => a.endTime)
+          .filter((v): v is number => typeof v === 'number');
+        if (annStarts.length > 0 && annEnds.length > 0) {
+          const s = Math.min(...annStarts);
+          const end = Math.max(...annEnds);
+          if (end > s + 0.05) {
+            return { ...e, startTime: s, endTime: end };
+          }
+        }
+      }
+      return e;
+    })
+    .filter(
+      (e) => e.enabled && currentTime >= e.startTime && currentTime <= e.endTime
+    );
 
   mainCtx.save();
   mainCtx.fillStyle = '#000000';
@@ -932,9 +951,17 @@ export function renderCompositedFrame(
     }
 
     // 6. OPEN-ENDED AI CUSTOM SHADER, PARTICLES, VECTOR SVG & PROCEDURAL CANVAS ENGINE
+    const editCombinedText = `${edit.prompt || ''} ${edit.summary || ''}`.toLowerCase();
+    const effectiveRenderCode =
+      /\b(bounce|bouncing)\b/i.test(editCombinedText) &&
+      (!params.renderCode ||
+        /\bprogress\s*\*\s*bounces\b/.test(params.renderCode))
+        ? `const phase = elapsed * 8.5;\nconst bounce = Math.abs(Math.sin(phase));\nconst offsetY = -bounce * 64 * scale;\nconst squash = 1 + Math.cos(phase * 2) * 0.045;\nctx.fillStyle = '#000000';\nctx.fillRect(0, 0, width, height);\nctx.save();\nctx.translate(width / 2, height / 2 + offsetY);\nctx.scale(1 / squash, squash);\nctx.translate(-width / 2, -height / 2);\nctx.drawImage(sourceCanvas, 0, 0, width, height);\nctx.restore();`
+        : params.renderCode;
+
     if (
       (params.audioAssetId || params.audioAssetName) &&
-      !params.renderCode &&
+      !effectiveRenderCode &&
       !params.customSvg &&
       !params.svg &&
       !params.customDrawCommands?.length &&
@@ -943,14 +970,13 @@ export function renderCompositedFrame(
       !params.customOverlayGradient &&
       effectType === 'custom_ai'
     ) {
-      return;
+      continue;
     }
 
     const baseTargetBbox =
       annotations.length > 0
         ? mergeBoundingBoxes(annotations.map((a) => a.bbox))
         : { x: 0.38, y: 0.32, width: 0.24, height: 0.36, cx: 0.5, cy: 0.5 };
-    const editCombinedText = `${edit.prompt || ''} ${edit.summary || ''}`.toLowerCase();
     const shouldTrackObject =
       annotations.length > 0 &&
       baseTargetBbox.width * baseTargetBbox.height < 0.85 &&
@@ -1122,8 +1148,8 @@ export function renderCompositedFrame(
 
     // 6d. Direct Per-Frame AI Canvas 2D Execution (`params.renderCode`)
     let executedRenderCode = false;
-    if (params.renderCode && typeof params.renderCode === 'string') {
-      const compiledFn = getOrCompileRenderCode(params.renderCode);
+    if (effectiveRenderCode && typeof effectiveRenderCode === 'string') {
+      const compiledFn = getOrCompileRenderCode(effectiveRenderCode);
       if (compiledFn) {
         const totalFrames = Math.max(1, Math.round(clipDuration * 30));
         const currentFrame = Math.min(
@@ -1139,12 +1165,12 @@ export function renderCompositedFrame(
         try {
           // When AI renderCode transforms/spins/redraws sourceCanvas without a clip/filter, clear the old un-transformed frame behind it to pure black (#000000)
           if (
-            /\bdrawImage\s*\(\s*sourceCanvas\b/.test(params.renderCode) &&
-            !/\bctx\.clip\s*\(/.test(params.renderCode)
+            /\bdrawImage\s*\(\s*sourceCanvas\b/.test(effectiveRenderCode) &&
+            !/\bctx\.clip\s*\(/.test(effectiveRenderCode)
           ) {
             const usesSubRegionCrop =
               /drawImage\s*\(\s*sourceCanvas\s*,[^)]*,[^)]*,[^)]*,[^)]*,[^)]*,/.test(
-                params.renderCode
+                effectiveRenderCode
               );
             mainCtx.fillStyle = '#000000';
             if (usesSubRegionCrop && targetBbox.width * targetBbox.height < 0.65) {
@@ -1156,9 +1182,9 @@ export function renderCompositedFrame(
 
           const isPivotZoomCode =
             shouldTrackObject &&
-            /\bscale\s*\(/.test(params.renderCode) &&
-            /\bdrawImage\s*\(\s*sourceCanvas\b/.test(params.renderCode) &&
-            !/translate\s*\(\s*width\s*\/\s*2/.test(params.renderCode);
+            /\bscale\s*\(/.test(effectiveRenderCode) &&
+            /\bdrawImage\s*\(\s*sourceCanvas\b/.test(effectiveRenderCode) &&
+            !/translate\s*\(\s*width\s*\/\s*2/.test(effectiveRenderCode);
 
           const initCxPx = baseTargetBbox.cx * width;
           const initCyPx = baseTargetBbox.cy * height;

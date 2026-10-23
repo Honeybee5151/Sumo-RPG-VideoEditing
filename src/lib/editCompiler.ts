@@ -714,6 +714,26 @@ export function compilePromptLocally(
       return;
     }
 
+    // 11.5. BOUNCE / JUMP / HOP EFFECT (Screen or Box Region)
+    if (/\b(bounce|bouncing|jump|jumping|hop|hopping|boing)\b/i.test(lower)) {
+      results.push({
+        id,
+        prompt: clause,
+        summary: `Bounce Effect ${colorDisplay ? `→ ${colorDisplay}` : '(Screen)'}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
+        effectType: 'custom_ai',
+        targetColor,
+        annotations: matchingAnnotations,
+        params: {
+          renderCode: `const phase = elapsed * 8.5;\nconst bounce = Math.abs(Math.sin(phase));\nconst offsetY = -bounce * 64 * scale;\nconst squash = 1 + Math.cos(phase * 2) * 0.045;\nctx.fillStyle = '#000000';\nctx.fillRect(0, 0, width, height);\nctx.save();\nctx.translate(width / 2, height / 2 + offsetY);\nctx.scale(1 / squash, squash);\nctx.translate(-width / 2, -height / 2);\nctx.drawImage(sourceCanvas, 0, 0, width, height);\nctx.restore();`,
+        },
+        enabled: true,
+        aiProvider: aiProviderLabel,
+      });
+      return;
+    }
+
     // 12. CAMERA FX (SHAKE / GLITCH / VHS / CINEMA BARS / VIGNETTE / FLASH)
     if (/\b(shake|earthquake|vibrate|glitch|vhs|retro|cinema|letterbox|bars|vignette|flash|strobe)\b/i.test(lower)) {
       const cameraEffect = /\b(shake|earthquake|vibrate)\b/i.test(lower)
