@@ -132,9 +132,12 @@ export default function VideoEditorStudio() {
     isCustomVideo: false,
   });
 
-  // Interval selection [startTime, endTime]
+  // Interval selection [startTime, endTime] & inline badge editor
   const [intervalStart, setIntervalStart] = useState<number>(1.0);
   const [intervalEnd, setIntervalEnd] = useState<number>(6.5);
+  const [isEditingIntervalBadge, setIsEditingIntervalBadge] = useState<boolean>(false);
+  const [draftIntervalStart, setDraftIntervalStart] = useState<string>('1.0');
+  const [draftIntervalEnd, setDraftIntervalEnd] = useState<string>('6.5');
 
   // Screen Drawing / Multi-Color Annotation state
   const [activeColor, setActiveColor] = useState<MarkColor>('red');
@@ -1014,6 +1017,7 @@ export default function VideoEditorStudio() {
   const selectColorForAi = useCallback(
     (color: MarkColor | 'all') => {
       setFocusedColor(color);
+      setIsEditingIntervalBadge(false);
       if (color !== 'all') {
         const matching = annotations.filter((a) => a.color === color);
         if (matching.length > 0) {
@@ -1028,6 +1032,8 @@ export default function VideoEditorStudio() {
             const e = Math.max(...ends);
             setIntervalStart(s);
             setIntervalEnd(e);
+            setDraftIntervalStart(s.toFixed(1));
+            setDraftIntervalEnd(e.toFixed(1));
             if (currentTime < s - 0.05 || currentTime > e + 0.05) {
               setCurrentTime(s);
               if (videoRef.current && videoUrl) {
@@ -1039,6 +1045,42 @@ export default function VideoEditorStudio() {
       }
     },
     [annotations, currentTime, videoUrl]
+  );
+
+  const commitCustomInterval = useCallback(
+    (startStr: string, endStr: string, closeEditor = true) => {
+      const rawStart = parseFloat(startStr);
+      const rawEnd = parseFloat(endStr);
+      if (!Number.isNaN(rawStart) && !Number.isNaN(rawEnd)) {
+        const low = Math.min(rawStart, rawEnd);
+        const high = Math.max(rawStart, rawEnd);
+        const clampedStart = Number(
+          Math.max(0, Math.min(duration - 0.3, low)).toFixed(2)
+        );
+        const clampedEnd = Number(
+          Math.min(duration, Math.max(clampedStart + 0.3, high)).toFixed(2)
+        );
+
+        if (focusedColor !== 'all') {
+          stretchColorInterval(focusedColor, clampedStart, clampedEnd);
+        } else {
+          setIntervalStart(clampedStart);
+          setIntervalEnd(clampedEnd);
+        }
+        setCurrentTime(clampedStart);
+        if (videoRef.current && videoUrl) {
+          videoRef.current.currentTime = clampedStart;
+        }
+        if (closeEditor) {
+          setDraftIntervalStart(clampedStart.toFixed(1));
+          setDraftIntervalEnd(clampedEnd.toFixed(1));
+        }
+      }
+      if (closeEditor) {
+        setIsEditingIntervalBadge(false);
+      }
+    },
+    [duration, focusedColor, stretchColorInterval, videoUrl]
   );
 
   const handleCanvasPointerUp = () => {
@@ -2368,13 +2410,112 @@ export default function VideoEditorStudio() {
           {/* ADAPTIVE BOTTOM AI BAR (Shows only the currently selected color from the right panel) */}
           <div className="border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2 shrink-0">
             <div className="max-w-5xl mx-auto flex items-center gap-2">
-              {focusedColor !== 'all' ? (
+              {isEditingIntervalBadge ? (
                 <div
+                  style={
+                    focusedColor !== 'all'
+                      ? {
+                          backgroundColor: MARK_COLORS[focusedColor].hex,
+                          color: MARK_COLORS[focusedColor].textColorHex,
+                        }
+                      : undefined
+                  }
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shrink-0 ${
+                    focusedColor === 'all'
+                      ? 'bg-[#f0ece1] border border-[#26231f] text-[#26231f]'
+                      : ''
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      commitCustomInterval(draftIntervalStart, draftIntervalEnd, true)
+                    }
+                    className="flex items-center gap-1 cursor-pointer"
+                    title="Click to finish editing interval"
+                  >
+                    {focusedColor !== 'all' ? (
+                      <>
+                        <span
+                          className="w-2 h-2 rounded-full border border-white/70"
+                          style={{ backgroundColor: MARK_COLORS[focusedColor].hex }}
+                        />
+                        <span>{MARK_COLORS[focusedColor].name}</span>
+                      </>
+                    ) : (
+                      <Clock className="w-3.5 h-3.5 text-[#6e655c]" />
+                    )}
+                  </button>
+                  <input
+                    type="number"
+                    step={0.1}
+                    min={0}
+                    max={duration}
+                    autoFocus
+                    value={draftIntervalStart}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDraftIntervalStart(val);
+                      commitCustomInterval(val, draftIntervalEnd, false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        commitCustomInterval(draftIntervalStart, draftIntervalEnd, true);
+                      } else if (e.key === 'Escape') {
+                        setIsEditingIntervalBadge(false);
+                      }
+                    }}
+                    className="w-14 px-1.5 py-0.5 rounded bg-white/95 text-[#26231f] font-mono text-xs border border-black/20 focus:outline-none"
+                    title="Start time (seconds)"
+                  />
+                  <span className="opacity-80">–</span>
+                  <input
+                    type="number"
+                    step={0.1}
+                    min={0}
+                    max={duration}
+                    value={draftIntervalEnd}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDraftIntervalEnd(val);
+                      commitCustomInterval(draftIntervalStart, val, false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        commitCustomInterval(draftIntervalStart, draftIntervalEnd, true);
+                      } else if (e.key === 'Escape') {
+                        setIsEditingIntervalBadge(false);
+                      }
+                    }}
+                    className="w-14 px-1.5 py-0.5 rounded bg-white/95 text-[#26231f] font-mono text-xs border border-black/20 focus:outline-none"
+                    title="End time (seconds)"
+                  />
+                  <span className="opacity-80 text-[11px]">s</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      commitCustomInterval(draftIntervalStart, draftIntervalEnd, true)
+                    }
+                    className="ml-0.5 px-1.5 py-0.5 rounded bg-black/25 hover:bg-black/40 text-white text-[10px] font-semibold cursor-pointer"
+                    title="Set timeframe"
+                  >
+                    ✓
+                  </button>
+                </div>
+              ) : focusedColor !== 'all' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftIntervalStart(intervalStart.toFixed(1));
+                    setDraftIntervalEnd(intervalEnd.toFixed(1));
+                    setIsEditingIntervalBadge(true);
+                  }}
                   style={{
                     backgroundColor: MARK_COLORS[focusedColor].hex,
                     color: MARK_COLORS[focusedColor].textColorHex,
                   }}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shrink-0"
+                  title="Click color name to type a specific start & end time"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shrink-0 cursor-pointer hover:opacity-90 transition"
                 >
                   <span
                     className="w-2 h-2 rounded-full border border-white/70"
@@ -2383,14 +2524,23 @@ export default function VideoEditorStudio() {
                   <span>
                     {MARK_COLORS[focusedColor].name} • {intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s
                   </span>
-                </div>
+                </button>
               ) : (
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono font-medium text-[#26231f] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftIntervalStart(intervalStart.toFixed(1));
+                    setDraftIntervalEnd(intervalEnd.toFixed(1));
+                    setIsEditingIntervalBadge(true);
+                  }}
+                  title="Click to type a specific start & end time"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-mono font-medium text-[#26231f] shrink-0 cursor-pointer transition"
+                >
                   <Clock className="w-3.5 h-3.5 text-[#6e655c]" />
                   <span>
                     {intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s
                   </span>
-                </div>
+                </button>
               )}
 
               <input
@@ -2494,12 +2644,6 @@ export default function VideoEditorStudio() {
                     </span>
                   </span>
                 )}
-                <button
-                  onClick={handleStartNewTimeframe}
-                  className="px-2.5 py-0.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-md text-xs font-medium text-[#26231f] cursor-pointer shrink-0"
-                >
-                  + Interval
-                </button>
               </div>
             </div>
 
