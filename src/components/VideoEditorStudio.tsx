@@ -3038,14 +3038,6 @@ export default function VideoEditorStudio() {
               />
 
               <button
-                onClick={() => setShowGrimoireModal(true)}
-                className="h-8 flex items-center gap-1 px-2.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0"
-              >
-                <BookOpen className="w-3.5 h-3.5 text-[#234c7a]" />
-                <span>Presets</span>
-              </button>
-
-              <button
                 onClick={() =>
                   handleApplyAiPrompt(
                     undefined,
@@ -4161,24 +4153,22 @@ export default function VideoEditorStudio() {
         </div>
       )}
 
-      {/* AI SETTINGS & CONTEXT MODAL (Supports DeepSeek, OpenAI, Gemini, Claude, OpenRouter, Groq, xAI, Mistral, Custom/Ollama) */}
+      {/* AI SETTINGS MODAL (Simple Single Auto-Detect API Key Input) */}
       {showSettingsModal &&
         (() => {
-          const activeProviderDef =
-            AI_PROVIDER_CATALOG.find((p) => p.id === aiSettings.provider) ||
-            AI_PROVIDER_CATALOG[0];
-          const currentProviderKey =
+          const currentAutoKey =
+            aiSettings.apiKeys.auto ??
             aiSettings.apiKeys[aiSettings.provider] ??
-            (aiSettings.provider === 'gemini' ? geminiApiKey : '') ??
+            geminiApiKey ??
             '';
 
           return (
             <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-              <div className="w-full max-w-lg bg-[#faf8f4] border border-[#ded7c8] rounded-2xl p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between border-b border-[#ded7c8] pb-3">
+              <div className="w-full max-w-md bg-[#faf8f4] border border-[#ded7c8] rounded-2xl p-5 space-y-4 shadow-xl">
+                <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-[#26231f] flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-[#b82d23]" />
-                    AI Providers &amp; Editor Context
+                    API Key
                   </h3>
                   <button
                     onClick={() => setShowSettingsModal(false)}
@@ -4188,303 +4178,64 @@ export default function VideoEditorStudio() {
                   </button>
                 </div>
 
-                {/* 1. AI Provider Selector */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-[#26231f] block">
-                    AI Provider
+                  <label className="text-xs font-medium text-[#6e655c] block">
+                    Paste any API Key (Auto-detects DeepSeek, OpenAI, Gemini, Claude, OpenRouter, Groq, or xAI)
                   </label>
-                  <select
-                    value={aiSettings.provider}
+                  <input
+                    type="password"
+                    value={currentAutoKey}
                     onChange={(e) => {
-                      const nextProvider = e.target.value as AiProviderId;
-                      const def = AI_PROVIDER_CATALOG.find(
-                        (p) => p.id === nextProvider
-                      );
+                      const val = e.target.value;
                       setAiTestStatus({ loading: false });
+                      setGeminiApiKey(val);
                       updateAiSettings((prev) => ({
                         ...prev,
-                        provider: nextProvider,
-                        model: def?.defaultModel || 'auto',
+                        provider: 'auto',
+                        model: 'auto',
+                        apiKeys: {
+                          ...prev.apiKeys,
+                          auto: val,
+                        },
                       }));
                     }}
-                    className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
+                    placeholder="sk-... / AIza... / sk-ant-... / sk-or-..."
+                    className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
+                  />
+                  {aiTestStatus.message && (
+                    <div
+                      className={`text-[11px] px-2.5 py-1.5 rounded-lg border ${
+                        aiTestStatus.ok
+                          ? 'bg-[#50793e]/10 border-[#50793e]/30 text-[#50793e]'
+                          : 'bg-[#b82d23]/10 border-[#b82d23]/30 text-[#b82d23]'
+                      }`}
+                    >
+                      {aiTestStatus.message}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleTestAiConnection}
+                    disabled={aiTestStatus.loading || !currentAutoKey.trim()}
+                    className="px-3 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer transition"
                   >
-                    {AI_PROVIDER_CATALOG.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    {aiTestStatus.loading ? 'Testing...' : 'Test Key'}
+                  </button>
 
-                {/* 2. Model Selector */}
-                {aiSettings.provider !== 'local' && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-[#26231f] block">
-                      Model
-                    </label>
-                    {aiSettings.provider === 'custom' ||
-                    aiSettings.provider === 'openrouter' ? (
-                      <div className="space-y-1.5">
-                        <select
-                          value={
-                            activeProviderDef.models.some(
-                              (m) => m.id === aiSettings.model
-                            )
-                              ? aiSettings.model
-                              : activeProviderDef.defaultModel
-                          }
-                          onChange={(e) =>
-                            updateAiSettings((prev) => ({
-                              ...prev,
-                              model: e.target.value,
-                            }))
-                          }
-                          className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
-                        >
-                          {activeProviderDef.models.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.label}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="text"
-                          value={aiSettings.model}
-                          onChange={(e) =>
-                            updateAiSettings((prev) => ({
-                              ...prev,
-                              model: e.target.value,
-                            }))
-                          }
-                          placeholder="Or type any model ID (e.g. deepseek/deepseek-chat, deepseek-r1:latest)"
-                          className="w-full px-3 py-1.5 bg-[#f4f1ea] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
-                        />
-                      </div>
-                    ) : (
-                      <select
-                        value={aiSettings.model}
-                        onChange={(e) =>
-                          updateAiSettings((prev) => ({
-                            ...prev,
-                            model: e.target.value,
-                          }))
-                        }
-                        className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
-                      >
-                        {activeProviderDef.models.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                )}
-
-                {/* 3. Custom Endpoint Base URL (for Custom / Ollama / LM Studio) */}
-                {aiSettings.provider === 'custom' && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-[#26231f] block">
-                      OpenAI-Compatible Chat Completions Endpoint URL
-                    </label>
-                    <input
-                      type="text"
-                      value={aiSettings.customBaseUrl}
-                      onChange={(e) =>
-                        updateAiSettings((prev) => ({
-                          ...prev,
-                          customBaseUrl: e.target.value,
-                        }))
-                      }
-                      placeholder="http://localhost:11434/v1/chat/completions"
-                      className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
-                    />
-                  </div>
-                )}
-
-                {/* 4. API Key Input + Test Button */}
-                {aiSettings.provider !== 'local' && (
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-[#26231f] block">
-                      API Key ({activeProviderDef.label.split('(')[0].trim()})
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="password"
-                        value={currentProviderKey}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (aiSettings.provider === 'gemini') {
-                            setGeminiApiKey(val);
-                          }
-                          updateAiSettings((prev) => ({
-                            ...prev,
-                            apiKeys: {
-                              ...prev.apiKeys,
-                              [prev.provider]: val,
-                            },
-                          }));
-                        }}
-                        placeholder={activeProviderDef.keyPlaceholder}
-                        className="flex-1 px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleTestAiConnection}
-                        disabled={aiTestStatus.loading}
-                        className="px-3 py-2 bg-[#234c7a] hover:bg-[#1b3b60] disabled:opacity-50 rounded-lg text-xs font-medium text-white shrink-0 cursor-pointer transition"
-                      >
-                        {aiTestStatus.loading ? 'Testing...' : 'Test API'}
-                      </button>
-                    </div>
-                    {aiTestStatus.message && (
-                      <div
-                        className={`text-[11px] px-2.5 py-1.5 rounded-lg border ${
-                          aiTestStatus.ok
-                            ? 'bg-[#50793e]/10 border-[#50793e]/30 text-[#50793e]'
-                            : 'bg-[#b82d23]/10 border-[#b82d23]/30 text-[#b82d23]'
-                        }`}
-                      >
-                        {aiTestStatus.message}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 5. How AI Context Works + Custom Project Context */}
-                <div className="space-y-2 pt-2 border-t border-[#ded7c8]">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-[#26231f]">
-                      AI Editor Context (Automatically Sent on Every Prompt)
-                    </label>
-                    <span className="text-[10px] font-mono text-[#50793e]">
-                      Active
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-[#f0ece1] border border-[#d6cfc2] text-[11px] text-[#6e655c] space-y-1">
-                    <div>
-                      • <strong className="text-[#26231f]">Placed Colors &amp; Coordinates:</strong>{' '}
-                      {allColorGroups.length > 0
-                        ? allColorGroups
-                            .map(
-                              (cg) =>
-                                `${MARK_COLORS[cg.color].name} (${cg.startTime.toFixed(1)}s–${cg.endTime.toFixed(1)}s)`
-                            )
-                            .join(', ')
-                        : 'None placed yet (full-frame context)'}
-                    </div>
-                    <div>
-                      • <strong className="text-[#26231f]">Focused Color &amp; Interval:</strong>{' '}
-                      {focusedColor !== 'all'
-                        ? `${MARK_COLORS[focusedColor].name} (${intervalStart.toFixed(1)}s–${intervalEnd.toFixed(1)}s)`
-                        : `Full Frame (${intervalStart.toFixed(1)}s–${intervalEnd.toFixed(1)}s)`}
-                    </div>
-                    <div>
-                      • <strong className="text-[#26231f]">Capabilities Taught to AI:</strong>{' '}
-                      13 spatial/temporal shaders (Zoom, Blur/Bokeh, Pixelate, Spotlight, Color Splash/Grade, Neon Glow, Manga Ink, Chromatic RGB, V2V Synthesis, Text Callouts, HUD Shapes, Speed, Camera FX) + Timeline Cuts &amp; Splits.
-                    </div>
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-[#6e655c] block">
-                      Additional Project Context / Instructions for AI (Optional)
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={aiSettings.customContextPrompt}
-                      onChange={(e) =>
-                        updateAiSettings((prev) => ({
-                          ...prev,
-                          customContextPrompt: e.target.value,
-                        }))
-                      }
-                      placeholder="e.g. This is a Sumo RPG combat clip. Always use dramatic smooth zooms and bold callout text."
-                      className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f] placeholder-[#8c8277]"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2 border-t border-[#ded7c8]">
                   <button
                     onClick={() => setShowSettingsModal(false)}
-                    className="px-4 py-2 bg-[#26231f] hover:bg-[#3d3833] rounded-lg text-xs font-medium text-white cursor-pointer"
+                    className="px-4 py-1.5 bg-[#26231f] hover:bg-[#3d3833] rounded-lg text-xs font-medium text-white cursor-pointer"
                   >
-                    Done
+                    Save
                   </button>
                 </div>
               </div>
             </div>
           );
         })()}
-
-      {/* PRESETS MODAL */}
-      {showGrimoireModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-[#faf8f4] border border-[#ded7c8] rounded-2xl p-6 space-y-4 shadow-xl max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-[#ded7c8] pb-3">
-              <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-[#234c7a]" />
-                <h3 className="text-sm font-semibold text-[#26231f]">
-                  AI Edit Presets
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowGrimoireModal(false)}
-                className="text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              {[
-                {
-                  title: 'Anime Impact',
-                  promptText: `Anime impact on the ${primaryColor} area`,
-                },
-                {
-                  title: 'Bokeh Portrait Blur',
-                  promptText: `Blur outside the ${primaryColor} area for bokeh depth-of-field`,
-                },
-                {
-                  title: 'Selective Color Splash',
-                  promptText: `Keep the ${primaryColor} area in color and make the background black and white`,
-                },
-                {
-                  title: 'Fire Synthesis (V2V)',
-                  promptText: `Replace the ${primaryColor} area with fire synthesis`,
-                },
-                {
-                  title: 'Dual Color Combo',
-                  promptText: `Manga halftone ink on the ${primaryColor} area and blur the ${secondaryColor} area`,
-                },
-                {
-                  title: 'Chromatic Glitch + Zoom',
-                  promptText: `Chromatic aberration on the ${primaryColor} area and zoom 2x into the ${primaryColor} area`,
-                },
-              ].map((item, i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    setPrompt(item.promptText);
-                    setShowGrimoireModal(false);
-                    handleApplyAiPrompt(item.promptText);
-                  }}
-                  className="bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-xl p-3 text-left transition cursor-pointer space-y-1"
-                >
-                  <div className="text-xs font-semibold text-[#26231f]">
-                    {item.title}
-                  </div>
-                  <div className="text-[11px] text-[#6e655c] truncate">
-                    {item.promptText}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
