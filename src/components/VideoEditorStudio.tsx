@@ -649,17 +649,16 @@ export default function VideoEditorStudio() {
     }
   };
 
-  // Highlights that belong to the currently selected [intervalStart, intervalEnd] timeframe
-  const timeframeAnnotations = annotations.filter((a) =>
-    isAnnotationInTimeframe(a, intervalStart, intervalEnd)
-  );
+  // Highlights visible at the current playhead timestamp (`currentTime`) as you scrub or play the timeline
+  const timeframeAnnotations = annotations.filter((a) => {
+    const s = a.startTime ?? 0;
+    const e = a.endTime ?? duration;
+    return currentTime >= s - 0.05 && currentTime <= e + 0.05;
+  });
 
-  // Automatically pick the next unused color whenever the user switches to a different timeframe
+  // Automatically pick the next unused distinct color whenever the timeframe changes
   useEffect(() => {
-    const inFrame = annotations.filter((a) =>
-      isAnnotationInTimeframe(a, intervalStart, intervalEnd)
-    );
-    setActiveColor(getNextHighlightColor(inFrame));
+    setActiveColor(getNextHighlightColor(annotations));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intervalStart, intervalEnd]);
 
@@ -903,11 +902,17 @@ export default function VideoEditorStudio() {
             const e = Math.max(...ends);
             setIntervalStart(s);
             setIntervalEnd(e);
+            if (currentTime < s - 0.05 || currentTime > e + 0.05) {
+              setCurrentTime(s);
+              if (videoRef.current && videoUrl) {
+                videoRef.current.currentTime = s;
+              }
+            }
           }
         }
       }
     },
-    [annotations]
+    [annotations, currentTime, videoUrl]
   );
 
   const handleCanvasPointerUp = () => {
@@ -927,6 +932,17 @@ export default function VideoEditorStudio() {
       return;
     }
 
+    // Ensure the new placement's timeframe includes the current playhead timestamp (`currentTime`)
+    let targetStart = intervalStart;
+    let targetEnd = intervalEnd;
+    if (currentTime < intervalStart - 0.05 || currentTime > intervalEnd + 0.05) {
+      const span = Math.max(2.5, intervalEnd - intervalStart);
+      targetStart = Number(Math.max(0, Math.min(duration - 0.5, currentTime)).toFixed(1));
+      targetEnd = Number(Math.min(duration, targetStart + span).toFixed(1));
+      setIntervalStart(targetStart);
+      setIntervalEnd(targetEnd);
+    }
+
     const drawnColor =
       activeTool === 'arrow' && focusedColor !== 'all' ? focusedColor : activeColor;
     const newAnnotation: ScreenAnnotation = {
@@ -940,8 +956,8 @@ export default function VideoEditorStudio() {
       strokeWidth: 4,
       bbox,
       createdAtTime: currentTime,
-      startTime: intervalStart,
-      endTime: intervalEnd,
+      startTime: targetStart,
+      endTime: targetEnd,
     };
     const nextAllAnns = [...annotations, newAnnotation];
     setAnnotations(nextAllAnns);
@@ -1083,11 +1099,19 @@ export default function VideoEditorStudio() {
             : intervalEnd;
 
         if (edge === 'start') {
-          stretchColorInterval(color, Math.min(t, curEnd - 0.3), curEnd);
-          setCurrentTime(t);
+          const nextStart = Math.min(t, curEnd - 0.3);
+          stretchColorInterval(color, nextStart, curEnd);
+          setCurrentTime(nextStart);
+          if (videoRef.current && videoUrl) {
+            videoRef.current.currentTime = nextStart;
+          }
         } else if (edge === 'end') {
-          stretchColorInterval(color, curStart, Math.max(t, curStart + 0.3));
-          setCurrentTime(t);
+          const nextEnd = Math.max(t, curStart + 0.3);
+          stretchColorInterval(color, curStart, nextEnd);
+          setCurrentTime(nextEnd);
+          if (videoRef.current && videoUrl) {
+            videoRef.current.currentTime = nextEnd;
+          }
         } else if (
           edge === 'move' &&
           initialStart !== undefined &&
@@ -1102,6 +1126,12 @@ export default function VideoEditorStudio() {
           );
           const nextEnd = nextStart + span;
           stretchColorInterval(color, nextStart, nextEnd);
+          if (currentTime < nextStart || currentTime > nextEnd) {
+            setCurrentTime(nextStart);
+            if (videoRef.current && videoUrl) {
+              videoRef.current.currentTime = nextStart;
+            }
+          }
         }
         return;
       }
