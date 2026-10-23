@@ -26,7 +26,7 @@ function postJsonRequest(
   urlStr: string,
   headers: Record<string, string>,
   payload: unknown,
-  timeoutMs = 30000
+  timeoutMs = 45000
 ): Promise<{ status: number; ok: boolean; text: string }> {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(urlStr);
@@ -382,8 +382,8 @@ async function callProviderLlm(params: {
       },
       {
         model: claudeModel,
-        max_tokens: 1500,
-        temperature: 0.15,
+        max_tokens: 4096,
+        temperature: 0.2,
         system: systemPrompt,
         messages: [{ role: 'user', content: contentBlocks }],
       }

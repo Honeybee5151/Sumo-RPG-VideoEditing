@@ -3,10 +3,307 @@ import {
   mergeBoundingBoxes,
 } from '@/lib/editCompiler';
 import {
+  AiCanvasDrawCommand,
+  AiCustomAnimation,
+  AiCustomParticles,
   BuiltInSceneId,
   ScreenAnnotation,
   TimelineEditItem,
 } from '@/types/editor';
+
+const svgImageCache = new Map<string, HTMLImageElement>();
+
+function getOrLoadSvgImage(rawSvg: string): HTMLImageElement | null {
+  if (typeof window === 'undefined' || !rawSvg) return null;
+  const trimmed = rawSvg.trim();
+  const cached = svgImageCache.get(trimmed);
+  if (cached) return cached;
+
+  let svgMarkup = trimmed;
+  const svgStart = svgMarkup.indexOf('<svg');
+  const svgEnd = svgMarkup.lastIndexOf('</svg>');
+  if (svgStart !== -1 && svgEnd !== -1) {
+    svgMarkup = svgMarkup.slice(svgStart, svgEnd + 6);
+  } else if (!svgMarkup.startsWith('<svg')) {
+    svgMarkup = `<svg viewBox="0 0 200 200" width="400" height="400" xmlns="http://www.w3.org/2000/svg">${svgMarkup}</svg>`;
+  }
+
+  if (!/xmlns=/i.test(svgMarkup)) {
+    svgMarkup = svgMarkup.replace(
+      /<svg\b/i,
+      '<svg xmlns="http://www.w3.org/2000/svg"'
+    );
+  }
+  if (!/viewBox=/i.test(svgMarkup)) {
+    svgMarkup = svgMarkup.replace(/<svg\b/i, '<svg viewBox="0 0 200 200"');
+  }
+  if (!/\bwidth=/i.test(svgMarkup)) {
+    svgMarkup = svgMarkup.replace(
+      /<svg\b/i,
+      '<svg width="400" height="400"'
+    );
+  }
+
+  try {
+    const img = new window.Image();
+    img.crossOrigin = 'anonymous';
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
+    svgImageCache.set(trimmed, img);
+    return img;
+  } catch {
+    return null;
+  }
+}
+
+function drawStarPath(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  spikes: number,
+  outerR: number,
+  innerR: number
+) {
+  let rot = (Math.PI / 2) * 3;
+  const step = Math.PI / Math.max(3, spikes);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - outerR);
+  for (let i = 0; i < spikes; i++) {
+    ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+    rot += step;
+  }
+  ctx.closePath();
+}
+
+function renderCustomParticles(
+  ctx: CanvasRenderingContext2D,
+  particles: AiCustomParticles,
+  cx: number,
+  cy: number,
+  targetRadius: number,
+  currentTime: number,
+  resScale: number
+) {
+  const count = Math.min(120, Math.max(4, particles.count ?? 28));
+  const colors =
+    Array.isArray(particles.colors) && particles.colors.length > 0
+      ? particles.colors
+      : ['#ffb347', '#ff6b1a', '#fff3b0'];
+  const speed = particles.speed ?? 1.2;
+  const baseSize = (particles.size ?? 8) * resScale;
+  const spread = (particles.spread ?? 1.35) * targetRadius;
+  const direction = particles.direction ?? 'up';
+  const shape = particles.shape ?? 'spark';
+
+  ctx.save();
+  for (let i = 0; i < count; i++) {
+    const seed1 = ((i * 1.61803398875) % 1 + 1) % 1;
+    const seed2 = ((i * 2.41421356237) % 1 + 1) % 1;
+    const seed3 = ((i * 3.14159265359) % 1 + 1) % 1;
+    const cycle = (currentTime * speed * (0.65 + seed1 * 0.7) + seed2 * 10) % 1;
+    const alpha = Math.sin(cycle * Math.PI);
+
+    let px = cx;
+    let py = cy;
+    if (direction === 'radial') {
+      const angle = seed1 * Math.PI * 2 + currentTime * 0.4 * (seed2 - 0.5);
+      const dist = cycle * spread * 1.4;
+      px = cx + Math.cos(angle) * dist;
+      py = cy + Math.sin(angle) * dist;
+    } else if (direction === 'down') {
+      px =
+        cx +
+        (seed1 - 0.5) * spread * 2 +
+        Math.sin(currentTime * 3 + i) * 10 * resScale;
+      py = cy - spread * 0.6 + cycle * spread * 1.8;
+    } else if (direction === 'drift') {
+      px =
+        cx +
+        (seed1 - 0.5) * spread * 2 +
+        Math.cos(currentTime * 2 + i) * 18 * resScale;
+      py =
+        cy +
+        (seed3 - 0.5) * spread * 2 +
+        Math.sin(currentTime * 2.4 + i) * 18 * resScale;
+    } else {
+      // 'up'
+      px =
+        cx +
+        (seed1 - 0.5) * spread * 1.8 +
+        Math.sin(currentTime * 3.5 + i) * 8 * resScale;
+      py = cy + spread * 0.6 - cycle * spread * 1.8;
+    }
+
+    const sz = baseSize * (0.55 + seed3 * 0.75) * (0.6 + 0.4 * alpha);
+    const color = colors[i % colors.length];
+
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(currentTime * (seed2 - 0.5) * 4 + i);
+    ctx.globalAlpha = Math.max(0.05, Math.min(1, alpha * 0.92));
+    ctx.fillStyle = color;
+    ctx.strokeStyle = '#1d1a16';
+    ctx.lineWidth = 1.5 * resScale;
+    if (particles.glow !== false) {
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 10 * resScale;
+    }
+
+    if (shape === 'star' || shape === 'spark') {
+      drawStarPath(ctx, 0, 0, shape === 'spark' ? 4 : 5, sz, sz * 0.38);
+      ctx.fill();
+    } else if (shape === 'heart') {
+      ctx.beginPath();
+      ctx.moveTo(0, sz * 0.35);
+      ctx.bezierCurveTo(-sz, -sz * 0.35, -sz * 0.5, -sz, 0, -sz * 0.35);
+      ctx.bezierCurveTo(sz * 0.5, -sz, sz, -sz * 0.35, 0, sz * 0.35);
+      ctx.fill();
+    } else if (shape === 'flame') {
+      ctx.beginPath();
+      ctx.moveTo(0, -sz * 1.2);
+      ctx.quadraticCurveTo(sz * 0.8, 0, 0, sz);
+      ctx.quadraticCurveTo(-sz * 0.8, 0, 0, -sz * 1.2);
+      ctx.fill();
+    } else if (shape === 'confetti') {
+      ctx.fillRect(-sz * 0.6, -sz * 0.35, sz * 1.2, sz * 0.7);
+    } else if (shape === 'bubble') {
+      ctx.beginPath();
+      ctx.arc(0, 0, sz * 0.7, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2 * resScale;
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(0, 0, sz * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function renderCustomDrawCommands(
+  ctx: CanvasRenderingContext2D,
+  commands: AiCanvasDrawCommand[],
+  cx: number,
+  cy: number,
+  targetRadius: number,
+  resScale: number
+) {
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  for (const cmd of commands) {
+    ctx.save();
+    const ox = (cmd.x ?? 0) * targetRadius;
+    const oy = (cmd.y ?? 0) * targetRadius;
+    ctx.translate(ox, oy);
+    if (cmd.rotationDeg) {
+      ctx.rotate((cmd.rotationDeg * Math.PI) / 180);
+    }
+    if (typeof cmd.opacity === 'number') {
+      ctx.globalAlpha = Math.max(0, Math.min(1, cmd.opacity));
+    }
+    if (cmd.glowColor) {
+      ctx.shadowColor = cmd.glowColor;
+      ctx.shadowBlur = (cmd.glowBlur ?? 14) * resScale;
+    }
+
+    const r = (cmd.radius ?? 0.5) * targetRadius;
+    const w = (cmd.width ?? 0.8) * targetRadius;
+    const h = (cmd.height ?? 0.8) * targetRadius;
+
+    if (Array.isArray(cmd.gradientColors) && cmd.gradientColors.length >= 2) {
+      const grad = ctx.createRadialGradient(-r * 0.25, -r * 0.25, r * 0.1, 0, 0, Math.max(r, w * 0.6));
+      cmd.gradientColors.forEach((c, idx) => {
+        grad.addColorStop(idx / (cmd.gradientColors!.length - 1), c);
+      });
+      ctx.fillStyle = grad;
+    } else if (cmd.fill) {
+      ctx.fillStyle = cmd.fill;
+    }
+
+    if (cmd.stroke) {
+      ctx.strokeStyle = cmd.stroke;
+      ctx.lineWidth = (cmd.lineWidth ?? 3) * resScale;
+    }
+
+    if (cmd.type === 'circle' || cmd.type === 'ring') {
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      if (cmd.type !== 'ring' && (cmd.fill || cmd.gradientColors)) ctx.fill();
+      if (cmd.stroke || cmd.type === 'ring') {
+        if (!cmd.stroke) ctx.strokeStyle = cmd.fill || '#ffb347';
+        ctx.lineWidth = (cmd.lineWidth ?? 4) * resScale;
+        ctx.stroke();
+      }
+    } else if (cmd.type === 'ellipse') {
+      ctx.beginPath();
+      ctx.ellipse(
+        0,
+        0,
+        (cmd.rx ?? 0.6) * targetRadius,
+        (cmd.ry ?? 0.4) * targetRadius,
+        0,
+        0,
+        Math.PI * 2
+      );
+      if (cmd.fill || cmd.gradientColors) ctx.fill();
+      if (cmd.stroke) ctx.stroke();
+    } else if (cmd.type === 'rect' || cmd.type === 'roundRect') {
+      ctx.beginPath();
+      ctx.roundRect(
+        -w / 2,
+        -h / 2,
+        w,
+        h,
+        (cmd.cornerRadius ?? (cmd.type === 'roundRect' ? 10 : 0)) * resScale
+      );
+      if (cmd.fill || cmd.gradientColors) ctx.fill();
+      if (cmd.stroke) ctx.stroke();
+    } else if (cmd.type === 'star' || cmd.type === 'burst') {
+      const spikes = cmd.spikes ?? (cmd.type === 'burst' ? 12 : 5);
+      const inner = (cmd.innerRadius ?? (cmd.type === 'burst' ? 0.55 : 0.45)) * r;
+      drawStarPath(ctx, 0, 0, spikes, r, inner);
+      if (cmd.fill || cmd.gradientColors) ctx.fill();
+      if (cmd.stroke) ctx.stroke();
+    } else if (cmd.type === 'polygon' && Array.isArray(cmd.points) && cmd.points.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(cmd.points[0].x * targetRadius, cmd.points[0].y * targetRadius);
+      for (let i = 1; i < cmd.points.length; i++) {
+        ctx.lineTo(cmd.points[i].x * targetRadius, cmd.points[i].y * targetRadius);
+      }
+      ctx.closePath();
+      if (cmd.fill || cmd.gradientColors) ctx.fill();
+      if (cmd.stroke) ctx.stroke();
+    } else if (cmd.type === 'line' && Array.isArray(cmd.points) && cmd.points.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(cmd.points[0].x * targetRadius, cmd.points[0].y * targetRadius);
+      for (let i = 1; i < cmd.points.length; i++) {
+        ctx.lineTo(cmd.points[i].x * targetRadius, cmd.points[i].y * targetRadius);
+      }
+      ctx.strokeStyle = cmd.stroke || cmd.fill || '#ffffff';
+      ctx.lineWidth = (cmd.lineWidth ?? 3) * resScale;
+      ctx.stroke();
+    } else if (cmd.type === 'text' && cmd.text) {
+      const fs = Math.round((cmd.fontSize ?? 26) * resScale);
+      ctx.font = `800 ${fs}px "Segoe UI", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (cmd.stroke) {
+        ctx.lineWidth = (cmd.lineWidth ?? 4) * resScale;
+        ctx.strokeText(cmd.text, 0, 0);
+      }
+      ctx.fillStyle = cmd.fill || '#ffffff';
+      ctx.fillText(cmd.text, 0, 0);
+    }
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
 
 function buildMaskPath(
   ctx: CanvasRenderingContext2D,
@@ -560,27 +857,204 @@ export function renderCompositedFrame(
       mainCtx.restore();
     }
 
-    // 6. GENERATIVE V2V / INPAINT SYNTHESIS & OBJECT SPAWN LAYER
+    // 6. OPEN-ENDED AI CUSTOM SHADER, PARTICLES, VECTOR SVG & PROCEDURAL CANVAS ENGINE
+    const targetBbox =
+      annotations.length > 0
+        ? mergeBoundingBoxes(annotations.map((a) => a.bbox))
+        : { x: 0.38, y: 0.32, width: 0.24, height: 0.36, cx: 0.5, cy: 0.5 };
+    const isPinpointDot =
+      annotations.length > 0 && annotations.every((a) => a.tool === 'dot');
+
+    // 6a. Custom CSS Filter & Custom Gradient Wash (inside or outside Box/Dot)
+    if (params.customCssFilter || params.customOverlayGradient) {
+      mainCtx.save();
+      buildMaskPath(mainCtx, annotations, width, height, Boolean(params.invertMask));
+      mainCtx.clip(params.invertMask ? 'evenodd' : 'nonzero');
+
+      if (params.customCssFilter) {
+        mainCtx.filter = params.customCssFilter;
+        mainCtx.drawImage(sourceCanvas, 0, 0, width, height);
+        mainCtx.filter = 'none';
+      }
+
+      if (
+        params.customOverlayGradient &&
+        Array.isArray(params.customOverlayGradient.colors) &&
+        params.customOverlayGradient.colors.length >= 2
+      ) {
+        const gCfg = params.customOverlayGradient;
+        const gx = targetBbox.x * width;
+        const gy = targetBbox.y * height;
+        const gw = targetBbox.width * width;
+        const gh = targetBbox.height * height;
+        const grad =
+          gCfg.type === 'radial'
+            ? mainCtx.createRadialGradient(
+                targetBbox.cx * width,
+                targetBbox.cy * height,
+                Math.min(gw, gh) * 0.05,
+                targetBbox.cx * width,
+                targetBbox.cy * height,
+                Math.max(gw, gh) * 0.75
+              )
+            : mainCtx.createLinearGradient(gx, gy, gx + gw, gy + gh);
+
+        gCfg.colors.forEach((col, idx) => {
+          grad.addColorStop(idx / (gCfg.colors.length - 1), col);
+        });
+        mainCtx.globalCompositeOperation = params.customBlendMode ?? 'overlay';
+        mainCtx.globalAlpha = gCfg.opacity ?? 0.5;
+        mainCtx.fillStyle = grad;
+        mainCtx.fillRect(0, 0, width, height);
+        mainCtx.globalAlpha = 1;
+        mainCtx.globalCompositeOperation = 'source-over';
+      }
+      mainCtx.restore();
+    }
+
+    // Compute animated transform state for custom AI objects/drawings/particles
+    const anim: AiCustomAnimation = params.customAnimation ?? {};
+    const clipDuration = Math.max(0.1, edit.endTime - edit.startTime);
+    const elapsed = Math.max(0, currentTime - edit.startTime);
+    const remaining = Math.max(0, edit.endTime - currentTime);
+    const progress01 = Math.min(1, Math.max(0, elapsed / clipDuration));
+
+    let baseCxNorm = targetBbox.cx + (anim.offsetX ?? 0);
+    let baseCyNorm = targetBbox.cy + (anim.offsetY ?? 0);
+    if (typeof anim.moveToX === 'number') {
+      baseCxNorm = baseCxNorm + (anim.moveToX - baseCxNorm) * progress01;
+    }
+    if (typeof anim.moveToY === 'number') {
+      baseCyNorm = baseCyNorm + (anim.moveToY - baseCyNorm) * progress01;
+    }
+
+    const bobAmp = (anim.bobAmplitude ?? 5) * resScale;
+    const bobSpd = anim.bobSpeed ?? 4.2;
+    const bobOffsetY = Math.sin(currentTime * bobSpd) * bobAmp;
+
+    const shakeAmp = (anim.shakeAmount ?? 0) * resScale;
+    const animShakeX = shakeAmp ? Math.sin(currentTime * 48) * shakeAmp : 0;
+    const animShakeY = shakeAmp ? Math.cos(currentTime * 56) * shakeAmp : 0;
+
+    const pulseAmp = anim.pulseAmount ?? 0.04;
+    const pulseSpd = anim.pulseSpeed ?? 4.5;
+    let animScale = (anim.scale ?? 1.0) * (1 + Math.sin(currentTime * pulseSpd) * pulseAmp);
+    let animAlpha = anim.opacity ?? 1.0;
+    let enterSlideY = 0;
+    let enterSpinRad = 0;
+
+    const enterTime = Math.min(0.28, clipDuration * 0.25);
+    if (elapsed > 0.02 && elapsed < enterTime && anim.enter !== 'none') {
+      const t = elapsed / Math.max(0.01, enterTime);
+      const springBounce = 1 + Math.sin(t * Math.PI) * 0.14;
+      if (anim.enter === 'fade') {
+        animAlpha *= 0.4 + 0.6 * t;
+      } else if (anim.enter === 'slide_down') {
+        enterSlideY = (1 - t) * -28 * resScale;
+      } else if (anim.enter === 'slide_up') {
+        enterSlideY = (1 - t) * 28 * resScale;
+      } else if (anim.enter === 'spin') {
+        animScale *= springBounce;
+        enterSpinRad = (1 - t) * Math.PI * 0.5;
+      } else {
+        // Gentle elastic pop bounce that stays fully visible at frame 0
+        animScale *= springBounce;
+      }
+    }
+
+    const exitTime = Math.min(0.2, clipDuration * 0.18);
+    if (remaining > 0.01 && remaining < exitTime && anim.exit && anim.exit !== 'none') {
+      const t = remaining / Math.max(0.01, exitTime);
+      if (anim.exit === 'pop') {
+        animScale *= 0.5 + 0.5 * t;
+        animAlpha *= 0.3 + 0.7 * t;
+      } else if (anim.exit === 'fade') {
+        animAlpha *= 0.3 + 0.7 * t;
+      }
+    }
+
+    const spinRad =
+      ((anim.spinSpeed ?? 0) * elapsed * Math.PI) / 180 + enterSpinRad;
+
+    const rawBoxRadius = isPinpointDot
+      ? Math.min(width, height) * 0.115
+      : Math.min(targetBbox.width * width, targetBbox.height * height) * 0.5;
+    const baseRadius = Math.max(48 * resScale, Math.min(240 * resScale, rawBoxRadius));
+    const drawCx = baseCxNorm * width + animShakeX;
+    const drawCy = baseCyNorm * height + bobOffsetY + enterSlideY + animShakeY;
+
+    // 6b. Custom Procedural Particle Emitter
+    if (params.customParticles) {
+      renderCustomParticles(
+        mainCtx,
+        params.customParticles,
+        drawCx,
+        drawCy,
+        baseRadius * (anim.scale ?? 1.0),
+        currentTime,
+        resScale
+      );
+    }
+
+    // 6c. Custom AI-Authored Vector SVG Artwork (`params.customSvg`)
+    let renderedCustomSvg = false;
+    if (params.customSvg && typeof params.customSvg === 'string') {
+      const svgImg = getOrLoadSvgImage(params.customSvg);
+      if (svgImg && svgImg.complete && svgImg.naturalWidth > 0) {
+        const size = baseRadius * 2.15 * animScale;
+        mainCtx.save();
+        mainCtx.translate(drawCx, drawCy);
+        if (spinRad !== 0) {
+          mainCtx.rotate(spinRad);
+        }
+        mainCtx.globalAlpha = Math.max(0, Math.min(1, animAlpha));
+        mainCtx.drawImage(svgImg, -size / 2, -size / 2, size, size);
+        mainCtx.restore();
+        renderedCustomSvg = true;
+      }
+    }
+
+    // 6d. Custom Procedural Canvas 2D Draw Commands (`params.customDrawCommands`)
+    if (
+      Array.isArray(params.customDrawCommands) &&
+      params.customDrawCommands.length > 0
+    ) {
+      mainCtx.save();
+      mainCtx.translate(drawCx, drawCy);
+      if (spinRad !== 0) {
+        mainCtx.rotate(spinRad);
+      }
+      mainCtx.scale(animScale, animScale);
+      mainCtx.globalAlpha = Math.max(0, Math.min(1, animAlpha));
+      renderCustomDrawCommands(
+        mainCtx,
+        params.customDrawCommands,
+        0,
+        0,
+        baseRadius,
+        resScale
+      );
+      mainCtx.restore();
+    }
+
+    // 6e. Built-in Instant Vector Fallback for Cool Orange / Generative V2V Synthesis
     const combinedPromptText = `${edit.prompt || ''} ${edit.summary || ''} ${params.generativePrompt || ''} ${params.stickerObject || ''}`.toLowerCase();
     const wantsOrangeObject =
-      params.stickerObject === 'cool_orange' ||
-      params.stickerObject === 'orange' ||
-      /\b(add|place|put|spawn|draw)\b.*\borange\b/i.test(combinedPromptText) ||
-      /\bcool\s+orange\b/i.test(combinedPromptText);
+      !renderedCustomSvg &&
+      (params.stickerObject === 'cool_orange' ||
+        params.stickerObject === 'orange' ||
+        /\b(add|place|put|spawn|draw)\b.*\borange\b/i.test(combinedPromptText) ||
+        /\bcool\s+orange\b/i.test(combinedPromptText));
 
     if (wantsOrangeObject) {
-      const bbox =
-        annotations.length > 0
-          ? mergeBoundingBoxes(annotations.map((a) => a.bbox))
-          : { x: 0.42, y: 0.38, width: 0.16, height: 0.24, cx: 0.5, cy: 0.5 };
-      const cx = bbox.cx * width;
-      const cy = bbox.cy * height;
-      const rawRadius = Math.min(bbox.width * width, bbox.height * height) * 0.48;
-      const r = Math.max(46 * resScale, Math.min(140 * resScale, rawRadius));
-      const bobY = Math.sin(currentTime * 4.5) * 4 * resScale;
+      const r = baseRadius * animScale;
 
       mainCtx.save();
-      mainCtx.translate(cx, cy + bobY);
+      mainCtx.translate(drawCx, drawCy);
+      if (spinRad !== 0) {
+        mainCtx.rotate(spinRad);
+      }
+      mainCtx.globalAlpha = Math.max(0, Math.min(1, animAlpha));
 
       // Soft ground/drop shadow
       mainCtx.fillStyle = 'rgba(29, 26, 22, 0.28)';
@@ -684,7 +1158,11 @@ export function renderCompositedFrame(
       mainCtx.stroke();
 
       mainCtx.restore();
-    } else if (effectType === 'generative_replace') {
+    } else if (
+      effectType === 'generative_replace' &&
+      !renderedCustomSvg &&
+      !params.customDrawCommands?.length
+    ) {
       const style = params.generativeStyle ?? 'gold_aura';
       const stylePalette: Record<string, { primary: string; secondary: string }> = {
         fire: { primary: '#b82d23', secondary: '#c6923a' },
@@ -703,16 +1181,11 @@ export function renderCompositedFrame(
       mainCtx.drawImage(sourceCanvas, 0, 0, width, height);
       mainCtx.filter = 'none';
 
-      const bbox =
-        annotations.length > 0
-          ? mergeBoundingBoxes(annotations.map((a) => a.bbox))
-          : { x: 0.2, y: 0.2, width: 0.6, height: 0.6, cx: 0.5, cy: 0.5 };
-
       const grad = mainCtx.createLinearGradient(
-        bbox.x * width,
-        bbox.y * height,
-        (bbox.x + bbox.width) * width,
-        (bbox.y + bbox.height) * height
+        targetBbox.x * width,
+        targetBbox.y * height,
+        (targetBbox.x + targetBbox.width) * width,
+        (targetBbox.y + targetBbox.height) * height
       );
       grad.addColorStop(0, pal.primary);
       grad.addColorStop(0.5 + 0.3 * Math.sin(currentTime * 4), pal.secondary);
@@ -730,13 +1203,13 @@ export function renderCompositedFrame(
       mainCtx.lineWidth = 2 * resScale;
       const scanOffset = (currentTime * 60 * resScale) % (16 * resScale);
       for (
-        let y = bbox.y * height + scanOffset;
-        y < (bbox.y + bbox.height) * height;
+        let y = targetBbox.y * height + scanOffset;
+        y < (targetBbox.y + targetBbox.height) * height;
         y += 16 * resScale
       ) {
         mainCtx.beginPath();
-        mainCtx.moveTo(bbox.x * width, y);
-        mainCtx.lineTo((bbox.x + bbox.width) * width, y);
+        mainCtx.moveTo(targetBbox.x * width, y);
+        mainCtx.lineTo((targetBbox.x + targetBbox.width) * width, y);
         mainCtx.stroke();
       }
       mainCtx.restore();

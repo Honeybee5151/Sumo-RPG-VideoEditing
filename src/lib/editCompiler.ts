@@ -352,6 +352,12 @@ export function compilePromptLocally(
       }
     }
 
+    const explicitFramesMatch = lower.match(/\bfor\s+(\d+)\s*frames?\b/i);
+    if (explicitFramesMatch) {
+      const frameCount = Math.max(1, parseInt(explicitFramesMatch[1], 10));
+      clauseEnd = Number((clauseStart + frameCount / 30).toFixed(2));
+    }
+
     const id = `edit-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
     const colorDisplay =
       targetColor !== 'all'
@@ -476,10 +482,10 @@ export function compilePromptLocally(
         prompt: clause,
         summary: isCoolOrange
           ? `Cool Orange ${colorDisplay ? `→ ${colorDisplay}` : ''}`.trim()
-          : `AI V2V Inpaint (${generativeStyle.toUpperCase()}) ${colorDisplay ? `→ ${colorDisplay}` : ''}`,
+          : `AI Custom Synthesis (${generativeStyle.toUpperCase()}) ${colorDisplay ? `→ ${colorDisplay}` : ''}`,
         startTime: clauseStart,
         endTime: clauseEnd,
-        effectType: 'generative_replace',
+        effectType: isCoolOrange ? 'custom_ai' : 'generative_replace',
         targetColor,
         annotations: matchingAnnotations,
         params: {

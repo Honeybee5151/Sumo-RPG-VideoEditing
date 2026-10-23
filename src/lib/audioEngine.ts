@@ -118,7 +118,11 @@ export function playAiEffectSoundCue(effectType: EffectType) {
     gain.connect(masterGain);
     osc.start(now);
     osc.stop(now + 0.34);
-  } else if (effectType === 'generative_replace' || effectType === 'neon_glow') {
+  } else if (
+    effectType === 'custom_ai' ||
+    effectType === 'generative_replace' ||
+    effectType === 'neon_glow'
+  ) {
     // Dual-harmonic crystalline AI synthesis chime
     [523.25, 659.25, 783.99].forEach((freq, idx) => {
       const osc = ctx.createOscillator();

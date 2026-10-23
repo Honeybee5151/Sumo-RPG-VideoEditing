@@ -240,6 +240,7 @@ export interface ScreenAnnotation {
 }
 
 export type EffectType =
+  | 'custom_ai'
   | 'zoom'
   | 'blur'
   | 'pixelate'
@@ -253,6 +254,85 @@ export type EffectType =
   | 'callout_shape'
   | 'speed'
   | 'camera_fx';
+
+export interface AiCanvasDrawCommand {
+  type:
+    | 'circle'
+    | 'ellipse'
+    | 'rect'
+    | 'roundRect'
+    | 'star'
+    | 'burst'
+    | 'polygon'
+    | 'line'
+    | 'ring'
+    | 'text';
+  x?: number; // Normalized offset from target center (-1.0 to 1.0, where 1.0 = target radius)
+  y?: number; // Normalized offset from target center (-1.0 to 1.0)
+  radius?: number; // Relative to target radius (e.g. 0.5)
+  rx?: number;
+  ry?: number;
+  width?: number;
+  height?: number;
+  cornerRadius?: number;
+  points?: Array<{ x: number; y: number }>;
+  spikes?: number;
+  innerRadius?: number;
+  fill?: string;
+  gradientColors?: string[];
+  stroke?: string;
+  lineWidth?: number;
+  glowColor?: string;
+  glowBlur?: number;
+  opacity?: number;
+  rotationDeg?: number;
+  text?: string;
+  fontSize?: number;
+}
+
+export interface AiCustomAnimation {
+  scale?: number; // Size multiplier (default 1.0)
+  opacity?: number; // 0.0 to 1.0
+  bobAmplitude?: number; // Vertical hover amplitude in px at 960p (e.g. 6)
+  bobSpeed?: number; // Hover speed (e.g. 4.0)
+  pulseAmount?: number; // Scale pulse amplitude (e.g. 0.08 = ±8%)
+  pulseSpeed?: number; // Pulse frequency (e.g. 5.0)
+  spinSpeed?: number; // Continuous rotation in degrees per second (e.g. 90)
+  shakeAmount?: number; // Vibration amplitude in px (e.g. 4)
+  enter?: 'pop' | 'fade' | 'slide_down' | 'slide_up' | 'spin' | 'none';
+  exit?: 'pop' | 'fade' | 'none';
+  offsetX?: number; // Normalized screen offset X (-0.5 to 0.5)
+  offsetY?: number; // Normalized screen offset Y (-0.5 to 0.5)
+  moveToX?: number; // Optional destination normalized X (0.0 to 1.0) over the timeframe
+  moveToY?: number; // Optional destination normalized Y (0.0 to 1.0) over the timeframe
+}
+
+export interface AiCustomParticles {
+  count?: number; // Number of particles (e.g. 12 to 80)
+  shape?:
+    | 'circle'
+    | 'star'
+    | 'spark'
+    | 'flame'
+    | 'heart'
+    | 'bubble'
+    | 'snow'
+    | 'leaf'
+    | 'confetti';
+  colors?: string[];
+  speed?: number; // Speed multiplier (0.3 to 3.0)
+  size?: number; // Base particle size in px (4 to 24)
+  spread?: number; // Spread multiplier relative to target bbox (0.5 to 3.0)
+  direction?: 'up' | 'down' | 'radial' | 'drift';
+  glow?: boolean;
+}
+
+export interface AiOverlayGradient {
+  colors: string[];
+  type?: 'radial' | 'linear';
+  angleDeg?: number;
+  opacity?: number;
+}
 
 export interface EffectParams {
   // Zoom / Pan
@@ -290,10 +370,17 @@ export interface EffectParams {
   // Chromatic Aberration / RGB Split
   aberrationOffset?: number;
 
-  // Generative Replace / V2V Synthesis / Object Overlay
+  // Open-Ended AI Generation / Custom Vector & Shader Synthesis
   generativePrompt?: string;
   generativeStyle?: 'cyber' | 'fire' | 'watercolor' | 'hologram' | 'gold_aura';
   stickerObject?: string;
+  customSvg?: string;
+  customDrawCommands?: AiCanvasDrawCommand[];
+  customParticles?: AiCustomParticles;
+  customCssFilter?: string;
+  customBlendMode?: GlobalCompositeOperation;
+  customOverlayGradient?: AiOverlayGradient;
+  customAnimation?: AiCustomAnimation;
   cloudJobUrl?: string;
 
   // Text / Callout Overlay
