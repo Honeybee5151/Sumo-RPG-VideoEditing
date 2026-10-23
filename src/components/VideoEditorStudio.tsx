@@ -2479,6 +2479,207 @@ export default function VideoEditorStudio() {
     }
   };
 
+  // AI Video Creation State & Handler for "Current Project -> Videos -> Create Video"
+  const [showAiVideoPanel, setShowAiVideoPanel] = useState<boolean>(false);
+  const [aiVideoPrompt, setAiVideoPrompt] = useState<string>('');
+  const [isAiCreatingVideo, setIsAiCreatingVideo] = useState<boolean>(false);
+  const [aiVideoStatusText, setAiVideoStatusText] = useState<string>('');
+
+  const handleGenerateAiVideo = async () => {
+    const cleanPrompt = aiVideoPrompt.trim();
+    if (!cleanPrompt || isAiCreatingVideo) return;
+
+    setIsAiCreatingVideo(true);
+    setAiVideoStatusText('AI coding...');
+    setStatusMessage(`AI creating video animation: "${cleanPrompt}"...`);
+
+    try {
+      const activeKey =
+        aiSettings.apiKeys[aiSettings.provider] ||
+        aiSettings.apiKeys.auto ||
+        geminiApiKey ||
+        '';
+
+      const response = await fetch('/api/ai-edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'create_video',
+          prompt: cleanPrompt,
+          duration: 5,
+          provider: aiSettings.provider,
+          model: aiSettings.model,
+          reasoningEffort: aiSettings.reasoningEffort || 'medium',
+          apiKey: activeKey,
+          apiKeys: aiSettings.apiKeys,
+          geminiApiKey,
+          customBaseUrl: aiSettings.customBaseUrl,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.ok || !data?.renderCode) {
+        throw new Error(data?.error || 'Failed to generate video animation with AI.');
+      }
+
+      const targetDurSec = Math.max(
+        2,
+        Math.min(15, Number(data.durationSec) || 5)
+      );
+      const vidW = 1280;
+      const vidH = 720;
+      const fps = 30;
+      const totalFrames = Math.round(targetDurSec * fps);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = vidW;
+      canvas.height = vidH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error('Could not initialize 2D video canvas.');
+      }
+
+      const animFn = new Function(
+        'ctx',
+        '__env',
+        `const { width, height, scale, t, elapsed, duration, progress, frame, totalFrames, state, hash, noise } = __env;\n{\n${data.renderCode}\n}`
+      );
+
+      const animState: Record<string, unknown> = {};
+      const hashFn = (n: number) => {
+        const s = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+        return s - Math.floor(s);
+      };
+      const noiseFn = (nx: number, ny = 0) => {
+        const ix = Math.floor(nx);
+        const iy = Math.floor(ny);
+        const fx = nx - ix;
+        const fy = ny - iy;
+        const ux = fx * fx * (3 - 2 * fx);
+        const uy = fy * fy * (3 - 2 * fy);
+        const a = hashFn(ix + iy * 57);
+        const b = hashFn(ix + 1 + iy * 57);
+        const c = hashFn(ix + (iy + 1) * 57);
+        const d = hashFn(ix + 1 + (iy + 1) * 57);
+        return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+      };
+
+      const renderFrameAt = (sec: number) => {
+        const clampedT = Math.max(0, Math.min(targetDurSec, sec));
+        const prog = targetDurSec > 0 ? clampedT / targetDurSec : 0;
+        const frameIdx = Math.round(clampedT * fps);
+        ctx.save();
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, vidW, vidH);
+        try {
+          animFn(ctx, {
+            width: vidW,
+            height: vidH,
+            scale: vidW / 960,
+            t: clampedT,
+            elapsed: clampedT,
+            duration: targetDurSec,
+            progress: prog,
+            frame: frameIdx,
+            totalFrames,
+            state: animState,
+            hash: hashFn,
+            noise: noiseFn,
+          });
+        } catch (frameErr) {
+          console.warn('AI video frame warning:', frameErr);
+        }
+        ctx.restore();
+      };
+
+      // Draw frame 0 before starting MediaRecorder
+      renderFrameAt(0);
+
+      const { mimeType, extension } = getOptimalVideoMimeType();
+      const stream = canvas.captureStream(fps);
+      const chunks: BlobPart[] = [];
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 10_000_000,
+      });
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          chunks.push(ev.data);
+        }
+      };
+
+      const recordedBlob = await new Promise<Blob>((resolve, reject) => {
+        recorder.onstop = () => {
+          stream.getTracks().forEach((tr) => tr.stop());
+          resolve(new Blob(chunks, { type: mimeType }));
+        };
+        recorder.onerror = () => {
+          stream.getTracks().forEach((tr) => tr.stop());
+          reject(new Error('Failed while encoding AI video stream.'));
+        };
+
+        recorder.start(100);
+        const startWall = performance.now();
+
+        const tick = (nowWall: number) => {
+          const elapsedSec = (nowWall - startWall) / 1000;
+          if (elapsedSec >= targetDurSec) {
+            renderFrameAt(targetDurSec);
+            setAiVideoStatusText('Finalizing...');
+            if (recorder.state === 'recording') {
+              recorder.stop();
+            }
+            return;
+          }
+          renderFrameAt(elapsedSec);
+          const pct = Math.min(99, Math.round((elapsedSec / targetDurSec) * 100));
+          setAiVideoStatusText(`Rendering ${pct}%`);
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+
+      const rawTitle = (data.title || cleanPrompt)
+        .replace(/[^\w\s-]/g, '')
+        .trim()
+        .slice(0, 24);
+      const existingVidCount = mediaLibrary.filter(
+        (m) => m.category === 'video'
+      ).length;
+      const fileName = `${rawTitle || `AI Video ${existingVidCount + 1}`}.${extension}`;
+      const file = new File([recordedBlob], fileName, { type: mimeType });
+
+      if (data.usage?.totalTokens) {
+        setAiProgressState({
+          status: 'complete',
+          tokens: Number(data.usage.totalTokens || 0),
+          promptTokens: Number(data.usage.promptTokens || 0),
+          completionTokens: Number(data.usage.completionTokens || 0),
+          progressPct: 100,
+          provider: data.provider,
+          summary: `Created "${fileName}"`,
+        });
+      }
+
+      processImportedFile(file);
+      setAiVideoPrompt('');
+      setShowAiVideoPanel(false);
+      setStatusMessage(
+        `AI created "${fileName}" (${targetDurSec}s) via ${
+          data.provider || 'AI Animator'
+        } and added it to Videos!`
+      );
+    } catch (err) {
+      setStatusMessage(
+        err instanceof Error ? err.message : 'Failed to create AI video.'
+      );
+    } finally {
+      setIsAiCreatingVideo(false);
+      setAiVideoStatusText('');
+    }
+  };
+
   const handleStageDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDraggingFile(false);
@@ -4326,16 +4527,70 @@ export default function VideoEditorStudio() {
                 )}
               </>
             ) : (
-              <label className="w-full h-8 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] whitespace-nowrap transition cursor-pointer shrink-0">
-                <span>Add Video</span>
-                <input
-                  type="file"
-                  multiple
-                  accept="video/*"
-                  onChange={handleFileInputChange}
-                  className="hidden"
-                />
-              </label>
+              <>
+                <div className="w-full h-8 grid grid-cols-2 gap-1.5 shrink-0">
+                  <label className="w-full h-full flex items-center justify-center px-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[11px] font-medium text-[#26231f] whitespace-nowrap transition cursor-pointer">
+                    <span>Add Video</span>
+                    <input
+                      type="file"
+                      multiple
+                      accept="video/*"
+                      onChange={handleFileInputChange}
+                      className="hidden"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAiVideoPanel((prev) => !prev)}
+                    title="Ask AI to create a custom animated video with code"
+                    className={`w-full h-full flex items-center justify-center gap-1 px-1.5 rounded-lg border text-[11px] font-medium whitespace-nowrap transition cursor-pointer ${
+                      showAiVideoPanel || isAiCreatingVideo
+                        ? 'bg-[#26231f] border-[#26231f] text-[#faf8f4]'
+                        : 'bg-[#f0ece1] hover:bg-[#e5dfd0] border-[#d6cfc2] text-[#26231f]'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3 text-[#c6923a] shrink-0" />
+                    <span>
+                      {isAiCreatingVideo
+                        ? aiVideoStatusText || 'Creating...'
+                        : 'Create Video'}
+                    </span>
+                  </button>
+                </div>
+
+                {showAiVideoPanel && (
+                  <div className="w-full bg-[#f4f1ea] border border-[#d6cfc2] rounded-xl p-2 flex flex-col gap-1.5 shrink-0">
+                    <input
+                      type="text"
+                      value={aiVideoPrompt}
+                      onChange={(e) => setAiVideoPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleGenerateAiVideo();
+                        }
+                      }}
+                      disabled={isAiCreatingVideo}
+                      placeholder="Describe video animation to create..."
+                      className="w-full h-7 px-2 rounded-lg bg-[#faf8f4] border border-[#d6cfc2] text-xs text-[#26231f] placeholder-[#8a8377] focus:outline-none focus:border-[#26231f]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGenerateAiVideo}
+                      disabled={isAiCreatingVideo || !aiVideoPrompt.trim()}
+                      className="w-full h-7 flex items-center justify-center gap-1.5 rounded-lg bg-[#26231f] hover:bg-[#3b3630] disabled:opacity-50 text-[#faf8f4] text-xs font-medium transition cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3 text-[#c6923a] shrink-0" />
+                      <span>
+                        {isAiCreatingVideo
+                          ? aiVideoStatusText || 'Generating Video...'
+                          : 'Generate Video'}
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </>
             )}
 
             <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable] space-y-1.5 min-h-0">

@@ -83,7 +83,7 @@ function postJsonRequest(
 }
 
 interface AiEditRequestBody {
-  mode?: 'edit' | 'test' | 'draw_image';
+  mode?: 'edit' | 'test' | 'draw_image' | 'create_video';
   prompt?: string;
   startTime?: number;
   endTime?: number;
@@ -729,6 +729,93 @@ function parseDrawImageResponse(
   }
 }
 
+function buildCreateVideoSystemPrompt(defaultDurationSec = 5): string {
+  return `You are an expert 2D motion-graphics director, physics animator, and HTML5 Canvas creative coder inside the Sumo VideoEditor studio.
+Your job is to create a custom, multi-layered 60 FPS animated video matching the user's prompt by writing synchronous per-frame HTML5 2D Canvas JavaScript code (\`renderCode\`).
+
+Return ONLY a valid JSON object with the following structure:
+{
+  "title": "Short 1-3 word video title",
+  "durationSec": ${defaultDurationSec},
+  "renderCode": "/* JavaScript statements executed every frame at 60 FPS */"
+}
+
+STRICT RULES FOR \`renderCode\`:
+1. Available variables in scope every frame:
+   - \`ctx\`: \`CanvasRenderingContext2D\` of the video canvas
+   - \`width\`: \`1280\`, \`height\`: \`720\`, \`scale\`: \`width / 960\`
+   - \`t\` (and \`elapsed\`): Current timestamp in real seconds (\`0.0\` to \`duration\`)
+   - \`duration\`: Total video duration in seconds (default \`${defaultDurationSec}\`, or set \`"durationSec"\` between \`2\` and \`15\` if the user specifies a duration)
+   - \`progress\`: \`0.0\` to \`1.0\` progress through the video
+   - \`frame\`: Current frame index (\`0\` to \`totalFrames\`), \`totalFrames\`: \`Math.round(duration * 30)\`
+   - \`state\`: Persistent object (\`Record<string, any>\`) preserved across frames (store particle arrays, stars, physics entities, or trail history here!)
+   - \`hash(n)\`: Deterministic float in \`[0, 1)\` for any seed number \`n\`
+   - \`noise(nx, ny = 0)\`: Smooth 2D value noise in \`[0, 1]\` for organic motion, waves, fire, clouds, or camera drift
+2. Do NOT wrap your code in \`function() { ... }\` or markdown fences. Write the JavaScript statements directly inside \`renderCode\`.
+3. Clear or paint the full \`width x height\` canvas every frame (e.g. rich animated gradient sky/backdrop, or dark stage background) and animate your subjects using \`t\` (seconds) and \`progress\` (\`0..1\`) with smooth easing, secondary motion, lighting/glow (\`createRadialGradient\`, \`globalCompositeOperation = 'lighter'\`), and lively particles so the video looks like a studio motion-graphics animation.
+4. Always balance \`ctx.save()\` and \`ctx.restore()\`. Never use external network resources (\`new Image()\`, \`fetch\`).`;
+}
+
+function parseCreateVideoResponse(
+  rawText: string,
+  prompt: string,
+  defaultDur = 5
+): { title: string; durationSec: number; renderCode: string } | null {
+  let cleaned = rawText
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/```json/gi, '')
+    .replace(/```javascript/gi, '')
+    .replace(/```js/gi, '')
+    .replace(/```/g, '')
+    .trim();
+
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  try {
+    const parsed = JSON.parse(cleaned) as {
+      title?: string;
+      durationSec?: number;
+      duration?: number;
+      renderCode?: string;
+      code?: string;
+    };
+    const renderCode = (parsed.renderCode || parsed.code || '').trim();
+    if (!renderCode) return null;
+
+    // Validate JS syntax inside nested block scope
+    new Function(
+      'ctx',
+      '__env',
+      `const { width, height, scale, t, elapsed, duration, progress, frame, totalFrames, state, hash, noise } = __env;\n{\n${renderCode}\n}`
+    );
+
+    const rawDur = Number(parsed.durationSec || parsed.duration || defaultDur);
+    const durationSec = Number.isFinite(rawDur)
+      ? Math.max(2, Math.min(15, rawDur))
+      : defaultDur;
+
+    const fallbackTitle =
+      prompt
+        .trim()
+        .replace(/[^\w\s-]/g, '')
+        .split(/\s+/)
+        .slice(0, 3)
+        .join(' ') || 'AI Video';
+
+    return {
+      title: (parsed.title || fallbackTitle).trim().slice(0, 24),
+      durationSec,
+      renderCode,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as AiEditRequestBody;
@@ -1129,6 +1216,82 @@ async function tryNativeImageGeneration(params: {
           completionTokens: 120,
           totalTokens: 144,
           latencyMs: Math.max(1, Date.now() - drawStartMs),
+        },
+      });
+    }
+
+    // 1.6 AI VIDEO CREATION MODE (Current Project -> Videos -> Create Video)
+    if (mode === 'create_video') {
+      if (!prompt || !prompt.trim()) {
+        return NextResponse.json(
+          { error: 'Please enter a description of the video animation to create.' },
+          { status: 400 }
+        );
+      }
+
+      const vidStartMs = Date.now();
+      const durMatch = prompt.match(/\b(\d+(?:\.\d+)?)\s*(?:s|sec|seconds?)\b/i);
+      const requestedDur = durMatch
+        ? Math.max(2, Math.min(15, parseFloat(durMatch[1])))
+        : Math.max(2, Math.min(15, Number(duration) || 5));
+
+      const candidates = resolveActiveProviderAndKey(body);
+      const videoSystemPrompt = buildCreateVideoSystemPrompt(requestedDur);
+
+      for (const cand of candidates) {
+        try {
+          const { rawText, providerLabel, usage } = await callProviderLlm({
+            provider: cand.provider,
+            key: cand.key,
+            model: cand.model,
+            baseUrl: cand.baseUrl,
+            systemPrompt: videoSystemPrompt,
+            userPrompt: prompt.trim(),
+            jsonSuffix:
+              'Return ONLY a valid JSON object: {"title": "...", "durationSec": ' +
+              requestedDur +
+              ', "renderCode": "..."}',
+            reasoningEffort: body.reasoningEffort,
+          });
+
+          const parsedVid = parseCreateVideoResponse(
+            rawText,
+            prompt,
+            requestedDur
+          );
+          if (parsedVid) {
+            return NextResponse.json({
+              ok: true,
+              title: parsedVid.title,
+              durationSec: parsedVid.durationSec,
+              renderCode: parsedVid.renderCode,
+              provider: providerLabel,
+              usage: {
+                ...usage,
+                latencyMs: Date.now() - vidStartMs,
+              },
+            });
+          }
+        } catch (vidErr) {
+          console.warn(
+            `AI Video provider ${cand.provider} (${cand.model}) failed, trying next:`,
+            vidErr
+          );
+        }
+      }
+
+      const fallbackArt = buildFallbackProceduralArtwork(prompt);
+      return NextResponse.json({
+        ok: true,
+        title: fallbackArt.title,
+        durationSec: requestedDur,
+        renderCode: fallbackArt.renderCode,
+        provider: 'Built-in Procedural Animator',
+        usage: {
+          promptTokens: 24,
+          completionTokens: 140,
+          totalTokens: 164,
+          latencyMs: Math.max(1, Date.now() - vidStartMs),
         },
       });
     }
