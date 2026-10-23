@@ -34,6 +34,10 @@ import {
   Zap,
   BookOpen,
   Music,
+  Scissors,
+  Star,
+  Image as ImageIcon,
+  Plus,
 } from 'lucide-react';
 import {
   BuiltInSceneId,
@@ -74,6 +78,14 @@ import {
   generateProceduralWaveform,
   playAiEffectSoundCue,
 } from '@/lib/audioEngine';
+import {
+  detectMediaCategory,
+  loadPersistedFavorites,
+  MediaAssetItem,
+  MediaCategory,
+  removeFavoriteFromDb,
+  saveFavoriteToDb,
+} from '@/lib/mediaLibraryStore';
 import type { SuggestedInterval } from '@/app/api/ai-analyze/route';
 
 const DEFAULT_DURATION = 12;
@@ -90,16 +102,26 @@ function CornerRivets() {
 }
 
 export default function VideoEditorStudio() {
-  // Video playback & source state
+  // Video / Image / Sound playback & source state
   const [sceneId, setSceneId] = useState<BuiltInSceneId>('scenic_valley');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoFileName, setVideoFileName] = useState<string>('Scenic Valley (1080p HD)');
+  const [activeImageUrl, setActiveImageUrl] = useState<string | null>(null);
+  const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
+  const [videoFileName, setVideoFileName] = useState<string>('No media loaded');
   const [duration, setDuration] = useState<number>(DEFAULT_DURATION);
-  const [currentTime, setCurrentTime] = useState<number>(1.5);
+  const [currentTime, setCurrentTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [loopIntervalOnly, setLoopIntervalOnly] = useState<boolean>(false);
-  const [isMuted, setIsMuted] = useState<boolean>(true);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
+
+  // Left Media Library State (Current Project & Persistent Favorites across sessions)
+  const [mediaLibrary, setMediaLibrary] = useState<MediaAssetItem[]>([]);
+  const [libraryScope, setLibraryScope] = useState<'project' | 'favorites'>('project');
+  const [libraryCategory, setLibraryCategory] = useState<MediaCategory>('video');
+
+  // Timeline Cut Segments (sections cut out of the video)
+  const [cuts, setCuts] = useState<Array<{ id: string; startTime: number; endTime: number }>>([]);
 
   const [videoMeta, setVideoMeta] = useState<VideoMetadataInfo>({
     width: 1920,
@@ -134,9 +156,7 @@ export default function VideoEditorStudio() {
   const [undoStack, setUndoStack] = useState<TimelineEditItem[][]>([]);
   const [selectedEditId, setSelectedEditId] = useState<string | null>(null);
   const [suggestedIntervals, setSuggestedIntervals] = useState<SuggestedInterval[]>([]);
-  const [statusMessage, setStatusMessage] = useState<string | null>(
-    'Select an interval [ ], mark screen regions with Red, Blue, Green, or Yellow, and tell AI what to edit!'
-  );
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   // Modals: Cloud Settings, HD Export Studio, & AI Prompt Grimoire
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
@@ -144,7 +164,7 @@ export default function VideoEditorStudio() {
   const [showGrimoireModal, setShowGrimoireModal] = useState<boolean>(false);
   const [sfxEnabled, setSfxEnabled] = useState<boolean>(true);
   const [waveformPeaks, setWaveformPeaks] = useState<number[]>(() =>
-    generateProceduralWaveform('scenic_valley', 96)
+    Array.from({ length: 96 }, () => 0.08)
   );
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [falApiKey, setFalApiKey] = useState<string>('');
@@ -162,6 +182,8 @@ export default function VideoEditorStudio() {
 
   // Refs for rendering loop & interaction
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlaySvgRef = useRef<SVGSVGElement | null>(null);
@@ -191,6 +213,18 @@ export default function VideoEditorStudio() {
   } | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
 
+  // Load persisted Favorites across browser sessions on mount
+  useEffect(() => {
+    loadPersistedFavorites().then((favs) => {
+      if (favs.length > 0) {
+        setMediaLibrary((prev) => {
+          const existingIds = new Set(prev.map((p) => p.id));
+          return [...prev, ...favs.filter((f) => !existingIds.has(f.id))];
+        });
+      }
+    });
+  }, []);
+
   const pushEditsWithUndo = useCallback(
     (updater: (prev: TimelineEditItem[]) => TimelineEditItem[]) => {
       setEdits((prev) => {
@@ -212,6 +246,19 @@ export default function VideoEditorStudio() {
     [focusedColor, pushEditsWithUndo]
   );
 
+  const handleCutInterval = useCallback(() => {
+    const s = Number(Math.max(0, Math.min(intervalStart, intervalEnd - 0.2)).toFixed(2));
+    const e = Number(Math.min(duration, Math.max(intervalEnd, s + 0.2)).toFixed(2));
+    setCuts((prev) => [
+      ...prev,
+      {
+        id: `cut-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        startTime: s,
+        endTime: e,
+      },
+    ]);
+  }, [intervalStart, intervalEnd, duration]);
+
   const handleUndoEdit = useCallback(() => {
     setUndoStack((stack) => {
       if (stack.length === 0) return stack;
@@ -221,7 +268,7 @@ export default function VideoEditorStudio() {
     });
   }, []);
 
-  // Keyboard shortcuts (Space, [, ], 1-4, Delete/Backspace, Ctrl+Z)
+  // Keyboard shortcuts (Space, [, ], c to Cut, Delete/Backspace, Ctrl+Z)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -239,14 +286,8 @@ export default function VideoEditorStudio() {
         setIntervalStart(Math.min(currentTime, intervalEnd - 0.3));
       } else if (e.key === ']') {
         setIntervalEnd(Math.max(currentTime, intervalStart + 0.3));
-      } else if (e.key === '1') {
-        setActiveColor('red');
-      } else if (e.key === '2') {
-        setActiveColor('blue');
-      } else if (e.key === '3') {
-        setActiveColor('green');
-      } else if (e.key === '4') {
-        setActiveColor('yellow');
+      } else if (e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey) {
+        handleCutInterval();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         handleUndoEdit();
@@ -254,7 +295,7 @@ export default function VideoEditorStudio() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentTime, intervalStart, intervalEnd, focusedColor, deleteColor, handleUndoEdit]);
+  }, [currentTime, intervalStart, intervalEnd, focusedColor, deleteColor, handleCutInterval, handleUndoEdit]);
 
   const getActivePlaybackRate = useCallback(
     (t: number) => {
@@ -275,6 +316,21 @@ export default function VideoEditorStudio() {
     [edits]
   );
 
+  // Helper to skip past any cut segments [cut.startTime, cut.endTime]
+  const skipCutSegments = useCallback(
+    (t: number): number => {
+      let nextT = t;
+      const sortedCuts = [...cuts].sort((a, b) => a.startTime - b.startTime);
+      for (const c of sortedCuts) {
+        if (nextT >= c.startTime && nextT < c.endTime) {
+          nextT = c.endTime;
+        }
+      }
+      return nextT >= duration ? 0 : nextT;
+    },
+    [cuts, duration]
+  );
+
   // 60 FPS Render & Playback Loop
   useEffect(() => {
     let animationFrameId: number;
@@ -289,7 +345,10 @@ export default function VideoEditorStudio() {
       if (isPlaying && !isExporting) {
         if (videoUrl && videoRef.current) {
           const vid = videoRef.current;
-          let next = vid.currentTime;
+          let next = skipCutSegments(vid.currentTime);
+          if (Math.abs(next - vid.currentTime) > 0.05) {
+            vid.currentTime = next;
+          }
           if (loopIntervalOnly) {
             if (next >= intervalEnd || next < intervalStart) {
               vid.currentTime = intervalStart;
@@ -304,7 +363,7 @@ export default function VideoEditorStudio() {
           setCurrentTime((prev) => {
             const { rate, freeze } = getActivePlaybackRate(prev);
             const effectiveRate = freeze ? 1.0 : rate;
-            let next = prev + dt * effectiveRate;
+            let next = skipCutSegments(prev + dt * effectiveRate);
 
             if (loopIntervalOnly) {
               if (next > intervalEnd || next < intervalStart) {
@@ -335,16 +394,18 @@ export default function VideoEditorStudio() {
         const mainCtx = displayCanvas.getContext('2d');
 
         if (srcCtx && mainCtx) {
-          const { freeze, freezeTime } = getActivePlaybackRate(currentTime);
-          const renderTime = freeze ? freezeTime : currentTime;
-
           if (videoUrl) {
-            // Imported video ALWAYS takes priority — never fall back to the procedural demo scene!
             if (videoRef.current && videoRef.current.readyState >= 2) {
               srcCtx.drawImage(videoRef.current, 0, 0, width, height);
             }
+          } else if (activeImageUrl && imageRef.current && imageRef.current.complete) {
+            srcCtx.fillStyle = '#181614';
+            srcCtx.fillRect(0, 0, width, height);
+            srcCtx.drawImage(imageRef.current, 0, 0, width, height);
           } else {
-            renderProceduralDemoScene(srcCtx, width, height, renderTime, sceneId);
+            // Clean neutral empty canvas when no media is loaded (no procedural preset scenes!)
+            srcCtx.fillStyle = '#181614';
+            srcCtx.fillRect(0, 0, width, height);
           }
 
           renderCompositedFrame(
@@ -373,36 +434,111 @@ export default function VideoEditorStudio() {
     intervalEnd,
     loopIntervalOnly,
     videoUrl,
-    sceneId,
+    activeImageUrl,
     edits,
     splitCompareEnabled,
     splitCompareX,
     getActivePlaybackRate,
+    skipCutSegments,
   ]);
 
   useEffect(() => {
     const vid = videoRef.current;
-    if (!vid || !videoUrl) return;
-    const { rate, freeze } = getActivePlaybackRate(currentTime);
-    vid.playbackRate = freeze ? 0.0625 : rate;
-    vid.muted = isMuted;
+    if (vid && videoUrl) {
+      const { rate, freeze } = getActivePlaybackRate(currentTime);
+      vid.playbackRate = freeze ? 0.0625 : rate;
+      vid.muted = isMuted;
 
-    if (isPlaying) {
-      if (vid.paused) {
-        vid.play().catch(() => {});
-      }
-    } else {
-      if (!vid.paused) {
-        vid.pause();
-      }
-      // When paused, keep the video element seeked to currentTime so scrubbing or clicking updates the frame immediately
-      if (Math.abs(vid.currentTime - currentTime) > 0.04 && !vid.seeking) {
-        vid.currentTime = currentTime;
+      if (isPlaying) {
+        if (vid.paused) {
+          vid.play().catch(() => {});
+        }
+      } else {
+        if (!vid.paused) {
+          vid.pause();
+        }
+        if (Math.abs(vid.currentTime - currentTime) > 0.04 && !vid.seeking) {
+          vid.currentTime = currentTime;
+        }
       }
     }
-  }, [isPlaying, videoUrl, currentTime, isMuted, getActivePlaybackRate]);
 
-  // Universal File Import Handler (Video Files OR .chromacut.json Project Files)
+    const aud = audioRef.current;
+    if (aud && activeAudioUrl) {
+      aud.muted = isMuted;
+      if (isPlaying) {
+        if (aud.paused) {
+          aud.play().catch(() => {});
+        }
+      } else {
+        if (!aud.paused) {
+          aud.pause();
+        }
+        if (Math.abs(aud.currentTime - currentTime) > 0.08) {
+          aud.currentTime = Math.min(aud.duration || duration, currentTime);
+        }
+      }
+    }
+  }, [isPlaying, videoUrl, activeAudioUrl, currentTime, isMuted, duration, getActivePlaybackRate]);
+
+  const activateMediaAsset = useCallback((asset: MediaAssetItem) => {
+    if (asset.category === 'video') {
+      setActiveImageUrl(null);
+      setVideoUrl(asset.url);
+      setVideoFileName(asset.name);
+      setIsMuted(false);
+      setCurrentTime(0);
+      setAnnotations([]);
+      setEdits([]);
+      setCuts([]);
+      setSelectedEditId(null);
+      setFocusedColor('all');
+      if (asset.blob instanceof File) {
+        extractAudioPeaksFromFile(asset.blob, 96).then((peaks) =>
+          setWaveformPeaks(peaks)
+        );
+      }
+    } else if (asset.category === 'image') {
+      setVideoUrl(null);
+      setActiveImageUrl(asset.url);
+      setVideoFileName(asset.name);
+      setDuration(10);
+      setCurrentTime(0);
+      setIntervalStart(0);
+      setIntervalEnd(5);
+      setAnnotations([]);
+      setEdits([]);
+      setCuts([]);
+      setSelectedEditId(null);
+      setFocusedColor('all');
+    } else if (asset.category === 'audio') {
+      setActiveAudioUrl(asset.url);
+      setIsMuted(false);
+      if (asset.blob instanceof File) {
+        extractAudioPeaksFromFile(asset.blob, 96).then((peaks) =>
+          setWaveformPeaks(peaks)
+        );
+      }
+    }
+  }, []);
+
+  const toggleFavoriteAsset = useCallback((assetId: string) => {
+    setMediaLibrary((prev) =>
+      prev.map((item) => {
+        if (item.id !== assetId) return item;
+        const nextFav = !item.isFavorite;
+        const updated = { ...item, isFavorite: nextFav };
+        if (nextFav) {
+          saveFavoriteToDb(updated);
+        } else {
+          removeFavoriteFromDb(updated.id);
+        }
+        return updated;
+      })
+    );
+  }, []);
+
+  // Universal File Import Handler (Videos, Images, Sound, or .chromacut.json Project Files)
   const processImportedFile = (file: File) => {
     if (file.name.endsWith('.json')) {
       const reader = new FileReader();
@@ -424,40 +560,28 @@ export default function VideoEditorStudio() {
       return;
     }
 
-    // Clear the source canvas immediately so the procedural scene never shows through
-    if (sourceCanvasRef.current) {
-      const ctx = sourceCanvasRef.current.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(
-          0,
-          0,
-          sourceCanvasRef.current.width,
-          sourceCanvasRef.current.height
-        );
-      }
-    }
-
-    // Clear any annotations/edits from the old demo scene
-    setAnnotations([]);
-    setEdits([]);
-    setSelectedEditId(null);
-    setFocusedColor('all');
-    setActiveColor('red');
-
+    const category = detectMediaCategory(file);
     const url = URL.createObjectURL(file);
-    setVideoUrl(url);
-    setVideoFileName(file.name);
-    setIsMuted(false);
-    setIsPlaying(true);
-    setCurrentTime(0);
-    extractAudioPeaksFromFile(file, 96).then((peaks) => setWaveformPeaks(peaks));
+    const newItem: MediaAssetItem = {
+      id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: file.name,
+      category,
+      url,
+      blob: file,
+      isFavorite: false,
+      inCurrentProject: true,
+      createdAt: Date.now(),
+    };
+
+    setMediaLibrary((prev) => [newItem, ...prev]);
+    setLibraryCategory(category);
+    activateMediaAsset(newItem);
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processImportedFile(file);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      Array.from(files).forEach((file) => processImportedFile(file));
       e.target.value = '';
     }
   };
@@ -465,8 +589,10 @@ export default function VideoEditorStudio() {
   const handleStageDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDraggingFile(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) processImportedFile(file);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      Array.from(files).forEach((file) => processImportedFile(file));
+    }
   };
 
   // Load 1-click Multi-Color Showcase Preset
@@ -1283,17 +1409,26 @@ export default function VideoEditorStudio() {
 
     const stepFrame = (now: number) => {
       const elapsedSec = (now - exportStartWall) / 1000;
-      const simTime = Math.min(endT, startT + elapsedSec);
+      const rawTime = Math.min(endT, startT + elapsedSec);
+      const simTime = skipCutSegments(rawTime);
       const pct = Math.min(99, Math.round((elapsedSec / totalExportSeconds) * 100));
       setExportProgress(pct);
       setCurrentTime(simTime);
 
       if (videoUrl) {
         if (videoRef.current && videoRef.current.readyState >= 2) {
+          if (Math.abs(videoRef.current.currentTime - simTime) > 0.1) {
+            videoRef.current.currentTime = simTime;
+          }
           srcCtx.drawImage(videoRef.current, 0, 0, width, height);
         }
+      } else if (activeImageUrl && imageRef.current && imageRef.current.complete) {
+        srcCtx.fillStyle = '#181614';
+        srcCtx.fillRect(0, 0, width, height);
+        srcCtx.drawImage(imageRef.current, 0, 0, width, height);
       } else {
-        renderProceduralDemoScene(srcCtx, width, height, simTime, sceneId);
+        srcCtx.fillStyle = '#181614';
+        srcCtx.fillRect(0, 0, width, height);
       }
 
       renderCompositedFrame(outCtx, hdSourceCanvas, width, height, simTime, edits);
@@ -1356,22 +1491,19 @@ export default function VideoEditorStudio() {
     return Array.from(map.values()).sort((a, b) => a.startTime - b.startTime);
   }, [annotations, edits]);
 
-  const handleCycleHighlightColor = () => {
-    const idx = COLOR_PROGRESSION.indexOf(activeColor);
-    const next = COLOR_PROGRESSION[(idx + 1) % COLOR_PROGRESSION.length];
-    setActiveColor(next);
-  };
-
   const handleStartNewTimeframe = () => {
     const nextStart = Number(Math.min(duration - 2, intervalEnd + 0.5).toFixed(1));
     const nextEnd = Number(Math.min(duration, nextStart + 3.5).toFixed(1));
     setIntervalStart(nextStart);
     setIntervalEnd(nextEnd);
     setCurrentTime(nextStart);
-    setStatusMessage(
-      `Started new timeframe [${nextStart.toFixed(1)}s – ${nextEnd.toFixed(1)}s]. Draw on screen to highlight!`
-    );
   };
+
+  const filteredLibraryItems = mediaLibrary.filter((item) => {
+    const matchesScope =
+      libraryScope === 'favorites' ? item.isFavorite : item.inCurrentProject;
+    return matchesScope && item.category === libraryCategory;
+  });
 
   return (
     <div
@@ -1389,7 +1521,7 @@ export default function VideoEditorStudio() {
           <div className="bg-[#faf8f4] border border-[#d6cfc2] rounded-2xl p-10 text-center space-y-2 shadow-lg">
             <Upload className="w-10 h-10 mx-auto text-[#b82d23]" />
             <h2 className="text-lg font-semibold text-[#26231f]">
-              Drop video or project file
+              Drop Video, Image, Sound, or Project File
             </h2>
           </div>
         </div>
@@ -1451,8 +1583,36 @@ export default function VideoEditorStudio() {
         />
       )}
 
-      {/* TOP HEADER BAR */}
-      <header className="h-13 border-b border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center justify-between shrink-0">
+      {activeImageUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          ref={imageRef}
+          src={activeImageUrl}
+          alt=""
+          style={{
+            position: 'fixed',
+            top: '-9999px',
+            left: '-9999px',
+            width: '1px',
+            height: '1px',
+            opacity: 0,
+            pointerEvents: 'none',
+            zIndex: -9999,
+          }}
+        />
+      )}
+
+      {activeAudioUrl && (
+        <audio
+          ref={audioRef}
+          src={activeAudioUrl}
+          preload="auto"
+          style={{ display: 'none' }}
+        />
+      )}
+
+      {/* TOP HEADER BAR (No preset scene dropdown or Demo button) */}
+      <header className="h-12 border-b border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className="h-7 w-7 rounded-lg bg-[#b82d23] flex items-center justify-center text-white">
             <Wand2 className="w-3.5 h-3.5" />
@@ -1460,56 +1620,19 @@ export default function VideoEditorStudio() {
           <span className="font-semibold text-sm text-[#26231f]">
             ChromaCut
           </span>
-
-          <select
-            value={videoUrl ? 'custom' : sceneId}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (val !== 'custom') {
-                setVideoUrl(null);
-                setSceneId(val as BuiltInSceneId);
-                setWaveformPeaks(
-                  generateProceduralWaveform(val as BuiltInSceneId, 96)
-                );
-                const labels: Record<BuiltInSceneId, string> = {
-                  scenic_valley: 'Scenic Valley',
-                  night_express: 'Night Express',
-                  street_market: 'Festival Market',
-                };
-                setVideoFileName(labels[val as BuiltInSceneId]);
-                setVideoMeta({
-                  width: 1920,
-                  height: 1080,
-                  duration: DEFAULT_DURATION,
-                  aspectRatioLabel: '1920×1080',
-                  hasAudio: false,
-                  isCustomVideo: false,
-                });
-              }
-            }}
-            className="px-2.5 py-1 bg-[#f0ece1] hover:bg-[#e7e1d3] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer focus:outline-none"
-          >
-            <option value="scenic_valley">Scenic Valley</option>
-            <option value="night_express">Night Express</option>
-            <option value="street_market">Festival Market</option>
-            {videoUrl && <option value="custom">{videoFileName}</option>}
-          </select>
+          <span className="text-xs text-[#6e655c] truncate max-w-xs pl-2 border-l border-[#ded7c8]">
+            {videoFileName}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={loadShowcasePreset}
-            className="px-2.5 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer"
-          >
-            Demo
-          </button>
-
           <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
             <Upload className="w-3.5 h-3.5 text-[#234c7a]" />
             <span>Import</span>
             <input
               type="file"
-              accept="video/*,.json"
+              multiple
+              accept="video/*,image/*,audio/*,.json"
               onChange={handleFileInputChange}
               className="hidden"
             />
@@ -1568,10 +1691,195 @@ export default function VideoEditorStudio() {
 
       {/* MAIN WORKSPACE */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* LEFT / CENTER: STAGE, HIGHLIGHT BAR, PROMPT BAR, TIMELINE */}
+        {/* LEFT SIDEBAR: VIDEOS, IMAGES & SOUND LIBRARY (Current Project & Persistent Favorites) */}
+        <aside className="w-60 border-r border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0">
+          {/* Scope Tabs: Current Project vs Favorites (across sessions) */}
+          <div className="p-2.5 border-b border-[#ded7c8] space-y-2">
+            <div className="grid grid-cols-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 text-xs font-medium">
+              <button
+                onClick={() => setLibraryScope('project')}
+                className={`py-1 rounded-md transition cursor-pointer ${
+                  libraryScope === 'project'
+                    ? 'bg-[#26231f] text-white'
+                    : 'text-[#6e655c] hover:text-[#26231f]'
+                }`}
+              >
+                Current Project
+              </button>
+              <button
+                onClick={() => setLibraryScope('favorites')}
+                className={`flex items-center justify-center gap-1 py-1 rounded-md transition cursor-pointer ${
+                  libraryScope === 'favorites'
+                    ? 'bg-[#26231f] text-white'
+                    : 'text-[#6e655c] hover:text-[#26231f]'
+                }`}
+              >
+                <Star className="w-3 h-3 text-[#c6923a] fill-[#c6923a]" />
+                <span>Favorites</span>
+              </button>
+            </div>
+
+            {/* Category Tabs: Videos | Images | Sound */}
+            <div className="grid grid-cols-3 gap-1 text-[11px] font-medium">
+              {(
+                [
+                  { id: 'video', label: 'Videos', icon: Film },
+                  { id: 'image', label: 'Images', icon: ImageIcon },
+                  { id: 'audio', label: 'Sound', icon: Music },
+                ] as const
+              ).map(({ id, label, icon: Icon }) => {
+                const count = mediaLibrary.filter(
+                  (m) =>
+                    (libraryScope === 'favorites'
+                      ? m.isFavorite
+                      : m.inCurrentProject) && m.category === id
+                ).length;
+                const active = libraryCategory === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => setLibraryCategory(id)}
+                    className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border transition cursor-pointer ${
+                      active
+                        ? 'bg-[#f0ece1] border-[#26231f] text-[#26231f] font-semibold'
+                        : 'bg-[#f4f1ea] border-[#ded7c8] text-[#6e655c] hover:text-[#26231f]'
+                    }`}
+                  >
+                    <Icon className="w-3 h-3" />
+                    <span>{label}</span>
+                    {count > 0 && (
+                      <span className="text-[10px] opacity-70">({count})</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Scrollable Media Asset List */}
+          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+            {filteredLibraryItems.length === 0 ? (
+              <div className="py-8 px-3 text-center text-xs text-[#8c8277] space-y-2">
+                <p>
+                  No {libraryCategory === 'audio' ? 'sound' : `${libraryCategory}s`} in{' '}
+                  {libraryScope === 'favorites' ? 'Favorites' : 'Current Project'}
+                </p>
+                <label className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer">
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add {libraryCategory === 'audio' ? 'Sound' : libraryCategory === 'image' ? 'Image' : 'Video'}</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept={
+                      libraryCategory === 'video'
+                        ? 'video/*'
+                        : libraryCategory === 'image'
+                        ? 'image/*'
+                        : 'audio/*'
+                    }
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            ) : (
+              filteredLibraryItems.map((asset) => {
+                const isActive =
+                  videoUrl === asset.url ||
+                  activeImageUrl === asset.url ||
+                  activeAudioUrl === asset.url;
+                return (
+                  <div
+                    key={asset.id}
+                    onClick={() => activateMediaAsset(asset)}
+                    className={`group flex items-center justify-between gap-1.5 p-2 rounded-xl border transition cursor-pointer ${
+                      isActive
+                        ? 'bg-[#f0ece1] border-[#26231f]'
+                        : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {asset.category === 'video' ? (
+                        <Film className="w-3.5 h-3.5 text-[#234c7a] shrink-0" />
+                      ) : asset.category === 'image' ? (
+                        <ImageIcon className="w-3.5 h-3.5 text-[#50793e] shrink-0" />
+                      ) : (
+                        <Music className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
+                      )}
+                      <span className="text-xs font-medium text-[#26231f] truncate">
+                        {asset.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavoriteAsset(asset.id);
+                        }}
+                        title={
+                          asset.isFavorite
+                            ? 'Remove from Favorites'
+                            : 'Save to Favorites (persisted across sessions)'
+                        }
+                        className="p-1 rounded hover:bg-black/5 cursor-pointer"
+                      >
+                        <Star
+                          className={`w-3.5 h-3.5 ${
+                            asset.isFavorite
+                              ? 'text-[#c6923a] fill-[#c6923a]'
+                              : 'text-[#8c8277]'
+                          }`}
+                        />
+                      </button>
+
+                      {libraryScope === 'project' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMediaLibrary((prev) =>
+                              prev
+                                .map((m) =>
+                                  m.id === asset.id
+                                    ? { ...m, inCurrentProject: false }
+                                    : m
+                                )
+                                .filter((m) => m.inCurrentProject || m.isFavorite)
+                            );
+                          }}
+                          title="Remove from project"
+                          className="p-1 rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Bottom Add Media Bar in Library */}
+          <div className="p-2.5 border-t border-[#ded7c8]">
+            <label className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
+              <Plus className="w-3.5 h-3.5 text-[#234c7a]" />
+              <span>Add Videos / Images / Sound</span>
+              <input
+                type="file"
+                multiple
+                accept="video/*,image/*,audio/*"
+                onChange={handleFileInputChange}
+                className="hidden"
+              />
+            </label>
+          </div>
+        </aside>
+
+        {/* CENTER: STAGE, TOOL BAR, PROMPT BAR, TIMELINE */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#f4f1ea]">
-          {/* CLEAN TOOL & VIEW BAR (Colors are picked automatically via Max-Min perceptual distance) */}
-          <div className="h-11 border-b border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center justify-between gap-3 shrink-0">
+          {/* CLEAN TOOL BAR: Box, Dot, and Cut Tool (Compare & Track removed) */}
+          <div className="h-10 border-b border-[#ded7c8] bg-[#faf8f4] px-3 flex items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2">
               <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
                 {(
@@ -1594,32 +1902,32 @@ export default function VideoEditorStudio() {
                   </button>
                 ))}
               </div>
-            </div>
 
-            {/* Right: View Controls */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              {timeframeAnnotations.length > 0 && (
-                <button
-                  onClick={handleAutoTrackActiveColor}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer"
-                >
-                  <Sparkles className="w-3 h-3 text-[#c6923a]" />
-                  <span>Track</span>
-                </button>
-              )}
-
+              {/* Dedicated Cut Tool Button */}
               <button
-                onClick={() => setSplitCompareEnabled((v) => !v)}
-                className={`flex items-center gap-1 px-2.5 py-1 border rounded-lg text-xs font-medium transition cursor-pointer ${
-                  splitCompareEnabled
-                    ? 'bg-[#234c7a] text-white border-[#234c7a]'
-                    : 'bg-[#f0ece1] text-[#26231f] border-[#d6cfc2] hover:bg-[#e5dfd0]'
-                }`}
+                onClick={handleCutInterval}
+                title={`Cut out selected interval (${intervalStart.toFixed(1)}s–${intervalEnd.toFixed(1)}s) [Shortcut: C]`}
+                className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer"
               >
-                <SplitSquareHorizontal className="w-3.5 h-3.5" />
-                <span>Compare</span>
+                <Scissors className="w-3.5 h-3.5" />
+                <span>
+                  Cut ({intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s)
+                </span>
               </button>
 
+              {cuts.length > 0 && (
+                <button
+                  onClick={() => setCuts((prev) => prev.slice(0, -1))}
+                  className="px-2 py-1 text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
+                  title="Undo last cut"
+                >
+                  Undo Cut ({cuts.length})
+                </button>
+              )}
+            </div>
+
+            {/* Right: Show / Hide Highlights Toggle */}
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={() => setShowMarkingsOverlay((v) => !v)}
                 title="Show / Hide Highlights"
@@ -1635,12 +1943,24 @@ export default function VideoEditorStudio() {
           </div>
 
           {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY */}
-          <div className="flex-1 relative flex flex-col items-center justify-center p-4 min-h-0 overflow-hidden bg-[#ebe6dc]">
+          <div className="flex-1 relative flex flex-col items-center justify-center p-3 min-h-0 overflow-hidden bg-[#ebe6dc]">
             <div className="relative aspect-video max-h-full max-w-full rounded-xl border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden">
               <canvas
                 ref={displayCanvasRef}
                 className="w-full h-full block object-contain"
               />
+
+              {!videoUrl && !activeImageUrl && (
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center p-6 text-[#aba18c] space-y-1.5">
+                  <Film className="w-7 h-7 opacity-60" />
+                  <p className="text-xs font-medium text-[#f4f1ea]">
+                    No media loaded
+                  </p>
+                  <p className="text-[11px] text-[#8c8277]">
+                    Add or select a Video, Image, or Sound from the Left Library (or drag &amp; drop a file)
+                  </p>
+                </div>
+              )}
 
               {/* Interactive SVG Drawing Layer */}
               <svg
@@ -2221,6 +2541,34 @@ export default function VideoEditorStudio() {
                   return <span key={i}>{tickTime}s</span>;
                 })}
               </div>
+
+              {/* Cut Out Segments on Timeline */}
+              {cuts.map((cut) => (
+                <div
+                  key={cut.id}
+                  style={{
+                    left: `${(cut.startTime / duration) * 100}%`,
+                    width: `${((cut.endTime - cut.startTime) / duration) * 100}%`,
+                  }}
+                  className="absolute top-0 bottom-0 bg-[#b82d23]/25 border-x border-[#b82d23] z-10 flex items-end justify-between px-1.5 pb-1"
+                  title={`Cut out: ${cut.startTime.toFixed(1)}s–${cut.endTime.toFixed(1)}s`}
+                >
+                  <span className="text-[10px] font-medium text-[#b82d23] truncate">
+                    ✂ Cut
+                  </span>
+                  <button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCuts((prev) => prev.filter((c) => c.id !== cut.id));
+                    }}
+                    title="Restore cut segment"
+                    className="text-xs font-bold text-[#b82d23] hover:text-[#26231f] cursor-pointer"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
 
               {/* Active Interval Highlight Zone [intervalStart, intervalEnd] */}
               <div
