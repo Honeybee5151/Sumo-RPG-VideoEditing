@@ -18,6 +18,20 @@ export function computeBoundingBox(
     return { x: 0.25, y: 0.25, width: 0.5, height: 0.5, cx: 0.5, cy: 0.5 };
   }
 
+  if (tool === 'dot') {
+    const pt = points[points.length - 1];
+    const rW = 0.05;
+    const rH = 0.088;
+    return {
+      x: Math.max(0, Math.min(1 - rW * 2, pt.x - rW)),
+      y: Math.max(0, Math.min(1 - rH * 2, pt.y - rH)),
+      width: rW * 2,
+      height: rH * 2,
+      cx: pt.x,
+      cy: pt.y,
+    };
+  }
+
   let minX = 1;
   let minY = 1;
   let maxX = 0;

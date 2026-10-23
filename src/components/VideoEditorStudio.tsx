@@ -918,8 +918,11 @@ export default function VideoEditorStudio() {
     if (!currentStroke || currentStroke.length === 0) return;
     const bbox = computeBoundingBox(currentStroke, activeTool);
 
-    // Ignore tiny accidental clicks so clicking a placed highlight doesn't spawn a tiny dot
-    if (currentStroke.length < 2 || (bbox.width < 0.025 && bbox.height < 0.025)) {
+    // For Box tool, ignore tiny accidental clicks; for Dot tool, a single click places the dot!
+    if (
+      activeTool !== 'dot' &&
+      (currentStroke.length < 2 || (bbox.width < 0.025 && bbox.height < 0.025))
+    ) {
       setCurrentStroke(null);
       return;
     }
@@ -930,7 +933,10 @@ export default function VideoEditorStudio() {
       id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       color: drawnColor,
       tool: activeTool,
-      points: currentStroke,
+      points:
+        activeTool === 'dot'
+          ? [currentStroke[currentStroke.length - 1]]
+          : currentStroke,
       strokeWidth: 4,
       bbox,
       createdAtTime: currentTime,
@@ -1604,14 +1610,13 @@ export default function VideoEditorStudio() {
               )}
             </div>
 
-            {/* Right: Shape Mode & View Controls */}
+            {/* Right: Box & Dot Mode + View Controls */}
             <div className="flex items-center gap-1.5 shrink-0">
               <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
                 {(
                   [
                     { id: 'rect', label: 'Box', icon: Square },
-                    { id: 'brush', label: 'Lasso', icon: Brush },
-                    { id: 'arrow', label: 'Path', icon: MoveUpRight },
+                    { id: 'dot', label: 'Dot', icon: Circle },
                   ] as const
                 ).map(({ id, label, icon: Icon }) => (
                   <button
@@ -1718,32 +1723,117 @@ export default function VideoEditorStudio() {
                       };
                     };
 
-                    if (ann.tool === 'arrow' && ann.points.length >= 2) {
-                      const p1 = ann.points[0];
-                      const p2 = ann.points[ann.points.length - 1];
+                    if (ann.tool === 'dot') {
+                      const dcx = ann.bbox.cx * 1000;
+                      const dcy = ann.bbox.cy * 562.5;
+                      const dotLabelX = Math.max(4, Math.min(880, dcx - 47));
+                      const dotLabelY = Math.max(4, dcy - 36);
                       return (
-                        <g
-                          key={ann.id}
-                          onPointerDown={(e) => startTransform(e, 'move')}
-                          className="cursor-move"
-                        >
-                          <line
-                            x1={p1.x * 1000}
-                            y1={p1.y * 562.5}
-                            x2={p2.x * 1000}
-                            y2={p2.y * 562.5}
-                            stroke={cfg.hex}
-                            strokeWidth={isFocused ? 5 : 3.5}
-                            strokeDasharray="10 5"
-                          />
-                          <circle
-                            cx={p2.x * 1000}
-                            cy={p2.y * 562.5}
-                            r={7}
-                            fill={cfg.hex}
-                            stroke="#ffffff"
-                            strokeWidth={1.5}
-                          />
+                        <g key={ann.id}>
+                          <g
+                            onPointerDown={(e) => startTransform(e, 'move')}
+                            className="cursor-move"
+                          >
+                            {/* Outer Target Ring */}
+                            <circle
+                              cx={dcx}
+                              cy={dcy}
+                              r={16}
+                              fill={cfg.fillRgba}
+                              stroke={cfg.hex}
+                              strokeWidth={isFocused ? 3 : 2}
+                            />
+                            {/* Crosshair Ticks */}
+                            <line
+                              x1={dcx - 22}
+                              y1={dcy}
+                              x2={dcx - 10}
+                              y2={dcy}
+                              stroke={cfg.hex}
+                              strokeWidth={2}
+                            />
+                            <line
+                              x1={dcx + 10}
+                              y1={dcy}
+                              x2={dcx + 22}
+                              y2={dcy}
+                              stroke={cfg.hex}
+                              strokeWidth={2}
+                            />
+                            <line
+                              x1={dcx}
+                              y1={dcy - 22}
+                              x2={dcx}
+                              y2={dcy - 10}
+                              stroke={cfg.hex}
+                              strokeWidth={2}
+                            />
+                            <line
+                              x1={dcx}
+                              y1={dcy + 10}
+                              x2={dcx}
+                              y2={dcy + 22}
+                              stroke={cfg.hex}
+                              strokeWidth={2}
+                            />
+                            {/* Center Exact Pinpoint Dot */}
+                            <circle
+                              cx={dcx}
+                              cy={dcy}
+                              r={6}
+                              fill={cfg.hex}
+                              stroke="#ffffff"
+                              strokeWidth={2}
+                            />
+
+                            {/* Dot Color Label Badge */}
+                            <rect
+                              x={dotLabelX}
+                              y={dotLabelY}
+                              width={94}
+                              height={18}
+                              rx={4}
+                              fill={cfg.hex}
+                            />
+                            <text
+                              x={dotLabelX + 47}
+                              y={dotLabelY + 12.5}
+                              fill="#ffffff"
+                              fontSize="10"
+                              fontWeight="600"
+                              textAnchor="middle"
+                            >
+                              ● {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
+                            </text>
+                          </g>
+
+                          {/* Delete Button (×) for Dot */}
+                          <g
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              deleteColor(ann.color);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <rect
+                              x={dotLabelX + 96}
+                              y={dotLabelY}
+                              width={18}
+                              height={18}
+                              rx={4}
+                              fill="#26231f"
+                            />
+                            <text
+                              x={dotLabelX + 105}
+                              y={dotLabelY + 13}
+                              fill="#ffffff"
+                              fontSize="12"
+                              fontWeight="bold"
+                              textAnchor="middle"
+                            >
+                              ×
+                            </text>
+                          </g>
                         </g>
                       );
                     }
@@ -1915,19 +2005,27 @@ export default function VideoEditorStudio() {
                   currentStroke.length > 0 &&
                   (() => {
                     const cfg = MARK_COLORS[activeColor];
-                    if (activeTool === 'arrow' && currentStroke.length >= 2) {
-                      const p1 = currentStroke[0];
-                      const p2 = currentStroke[currentStroke.length - 1];
+                    if (activeTool === 'dot') {
+                      const pt = currentStroke[currentStroke.length - 1];
                       return (
-                        <line
-                          x1={p1.x * 1000}
-                          y1={p1.y * 562.5}
-                          x2={p2.x * 1000}
-                          y2={p2.y * 562.5}
-                          stroke={cfg.hex}
-                          strokeWidth={4}
-                          strokeDasharray="8 4"
-                        />
+                        <g>
+                          <circle
+                            cx={pt.x * 1000}
+                            cy={pt.y * 562.5}
+                            r={16}
+                            fill={cfg.fillRgba}
+                            stroke={cfg.hex}
+                            strokeWidth={2.5}
+                          />
+                          <circle
+                            cx={pt.x * 1000}
+                            cy={pt.y * 562.5}
+                            r={6}
+                            fill={cfg.hex}
+                            stroke="#ffffff"
+                            strokeWidth={2}
+                          />
+                        </g>
                       );
                     }
                     const previewBox = computeBoundingBox(
@@ -1939,19 +2037,6 @@ export default function VideoEditorStudio() {
                     const bw = previewBox.width * 1000;
                     const bh = previewBox.height * 562.5;
 
-                    if (activeTool === 'brush') {
-                      return (
-                        <polyline
-                          fill="none"
-                          stroke={cfg.hex}
-                          strokeWidth={4.5}
-                          strokeLinecap="round"
-                          points={currentStroke
-                            .map((p) => `${p.x * 1000},${p.y * 562.5}`)
-                            .join(' ')}
-                        />
-                      );
-                    }
                     return (
                       <rect
                         x={bx}

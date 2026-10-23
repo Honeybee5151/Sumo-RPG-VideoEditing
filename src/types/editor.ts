@@ -20,7 +20,7 @@ export const COLOR_PROGRESSION: MarkColor[] = [
   'pink',
 ];
 
-export type DrawingTool = 'brush' | 'rect' | 'circle' | 'arrow';
+export type DrawingTool = 'rect' | 'dot' | 'brush' | 'circle' | 'arrow';
 
 export type BuiltInSceneId = 'scenic_valley' | 'night_express' | 'street_market';
 
