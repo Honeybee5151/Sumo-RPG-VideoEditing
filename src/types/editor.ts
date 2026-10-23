@@ -370,7 +370,10 @@ export interface EffectParams {
   // Chromatic Aberration / RGB Split
   aberrationOffset?: number;
 
-  // Open-Ended AI Generation / Custom Vector & Shader Synthesis
+  // Open-Ended AI Position + Timeframe Execution Engine
+  renderCode?: string;
+  svg?: string;
+  frameCount?: number;
   generativePrompt?: string;
   generativeStyle?: 'cyber' | 'fire' | 'watercolor' | 'hologram' | 'gold_aura';
   stickerObject?: string;

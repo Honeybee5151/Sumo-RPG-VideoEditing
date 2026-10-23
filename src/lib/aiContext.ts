@@ -52,9 +52,9 @@ const VALID_EFFECT_TYPES: EffectType[] = [
 const DEFAULT_FPS = 30;
 
 /**
- * Builds the comprehensive system prompt and project context so any AI model
- * (DeepSeek V3/R1, OpenAI GPT-4o, Google Gemini, Anthropic Claude, OpenRouter, Groq, xAI Grok, Mistral, or Local LLM)
- * can unleash its full open-ended creative, vector SVG, procedural animation, particle, and shader capabilities.
+ * Builds a clean, minimal system prompt providing ONLY the spatial position(s)
+ * and the timeframe context so the AI can freely execute whatever the user asks
+ * using direct HTML5 Canvas 2D code (`renderCode`) and/or SVG (`svg`).
  */
 export function buildAiEditorSystemPrompt(ctx: AiEditorContextInput): string {
   const allAnns =
@@ -66,115 +66,75 @@ export function buildAiEditorSystemPrompt(ctx: AiEditorContextInput): string {
     ctx.focusedColor && ctx.focusedColor !== 'all' ? ctx.focusedColor : null;
   const focusedColorName = focusedColorId
     ? MARK_COLORS[focusedColorId]?.name || focusedColorId
-    : 'All / Full Frame';
+    : 'Full Frame';
 
   const activeDurationSec = Math.max(0.1, ctx.endTime - ctx.startTime);
   const activeFrameCount = Math.round(activeDurationSec * DEFAULT_FPS);
 
-  const colorLines =
+  const positionLines =
     colorSummary.length > 0
       ? colorSummary
           .map((c) => {
             const cfg = MARK_COLORS[c.color];
-            const shapes = c.tools
-              .map((t) => (t === 'dot' ? 'Dot (pinpoint)' : 'Box (rectangle)'))
-              .join(' + ');
-            const isSelected = focusedColorId === c.color ? ' [CURRENTLY SELECTED BY USER]' : '';
-            const cFrames = Math.round(Math.max(0.1, c.endTime - c.startTime) * DEFAULT_FPS);
-            return `- Color ID: "${c.color}" | Display Name: "${cfg?.name || c.color}" | Hex: ${cfg?.hex || '#b82d23'} | Shape: ${shapes} | Timeframe: [${c.startTime.toFixed(2)}s – ${c.endTime.toFixed(2)}s] (${cFrames} frames @ 30fps) | Normalized Position/BBox: [x:${c.combinedBbox.x.toFixed(2)}, y:${c.combinedBbox.y.toFixed(2)}, w:${c.combinedBbox.width.toFixed(2)}, h:${c.combinedBbox.height.toFixed(2)}, center:(${c.combinedBbox.cx.toFixed(2)}, ${c.combinedBbox.cy.toFixed(2)})]${isSelected}`;
+            const kind = c.tools.every((t) => t === 'dot') ? 'Dot (point)' : 'Box (region)';
+            const isSelected = focusedColorId === c.color ? ' [ACTIVE TARGET]' : '';
+            const cDuration = Math.max(0.1, c.endTime - c.startTime);
+            const cFrames = Math.round(cDuration * DEFAULT_FPS);
+            return `- targetColor: "${c.color}" (${cfg?.name || c.color}) | Type: ${kind} | Center: (cx: ${c.combinedBbox.cx.toFixed(3)}, cy: ${c.combinedBbox.cy.toFixed(3)}) | Box: [x: ${c.combinedBbox.x.toFixed(3)}, y: ${c.combinedBbox.y.toFixed(3)}, w: ${c.combinedBbox.width.toFixed(3)}, h: ${c.combinedBbox.height.toFixed(3)}] | Timeframe: ${c.startTime.toFixed(2)}s to ${c.endTime.toFixed(2)}s (${cFrames} frames @ 30fps)${isSelected}`;
           })
           .join('\n')
-      : '- No Boxes or Dots placed yet (apply edits to "all" / full frame, centered at (0.5, 0.5)).';
+      : `- targetColor: "all" (Full Frame) | Center: (cx: 0.500, cy: 0.500) | Box: [x: 0.000, y: 0.000, w: 1.000, h: 1.000] | Timeframe: ${ctx.startTime.toFixed(2)}s to ${ctx.endTime.toFixed(2)}s (${activeFrameCount} frames @ 30fps)`;
 
-  const existingEditsLines =
-    ctx.existingEdits && ctx.existingEdits.length > 0
-      ? ctx.existingEdits
-          .slice(-12)
-          .map((e) => {
-            const cName =
-              e.targetColor && e.targetColor !== 'all'
-                ? `${MARK_COLORS[e.targetColor]?.name || e.targetColor} ("${e.targetColor}")`
-                : 'Full Frame ("all")';
-            return `- [${e.startTime.toFixed(1)}s–${e.endTime.toFixed(1)}s] ${e.summary} (effectType: "${e.effectType}", targetColor: ${cName})`;
-          })
-          .join('\n')
-      : '- None yet.';
+  return `You are an AI inside a video editor. You are given a spatial position on the video canvas and a timeframe, and the user asks you to do something at that position during that timeframe.
 
-  return `You are the Open-Ended AI Video Editing & Visual Generation Engine inside Sumo VideoEditor.
-You are NOT restricted to a small list of canned presets — you can generate ANY custom vector artwork (\`customSvg\`), custom animations (\`customAnimation\`), custom particle emitters (\`customParticles\`), custom procedural canvas drawings (\`customDrawCommands\`), and custom CSS/shader filters (\`customCssFilter\`) at any marked position on the video!
+### CONTEXT
+1. **Selected Timeframe**:
+   - Start: \`${ctx.startTime.toFixed(2)}s\`
+   - End: \`${ctx.endTime.toFixed(2)}s\`
+   - Duration: \`${activeDurationSec.toFixed(2)}s\` (**${activeFrameCount} frames** at 30 fps; 1 frame = 1/30s)
+   - Current Playhead: \`${(ctx.currentTime ?? ctx.startTime).toFixed(2)}s\`, Total Video Duration: \`${(ctx.duration ?? 12).toFixed(2)}s\`
+   - Focused Target: **${focusedColorName}** (\`"${focusedColorId || (colorSummary[0]?.color ?? 'all')}"\`)
 
-### 1. SPATIAL HIGHLIGHTING (BOXES & DOTS) & TIMELINE CONTEXT
-- Users place colored **Boxes** (\`rect\` — rectangular regions) and **Dots** (\`dot\` — pinpoint coordinate markers) on the video canvas.
-- Coordinates are normalized \`[0.0, 1.0]\` where \`(0,0)\` is top-left and \`(1,1)\` is bottom-right.
-- Each placed Box or Dot has an internal **Color ID** (e.g. \`"red"\`, \`"blue"\`, \`"c_12"\`) and a human **Display Name** (e.g. \`"Crimson"\`, \`"Cobalt"\`). Always output the internal **Color ID** in \`"targetColor"\` (or \`"all"\` for full-frame).
-- Media File: \`${ctx.mediaFileName || 'Active Media'}\` (${ctx.mediaCategory || 'video'}), Total Duration: \`${(ctx.duration ?? 12).toFixed(2)}s\`, Frame Rate: \`30 fps\` (\`1 frame = 0.0333s\`), Red Playhead Position: \`${(ctx.currentTime ?? ctx.startTime).toFixed(2)}s\`.
-- Active Selected Timeframe (shown in the UI): \`[${ctx.startTime.toFixed(2)}s, ${ctx.endTime.toFixed(2)}s]\` = **${activeFrameCount} frames** (${activeDurationSec.toFixed(2)}s).
-- Currently Focused Color Target: **${focusedColorName}** (${focusedColorId ? `Color ID: "${focusedColorId}"` : '"all"'}).
-- **Frame & Duration Rule**:
-  - If the user says *"for the number of frames it says"*, *"for this timeframe"*, or does not specify a custom duration, use \`startTime: ${ctx.startTime.toFixed(2)}\` and \`endTime: ${ctx.endTime.toFixed(2)}\` (which is ${activeFrameCount} frames).
-  - If the user specifies an explicit frame count (e.g. *"for 45 frames"*, *"for 90 frames"*), convert frames at 30fps (\`duration = frames / 30\`) so \`endTime = startTime + frames / 30\`.
-
-### 2. PLACED BOXES & DOTS ON THE CANVAS RIGHT NOW
-${colorLines}
-
-### 3. EXISTING EDITS ON THE TIMELINE
-${existingEditsLines}
+2. **Marked Position(s) on the Video Canvas** (normalized \`0.0\` to \`1.0\`, where \`(0,0)\` is top-left and \`(1,1)\` is bottom-right):
+${positionLines}
 ${
   ctx.customContextPrompt && ctx.customContextPrompt.trim()
-    ? `\n### 4. USER'S CUSTOM PROJECT INSTRUCTIONS\n${ctx.customContextPrompt.trim()}\n`
+    ? `\n3. **Additional Context**:\n${ctx.customContextPrompt.trim()}\n`
     : ''
 }
-### 5. OPEN-ENDED AI GENERATION (\`"effectType": "custom_ai"\`) — UNLIMITED CREATIVITY
-**IMPORTANT RULE**: Never force or fallback to \`"neon_glow"\` or \`"color_grade"\` when the user asks for something creative, asks to add/place/draw/spawn an object, character, fruit, prop, effect, or asks for any custom visual!
-Whenever the user asks to add, draw, place, spawn, or animate ANY visual object, character, prop, symbol, effect, or custom shader at a position (e.g. *"add a cool orange on this position"*, *"put a pixel sword"*, *"add a glowing dragon aura"*, *"draw a cute cat"*, *"spawn floating fireballs"*, *"add anime speed lines"*), use \`"effectType": "custom_ai"\` and combine any of these open-ended capabilities inside \`"params"\`:
-
-1. **\`customSvg\` (string — Full Custom SVG Artwork Rendered at the Target Box/Dot)**:
-   - Write a complete, self-contained \`<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">...</svg>\` illustration!
-   - Make your SVG artwork vivid, expressive, and detailed: use \`<defs>\`, \`<radialGradient>\`, \`<linearGradient>\`, drop shadows, layered shapes, highlights, outlines (\`stroke="#1d1a16"\`), and rich character/object details (for example, for *"a cool orange"*, draw a 3D radial-gradient orange citrus fruit with a green leaf, stem, dimples, cool dark sunglasses with white lens glints, and a confident smirk!).
-   - Keep coordinates within \`viewBox="0 0 200 200"\` centered around \`(100, 100)\`.
-
-2. **\`customAnimation\` (object — Procedural Motion & Physics on the Object/Effect)**:
-   \`{ "scale"?: number (0.4 to 3.0, default 1.0), "opacity"?: number (0.1 to 1.0), "bobAmplitude"?: number (vertical hover px, e.g. 6), "bobSpeed"?: number (e.g. 4), "pulseAmount"?: number (scale pulse e.g. 0.08), "pulseSpeed"?: number (e.g. 5), "spinSpeed"?: number (deg/sec, e.g. 0 or 90), "shakeAmount"?: number (px, e.g. 0), "enter"?: "pop" | "fade" | "slide_down" | "slide_up" | "spin" | "none", "exit"?: "pop" | "fade" | "none", "offsetX"?: number (-0.5 to 0.5), "offsetY"?: number (-0.5 to 0.5), "moveToX"?: number (0.0 to 1.0), "moveToY"?: number (0.0 to 1.0) }\`
-
-3. **\`customParticles\` (object — Dynamic Particle Emitter at the Target Box/Dot)**:
-   \`{ "count": number (10 to 80), "shape": "spark" | "star" | "flame" | "circle" | "heart" | "bubble" | "snow" | "leaf" | "confetti", "colors": string[] (hex array, e.g. ["#ff9900", "#ffe066", "#ffffff"]), "speed"?: number (0.5 to 2.5), "size"?: number (4 to 18), "spread"?: number (0.5 to 2.5), "direction"?: "up" | "down" | "radial" | "drift", "glow"?: boolean }\`
-
-4. **\`customCssFilter\` & \`customOverlayGradient\` (Custom Region or Full-Screen Shaders)**:
-   - \`"customCssFilter"\`: Any valid CSS filter string (e.g. \`"contrast(140%) saturate(180%) hue-rotate(25deg)"\`) applied inside (\`"invertMask": false\`) or outside (\`"invertMask": true\`) the Box/Dot.
-   - \`"customBlendMode"\`: \`"source-over" | "screen" | "multiply" | "overlay" | "color-dodge" | "hard-light" | "difference"\`
-   - \`"customOverlayGradient"\`: \`{ "colors": ["#ff6600", "#ffcc00"], "type": "radial" | "linear", "angleDeg"?: number, "opacity"?: number (0.1 to 0.85) }\`
-
-5. **\`customDrawCommands\` (array — Optional Procedural Canvas 2D Shapes around Target Center)**:
-   Array of \`{ "type": "circle" | "ellipse" | "rect" | "roundRect" | "star" | "burst" | "polygon" | "line" | "ring" | "text", "x"?: number (-1..1), "y"?: number (-1..1), "radius"?: number (0.1..1.5), "width"?: number, "height"?: number, "spikes"?: number, "fill"?: string, "gradientColors"?: string[], "stroke"?: string, "lineWidth"?: number, "glowColor"?: string, "glowBlur"?: number, "rotationDeg"?: number, "text"?: string }\`
-
-### 6. BUILT-IN SPECIALIZED COMPOSITOR TOOLS (Can also be used or combined with \`custom_ai\`)
-- \`"zoom"\`: Camera zoom/pan into target Box/Dot center. \`params\`: \`{ "zoomScale": number (1.15 to 3.5), "zoomEasing": "smooth" | "instant" | "spring" }\`
-- \`"blur"\`: Gaussian blur inside (\`invertMask: false\`) or bokeh blur outside (\`invertMask: true\`). \`params\`: \`{ "blurRadius": number (6 to 36), "invertMask": boolean }\`
-- \`"pixelate"\`: Mosaic blocks inside or outside. \`params\`: \`{ "pixelBlockSize": number (8 to 28), "invertMask": boolean }\`
-- \`"spotlight"\`: Darkens surroundings outside the Box/Dot. \`params\`: \`{ "dimOpacity": number (0.4 to 0.9) }\`
-- \`"color_grade"\`: Color grading / B&W / tinting. \`params\`: \`{ "saturation"?: number, "brightness"?: number, "contrast"?: number, "sepia"?: number, "invert"?: number, "hueRotate"?: number, "tintColor"?: string, "tintOpacity"?: number, "invertMask"?: boolean }\`
-- \`"neon_glow"\`: Only when the user specifically requests a neon/glowing outline around the Box/Dot. \`params\`: \`{ "glowColor": string, "glowIntensity": number, "pulse": boolean }\`
-- \`"halftone_ink"\`: Manga halftone ink shader. \`params\`: \`{ "dotSpacing": number, "inkColor": string, "paperColor": string, "invertMask"?: boolean }\`
-- \`"chromatic_aberration"\`: RGB split glitch. \`params\`: \`{ "aberrationOffset": number, "invertMask"?: boolean }\`
-- \`"text_overlay"\`: Text plaque/caption. \`params\`: \`{ "text": string, "textStyle": "impact" | "callout" | "neon" | "subtitle", "textColor": string, "fontSize": number }\`
-- \`"callout_shape"\`: HUD ring/brackets/arrow. \`params\`: \`{ "shapeType": "ring" | "brackets" | "arrow" | "box", "shapeColor": string }\`
-- \`"speed"\`: Playback rate or freeze-frame. \`params\`: \`{ "playbackRate": number, "freezeFrame"?: boolean }\`
-- \`"camera_fx"\`: Camera shake, vignette, cinema_bars, vhs_glitch, flash. \`params\`: \`{ "cameraEffect": string, "intensity": number }\`
-
-### 7. OPTIONAL TIMELINE CUT / SPLIT ACTIONS
-If the user explicitly asks to cut, trim, or delete a time segment:
-\`{ "action": "cut", "startTime": number, "endTime": number, "summary": "Cut segment" }\` or \`{ "action": "split", "splitTime": number, "summary": "Split playhead" }\`.
+### HOW TO DO WHAT THE USER ASKS
+Do whatever the user asks at the target position and timeframe by returning a JSON array with an object containing:
+- \`"summary"\`: Brief label describing what you did.
+- \`"targetColor"\`: The target position's \`targetColor\` ID (e.g. \`"${focusedColorId || (colorSummary[0]?.color ?? 'all')}"\`).
+- \`"startTime"\`: Start time in seconds (default \`${ctx.startTime.toFixed(2)}\`).
+- \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count).
+- \`"renderCode"\` (string, optional): JavaScript code body executed every frame on the HTML5 2D Canvas during \`[startTime, endTime]\`.
+  Your \`renderCode\` runs inside \`function(ctx, env) { ... }\` where both \`ctx\` and all properties of \`env\` are directly in scope:
+  - \`ctx\`: \`CanvasRenderingContext2D\` of the output video canvas
+  - \`sourceCanvas\`: \`HTMLCanvasElement\` containing the unedited video frame (use \`ctx.drawImage(sourceCanvas, ...)\` if you want to manipulate, zoom, filter, blur, or sample pixels from the video itself)
+  - \`cx\`, \`cy\`: Target position center in pixels on the canvas
+  - \`x\`, \`y\`, \`w\`, \`h\`: Target region top-left and width/height in pixels
+  - \`r\`: Target radius in pixels at that position
+  - \`width\`, \`height\`: Full canvas width and height in pixels
+  - \`scale\`: Resolution scale factor (\`width / 960\`)
+  - \`t\`: Current video timestamp in seconds
+  - \`elapsed\`: Seconds elapsed since \`startTime\` (\`t - startTime\`)
+  - \`duration\`: Total seconds in \`[startTime, endTime]\`
+  - \`progress\`: \`0.0\` to \`1.0\` progress through the timeframe
+  - \`frame\`: Current frame number within the timeframe (\`0\` to \`totalFrames\`)
+  - \`totalFrames\`: Total frames in the timeframe (\`Math.round(duration * 30)\`)
+- \`"svg"\` (string, optional): A complete \`<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">...</svg>\` illustration to render centered at \`(cx, cy)\`. You can provide \`renderCode\`, \`svg\`, or both.
 
 ### OUTPUT FORMAT (STRICT JSON ARRAY ONLY)
-Return ONLY a valid JSON array (no markdown prose outside the JSON). Each edit item must follow:
+Return ONLY a valid JSON array:
 [
   {
-    "summary": "Short human-readable description of what you created (e.g. 'Cool Orange (SVG + Bounce) → Crimson')",
-    "effectType": "custom_ai",
+    "summary": "...",
     "targetColor": "${focusedColorId || (colorSummary[0]?.color ?? 'all')}",
     "startTime": ${ctx.startTime.toFixed(2)},
     "endTime": ${ctx.endTime.toFixed(2)},
-    "params": { ... }
+    "renderCode": "...",
+    "svg": "..."
   }
 ]`;
 }
@@ -234,7 +194,15 @@ export function parseAiEditResponse(
       rawItems = obj.operations as Array<Record<string, unknown>>;
     } else if (Array.isArray(obj.items)) {
       rawItems = obj.items as Array<Record<string, unknown>>;
-    } else if (obj.effectType || obj.action) {
+    } else if (
+      obj.renderCode ||
+      obj.code ||
+      obj.svg ||
+      obj.customSvg ||
+      obj.summary ||
+      obj.effectType ||
+      obj.action
+    ) {
       rawItems = [obj];
     }
   }
@@ -282,7 +250,18 @@ export function parseAiEditResponse(
         ? { ...(item.params as Record<string, unknown>) }
         : {};
 
-    // Normalize top-level open-ended AI fields if the model placed them directly on the item
+    // Normalize top-level renderCode / svg / open-ended AI fields
+    const codeCandidate =
+      item.renderCode ??
+      item.code ??
+      item.canvasCode ??
+      rawParams.renderCode ??
+      rawParams.code ??
+      rawParams.canvasCode;
+    if (typeof codeCandidate === 'string' && codeCandidate.trim()) {
+      rawParams.renderCode = codeCandidate.trim();
+    }
+
     if (typeof item.customSvg === 'string' && !rawParams.customSvg) {
       rawParams.customSvg = item.customSvg;
     } else if (typeof item.svg === 'string' && !rawParams.customSvg) {

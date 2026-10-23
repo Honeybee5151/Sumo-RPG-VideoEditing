@@ -13,6 +13,68 @@ import {
 
 const svgImageCache = new Map<string, HTMLImageElement>();
 
+type AiCompiledRenderFn = (
+  ctx: CanvasRenderingContext2D,
+  env: {
+    ctx: CanvasRenderingContext2D;
+    sourceCanvas: HTMLCanvasElement;
+    cx: number;
+    cy: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    r: number;
+    width: number;
+    height: number;
+    scale: number;
+    t: number;
+    elapsed: number;
+    duration: number;
+    progress: number;
+    frame: number;
+    totalFrames: number;
+    drawSvg: (
+      svgStr: string,
+      dx?: number,
+      dy?: number,
+      dw?: number,
+      dh?: number
+    ) => void;
+  }
+) => void;
+
+const renderCodeCache = new Map<string, AiCompiledRenderFn | null>();
+
+function getOrCompileRenderCode(rawCode: string): AiCompiledRenderFn | null {
+  if (!rawCode || typeof rawCode !== 'string') return null;
+  const trimmed = rawCode.trim();
+  if (renderCodeCache.has(trimmed)) {
+    return renderCodeCache.get(trimmed) ?? null;
+  }
+
+  let body = trimmed;
+  // Strip markdown code fences if the AI wrapped renderCode in ```js ... ```
+  const fence = body.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
+  if (fence) {
+    body = fence[1].trim();
+  }
+
+  try {
+    const fn = new Function(
+      'ctx',
+      'env',
+      `const { sourceCanvas, cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, drawSvg } = env;\n${body}`
+    ) as AiCompiledRenderFn;
+    renderCodeCache.set(trimmed, fn);
+    return fn;
+  } catch (err) {
+    console.warn('Failed to compile AI renderCode:', err);
+    renderCodeCache.set(trimmed, null);
+    return null;
+  }
+}
+
 function getOrLoadSvgImage(rawSvg: string): HTMLImageElement | null {
   if (typeof window === 'undefined' || !rawSvg) return null;
   const trimmed = rawSvg.trim();
@@ -996,10 +1058,11 @@ export function renderCompositedFrame(
       );
     }
 
-    // 6c. Custom AI-Authored Vector SVG Artwork (`params.customSvg`)
+    // 6c. Custom AI-Authored Vector SVG Artwork (`params.customSvg` / `params.svg`)
     let renderedCustomSvg = false;
-    if (params.customSvg && typeof params.customSvg === 'string') {
-      const svgImg = getOrLoadSvgImage(params.customSvg);
+    const svgSource = params.customSvg || params.svg;
+    if (svgSource && typeof svgSource === 'string') {
+      const svgImg = getOrLoadSvgImage(svgSource);
       if (svgImg && svgImg.complete && svgImg.naturalWidth > 0) {
         const size = baseRadius * 2.15 * animScale;
         mainCtx.save();
@@ -1014,7 +1077,68 @@ export function renderCompositedFrame(
       }
     }
 
-    // 6d. Custom Procedural Canvas 2D Draw Commands (`params.customDrawCommands`)
+    // 6d. Direct Per-Frame AI Canvas 2D Execution (`params.renderCode`)
+    let executedRenderCode = false;
+    if (params.renderCode && typeof params.renderCode === 'string') {
+      const compiledFn = getOrCompileRenderCode(params.renderCode);
+      if (compiledFn) {
+        const totalFrames = Math.max(1, Math.round(clipDuration * 30));
+        const currentFrame = Math.min(
+          totalFrames,
+          Math.max(0, Math.round(elapsed * 30))
+        );
+        const boxX = targetBbox.x * width;
+        const boxY = targetBbox.y * height;
+        const boxW = targetBbox.width * width;
+        const boxH = targetBbox.height * height;
+
+        mainCtx.save();
+        try {
+          compiledFn(mainCtx, {
+            ctx: mainCtx,
+            sourceCanvas,
+            cx: targetBbox.cx * width,
+            cy: targetBbox.cy * height,
+            x: boxX,
+            y: boxY,
+            w: boxW,
+            h: boxH,
+            r: baseRadius,
+            width,
+            height,
+            scale: resScale,
+            t: currentTime,
+            elapsed,
+            duration: clipDuration,
+            progress: progress01,
+            frame: currentFrame,
+            totalFrames,
+            drawSvg: (
+              svgStr: string,
+              dx?: number,
+              dy?: number,
+              dw?: number,
+              dh?: number
+            ) => {
+              const img = getOrLoadSvgImage(svgStr);
+              if (img && img.complete && img.naturalWidth > 0) {
+                const wDraw = dw ?? baseRadius * 2;
+                const hDraw = dh ?? baseRadius * 2;
+                const xDraw = dx ?? targetBbox.cx * width - wDraw / 2;
+                const yDraw = dy ?? targetBbox.cy * height - hDraw / 2;
+                mainCtx.drawImage(img, xDraw, yDraw, wDraw, hDraw);
+              }
+            },
+          });
+          executedRenderCode = true;
+        } catch (err) {
+          console.warn('Error executing AI renderCode frame:', err);
+        }
+        mainCtx.restore();
+      }
+    }
+
+    // 6e. Custom Procedural Canvas 2D Draw Commands (`params.customDrawCommands`)
     if (
       Array.isArray(params.customDrawCommands) &&
       params.customDrawCommands.length > 0
@@ -1037,10 +1161,11 @@ export function renderCompositedFrame(
       mainCtx.restore();
     }
 
-    // 6e. Built-in Instant Vector Fallback for Cool Orange / Generative V2V Synthesis
+    // 6f. Built-in Instant Vector Fallback for Cool Orange / Generative V2V Synthesis
     const combinedPromptText = `${edit.prompt || ''} ${edit.summary || ''} ${params.generativePrompt || ''} ${params.stickerObject || ''}`.toLowerCase();
     const wantsOrangeObject =
       !renderedCustomSvg &&
+      !executedRenderCode &&
       (params.stickerObject === 'cool_orange' ||
         params.stickerObject === 'orange' ||
         /\b(add|place|put|spawn|draw)\b.*\borange\b/i.test(combinedPromptText) ||
