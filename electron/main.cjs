@@ -359,6 +359,19 @@ async function createWindow() {
         mainWindow.setOpacity(1);
         mainWindow.focus();
       }
+      // Periodically flush Chromium storage (IndexedDB + localStorage) to disk for crash resilience
+      const flushInterval = setInterval(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          try {
+            mainWindow.webContents.session.flushStorageData();
+          } catch {
+            // ignore
+          }
+        } else {
+          clearInterval(flushInterval);
+        }
+      }, 5000);
+
       // Automatically check GitHub Releases on launch and every 15 minutes
       setTimeout(() => checkForReleaseUpdates().catch(() => {}), 3000);
       setInterval(() => checkForReleaseUpdates().catch(() => {}), 15 * 60 * 1000);
@@ -366,6 +379,16 @@ async function createWindow() {
   } catch (err) {
     console.error('Failed to connect to local Next.js server:', err);
   }
+
+  mainWindow.on('close', () => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.session.flushStorageData();
+      }
+    } catch {
+      // ignore
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;

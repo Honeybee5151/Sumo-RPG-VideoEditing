@@ -85,11 +85,16 @@ import {
 } from '@/lib/audioEngine';
 import {
   detectMediaCategory,
-  loadPersistedFavorites,
+  loadAllPersistedMediaAssets,
+  loadProjectSessionState,
   MediaAssetItem,
   MediaCategory,
+  PersistedProjectSession,
   removeFavoriteFromDb,
+  removeMediaAssetFromDb,
   saveFavoriteToDb,
+  saveMediaAssetToDb,
+  saveProjectSessionState,
 } from '@/lib/mediaLibraryStore';
 import type { SuggestedInterval } from '@/app/api/ai-analyze/route';
 
@@ -286,17 +291,148 @@ export default function VideoEditorStudio() {
     initialPoints: NormalizedPoint[];
   } | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
+  const hasRestoredSessionRef = useRef<boolean>(false);
+  const restoredVideoTimingRef = useRef<{
+    currentTime: number;
+    intervalStart: number;
+    intervalEnd: number;
+  } | null>(null);
 
-  // Load persisted Favorites across browser sessions on mount
+  // Restore full previous project session & media library on launch (including after a crash or restart)
   useEffect(() => {
-    loadPersistedFavorites().then((favs) => {
-      if (favs.length > 0) {
-        setMediaLibrary((prev) => {
-          const existingIds = new Set(prev.map((p) => p.id));
-          return [...prev, ...favs.filter((f) => !existingIds.has(f.id))];
-        });
+    let cancelled = false;
+    (async () => {
+      try {
+        const [assets, idbOrLocalSession, diskRes] = await Promise.all([
+          loadAllPersistedMediaAssets(),
+          loadProjectSessionState(),
+          fetch('/api/project-state')
+            .then((r) => (r.ok ? r.json() : { session: null }))
+            .catch(() => ({ session: null })),
+        ]);
+        if (cancelled) return;
+
+        if (assets.length > 0) {
+          setMediaLibrary(assets);
+        }
+
+        const diskSession = diskRes?.session as PersistedProjectSession | null;
+        let session = idbOrLocalSession;
+        if (
+          diskSession &&
+          (!session || (diskSession.savedAt || 0) > (session.savedAt || 0))
+        ) {
+          session = diskSession;
+        }
+
+        if (session) {
+          if (session.sceneId) setSceneId(session.sceneId);
+          if (typeof session.videoFileName === 'string') {
+            setVideoFileName(session.videoFileName);
+          }
+          if (typeof session.duration === 'number' && session.duration > 0) {
+            setDuration(session.duration);
+          }
+          if (typeof session.currentTime === 'number') {
+            setCurrentTime(session.currentTime);
+          }
+          if (typeof session.intervalStart === 'number') {
+            setIntervalStart(session.intervalStart);
+            setDraftIntervalStart(session.intervalStart.toFixed(1));
+          }
+          if (typeof session.intervalEnd === 'number') {
+            setIntervalEnd(session.intervalEnd);
+            setDraftIntervalEnd(session.intervalEnd.toFixed(1));
+          }
+          if (Array.isArray(session.annotations)) {
+            setAnnotations(session.annotations);
+          }
+          if (Array.isArray(session.edits)) {
+            setEdits(session.edits);
+          }
+          if (Array.isArray(session.cuts)) {
+            setCuts(session.cuts);
+          }
+          if (Array.isArray(session.splitPoints)) {
+            setSplitPoints(session.splitPoints);
+          }
+          if (session.focusedColor) {
+            setFocusedColor(session.focusedColor);
+          }
+          if (session.activeColor) {
+            setActiveColor(session.activeColor);
+          }
+          if (session.activeTool) {
+            setActiveTool(session.activeTool);
+          }
+          if (typeof session.imageHasAiTime === 'boolean') {
+            setImageHasAiTime(session.imageHasAiTime);
+          }
+          if (typeof session.loopIntervalOnly === 'boolean') {
+            setLoopIntervalOnly(session.loopIntervalOnly);
+          }
+          if (typeof session.isMuted === 'boolean') {
+            setIsMuted(session.isMuted);
+          }
+          if (typeof session.timelineZoom === 'number') {
+            setTimelineZoom(session.timelineZoom);
+          }
+          if (typeof session.timelineScrollStart === 'number') {
+            setTimelineScrollStart(session.timelineScrollStart);
+          }
+          if (session.libraryScope) {
+            setLibraryScope(session.libraryScope);
+          }
+          if (session.libraryCategory) {
+            setLibraryCategory(session.libraryCategory);
+          }
+          if (typeof session.prompt === 'string') {
+            setPrompt(session.prompt);
+          }
+          if (session.colorPrompts && typeof session.colorPrompts === 'object') {
+            setColorPrompts(session.colorPrompts);
+          }
+          if (
+            Array.isArray(session.waveformPeaks) &&
+            session.waveformPeaks.length > 0
+          ) {
+            setWaveformPeaks(session.waveformPeaks);
+          }
+
+          // Reconnect active video, image, and/or audio Blob URLs from restored assets
+          if (session.activeVideoAssetId) {
+            const vidAsset = assets.find((a) => a.id === session.activeVideoAssetId);
+            if (vidAsset) {
+              restoredVideoTimingRef.current = {
+                currentTime: session.currentTime ?? 0,
+                intervalStart: session.intervalStart ?? 0,
+                intervalEnd: session.intervalEnd ?? 5,
+              };
+              setVideoUrl(vidAsset.url);
+              setVideoFileName(vidAsset.name);
+            }
+          }
+          if (session.activeImageAssetId) {
+            const imgAsset = assets.find((a) => a.id === session.activeImageAssetId);
+            if (imgAsset) {
+              setActiveImageUrl(imgAsset.url);
+              setVideoFileName(imgAsset.name);
+            }
+          }
+          if (session.activeAudioAssetId) {
+            const audAsset = assets.find((a) => a.id === session.activeAudioAssetId);
+            if (audAsset) {
+              setActiveAudioUrl(audAsset.url);
+            }
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          hasRestoredSessionRef.current = true;
+        }
       }
-    });
+    })();
+
     try {
       const savedAi = window.localStorage.getItem('chromacut_ai_settings_v2');
       if (savedAi) {
@@ -328,8 +464,119 @@ export default function VideoEditorStudio() {
       checkAndApplyReleaseUpdate,
       15 * 60 * 1000
     );
-    return () => window.clearInterval(updateTimer);
+    return () => {
+      cancelled = true;
+      window.clearInterval(updateTimer);
+    };
   }, []);
+
+  // Crash-safe continuous auto-save to localStorage, IndexedDB, and disk (.autosave-project.json)
+  useEffect(() => {
+    if (!hasRestoredSessionRef.current) return;
+
+    const activeVideoAsset = videoUrl
+      ? mediaLibrary.find((m) => m.url === videoUrl)
+      : null;
+    const activeImageAsset = activeImageUrl
+      ? mediaLibrary.find((m) => m.url === activeImageUrl)
+      : null;
+    const activeAudioAsset = activeAudioUrl
+      ? mediaLibrary.find((m) => m.url === activeAudioUrl)
+      : null;
+
+    const snapshot: PersistedProjectSession = {
+      version: 1,
+      savedAt: Date.now(),
+      sceneId,
+      activeVideoAssetId: activeVideoAsset?.id ?? null,
+      activeImageAssetId: activeImageAsset?.id ?? null,
+      activeAudioAssetId: activeAudioAsset?.id ?? null,
+      videoFileName,
+      duration,
+      currentTime,
+      intervalStart,
+      intervalEnd,
+      annotations,
+      edits,
+      cuts,
+      splitPoints,
+      focusedColor,
+      activeColor,
+      activeTool,
+      imageHasAiTime,
+      loopIntervalOnly,
+      isMuted,
+      timelineZoom,
+      timelineScrollStart,
+      libraryScope,
+      libraryCategory,
+      prompt,
+      colorPrompts,
+      waveformPeaks,
+    };
+
+    // 1. Immediate synchronous localStorage + IndexedDB save
+    saveProjectSessionState(snapshot);
+
+    // 2. Debounced disk write (.autosave-project.json) + immediate flush on window close/crash
+    const diskTimer = window.setTimeout(() => {
+      fetch('/api/project-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(snapshot),
+      }).catch(() => {});
+    }, 250);
+
+    const flushNow = () => {
+      saveProjectSessionState(snapshot);
+      try {
+        if (navigator.sendBeacon) {
+          const blob = new Blob([JSON.stringify(snapshot)], {
+            type: 'application/json',
+          });
+          navigator.sendBeacon('/api/project-state', blob);
+        }
+      } catch {
+        // ignore beacon errors
+      }
+    };
+
+    window.addEventListener('beforeunload', flushNow);
+    window.addEventListener('pagehide', flushNow);
+    return () => {
+      window.clearTimeout(diskTimer);
+      window.removeEventListener('beforeunload', flushNow);
+      window.removeEventListener('pagehide', flushNow);
+    };
+  }, [
+    sceneId,
+    videoUrl,
+    activeImageUrl,
+    activeAudioUrl,
+    mediaLibrary,
+    videoFileName,
+    duration,
+    currentTime,
+    intervalStart,
+    intervalEnd,
+    annotations,
+    edits,
+    cuts,
+    splitPoints,
+    focusedColor,
+    activeColor,
+    activeTool,
+    imageHasAiTime,
+    loopIntervalOnly,
+    isMuted,
+    timelineZoom,
+    timelineScrollStart,
+    libraryScope,
+    libraryCategory,
+    prompt,
+    colorPrompts,
+    waveformPeaks,
+  ]);
 
   const updateAiSettings = useCallback(
     (updater: (prev: AiSettingsConfig) => AiSettingsConfig) => {
@@ -1020,10 +1267,15 @@ export default function VideoEditorStudio() {
             if (item.id !== assetId) return item;
             const nextFav = !item.isFavorite;
             const updated = { ...item, isFavorite: nextFav };
-            if (nextFav) {
-              saveFavoriteToDb(updated);
+            if (updated.inCurrentProject || updated.isFavorite) {
+              saveMediaAssetToDb(updated);
             } else {
+              removeMediaAssetFromDb(updated.id);
+            }
+            if (!nextFav) {
               removeFavoriteFromDb(updated.id);
+            } else {
+              saveFavoriteToDb(updated);
             }
             return updated;
           })
@@ -1071,6 +1323,7 @@ export default function VideoEditorStudio() {
       createdAt: Date.now(),
     };
 
+    saveMediaAssetToDb(newItem);
     if (addingDirectlyToFavorites) {
       saveFavoriteToDb(newItem);
     }
@@ -2276,9 +2529,24 @@ export default function VideoEditorStudio() {
                 vw > vh ? '16:9 Widescreen' : vh > vw ? '9:16 Vertical' : '1:1 Square';
 
               setDuration(vidDuration);
-              setCurrentTime(0);
-              setIntervalStart(0);
-              setIntervalEnd(Math.min(5, vidDuration));
+              if (restoredVideoTimingRef.current) {
+                const restored = restoredVideoTimingRef.current;
+                restoredVideoTimingRef.current = null;
+                const clampedCur = Math.min(vidDuration, Math.max(0, restored.currentTime));
+                const clampedStart = Math.min(vidDuration, Math.max(0, restored.intervalStart));
+                const clampedEnd = Math.min(
+                  vidDuration,
+                  Math.max(clampedStart + 0.2, restored.intervalEnd)
+                );
+                setCurrentTime(clampedCur);
+                setIntervalStart(clampedStart);
+                setIntervalEnd(clampedEnd);
+                v.currentTime = clampedCur;
+              } else {
+                setCurrentTime(0);
+                setIntervalStart(0);
+                setIntervalEnd(Math.min(5, vidDuration));
+              }
               setVideoMeta({
                 width: vw,
                 height: vh,
@@ -2486,6 +2754,15 @@ export default function VideoEditorStudio() {
                               }
                               if (activeAudioUrl === asset.url) {
                                 setActiveAudioUrl(null);
+                              }
+                              const updatedAsset = {
+                                ...asset,
+                                inCurrentProject: false,
+                              };
+                              if (updatedAsset.isFavorite) {
+                                saveMediaAssetToDb(updatedAsset);
+                              } else {
+                                removeMediaAssetFromDb(updatedAsset.id);
                               }
                               setMediaLibrary((prev) =>
                                 prev
