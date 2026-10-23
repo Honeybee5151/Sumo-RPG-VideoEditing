@@ -732,6 +732,30 @@ export default function VideoEditorStudio() {
     [cuts, duration]
   );
 
+  // Helper to draw any resolution/aspect-ratio video or image centered (letterboxed/pillarboxed) inside the fixed 1280x720 stage
+  const drawMediaContain = useCallback(
+    (
+      ctx: CanvasRenderingContext2D,
+      media: HTMLVideoElement | HTMLImageElement,
+      destW: number,
+      destH: number,
+      srcW: number,
+      srcH: number
+    ) => {
+      ctx.fillStyle = '#181614';
+      ctx.fillRect(0, 0, destW, destH);
+      const validW = srcW > 0 ? srcW : destW;
+      const validH = srcH > 0 ? srcH : destH;
+      const scale = Math.min(destW / validW, destH / validH);
+      const drawW = validW * scale;
+      const drawH = validH * scale;
+      const offsetX = (destW - drawW) / 2;
+      const offsetY = (destH - drawH) / 2;
+      ctx.drawImage(media, offsetX, offsetY, drawW, drawH);
+    },
+    []
+  );
+
   // 60 FPS Render & Playback Loop
   useEffect(() => {
     let animationFrameId: number;
@@ -797,12 +821,24 @@ export default function VideoEditorStudio() {
         if (srcCtx && mainCtx) {
           if (videoUrl) {
             if (videoRef.current && videoRef.current.readyState >= 2) {
-              srcCtx.drawImage(videoRef.current, 0, 0, width, height);
+              drawMediaContain(
+                srcCtx,
+                videoRef.current,
+                width,
+                height,
+                videoRef.current.videoWidth || width,
+                videoRef.current.videoHeight || height
+              );
             }
           } else if (activeImageUrl && imageRef.current && imageRef.current.complete) {
-            srcCtx.fillStyle = '#181614';
-            srcCtx.fillRect(0, 0, width, height);
-            srcCtx.drawImage(imageRef.current, 0, 0, width, height);
+            drawMediaContain(
+              srcCtx,
+              imageRef.current,
+              width,
+              height,
+              imageRef.current.naturalWidth || width,
+              imageRef.current.naturalHeight || height
+            );
           } else {
             // Clean neutral empty canvas when no media is loaded (no procedural preset scenes!)
             srcCtx.fillStyle = '#181614';
@@ -841,6 +877,7 @@ export default function VideoEditorStudio() {
     splitCompareX,
     getActivePlaybackRate,
     skipCutSegments,
+    drawMediaContain,
   ]);
 
   useEffect(() => {
@@ -2041,100 +2078,88 @@ export default function VideoEditorStudio() {
         </div>
       )}
 
-      {videoUrl && (
-        <video
-          ref={videoRef}
-          src={videoUrl}
-          preload="auto"
-          width={1}
-          height={1}
-          style={{
-            position: 'fixed',
-            top: '-9999px',
-            left: '-9999px',
-            width: '1px',
-            height: '1px',
-            opacity: 0,
-            pointerEvents: 'none',
-            zIndex: -9999,
-          }}
-          playsInline
-          muted={isMuted}
-          onLoadedMetadata={(e) => {
-            const v = e.currentTarget;
-            const vidDuration = v.duration || 10;
-            const vw = v.videoWidth || 1920;
-            const vh = v.videoHeight || 1080;
-            const ratio =
-              vw > vh ? '16:9 Widescreen' : vh > vw ? '9:16 Vertical' : '1:1 Square';
+      {/* Hidden Offscreen Media Elements (Isolated in 0x0 fixed container so resolution changes never shift layout) */}
+      <div className="fixed top-0 left-0 w-0 h-0 overflow-hidden opacity-0 pointer-events-none">
+        {videoUrl && (
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            preload="auto"
+            width={1}
+            height={1}
+            playsInline
+            muted={isMuted}
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget;
+              const vidDuration = v.duration || 10;
+              const vw = v.videoWidth || 1920;
+              const vh = v.videoHeight || 1080;
+              const ratio =
+                vw > vh ? '16:9 Widescreen' : vh > vw ? '9:16 Vertical' : '1:1 Square';
 
-            setDuration(vidDuration);
-            setCurrentTime(0);
-            setIntervalStart(0);
-            setIntervalEnd(Math.min(5, vidDuration));
-            setVideoMeta({
-              width: vw,
-              height: vh,
-              duration: vidDuration,
-              aspectRatioLabel: `${vw}×${vh} (${ratio})`,
-              hasAudio: true,
-              isCustomVideo: true,
-            });
-          }}
-          onLoadedData={(e) => {
-            const v = e.currentTarget;
-            if (sourceCanvasRef.current) {
-              const ctx = sourceCanvasRef.current.getContext('2d');
-              ctx?.drawImage(
-                v,
-                0,
-                0,
-                sourceCanvasRef.current.width,
-                sourceCanvasRef.current.height
-              );
-            }
-          }}
-        />
-      )}
+              setDuration(vidDuration);
+              setCurrentTime(0);
+              setIntervalStart(0);
+              setIntervalEnd(Math.min(5, vidDuration));
+              setVideoMeta({
+                width: vw,
+                height: vh,
+                duration: vidDuration,
+                aspectRatioLabel: `${vw}×${vh} (${ratio})`,
+                hasAudio: true,
+                isCustomVideo: true,
+              });
+            }}
+            onLoadedData={(e) => {
+              const v = e.currentTarget;
+              if (sourceCanvasRef.current) {
+                const ctx = sourceCanvasRef.current.getContext('2d');
+                if (ctx) {
+                  drawMediaContain(
+                    ctx,
+                    v,
+                    sourceCanvasRef.current.width,
+                    sourceCanvasRef.current.height,
+                    v.videoWidth || 1280,
+                    v.videoHeight || 720
+                  );
+                }
+              }
+            }}
+          />
+        )}
 
-      {activeImageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          ref={imageRef}
-          src={activeImageUrl}
-          alt=""
-          style={{
-            position: 'fixed',
-            top: '-9999px',
-            left: '-9999px',
-            width: '1px',
-            height: '1px',
-            opacity: 0,
-            pointerEvents: 'none',
-            zIndex: -9999,
-          }}
-        />
-      )}
+        {activeImageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            ref={imageRef}
+            src={activeImageUrl}
+            alt=""
+            width={1}
+            height={1}
+          />
+        )}
 
-      {activeAudioUrl && (
-        <audio
-          ref={audioRef}
-          src={activeAudioUrl}
-          preload="auto"
-          style={{ display: 'none' }}
-        />
-      )}
+        {activeAudioUrl && (
+          <audio
+            ref={audioRef}
+            src={activeAudioUrl}
+            preload="auto"
+          />
+        )}
+      </div>
 
-      {/* MAIN FULL-HEIGHT WORKSPACE */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* LEFT SIDEBAR: VIDEOS, IMAGES & SOUND LIBRARY (Current Project & Persistent Favorites) */}
-        <aside className="w-64 border-r border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0 h-full">
+      {/* MAIN FULL-HEIGHT WORKSPACE (Locked 3-Column Layout) */}
+      <div className="flex-1 flex min-h-0 w-full overflow-hidden">
+        {/* LEFT SIDEBAR: VIDEOS, IMAGES & SOUND LIBRARY (Locked 16rem width & constant row heights) */}
+        <aside className="w-64 min-w-[16rem] max-w-[16rem] border-r border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0 h-full overflow-hidden">
           {/* Top Bar (h-11 aligned with Center Toolbar & Right Sidebar Header): Current Project vs Favorites */}
           <div className="h-11 px-2.5 border-b border-[#ded7c8] flex items-center shrink-0">
-            <div className="w-full grid grid-cols-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 text-xs font-medium">
+            <div className="w-full h-7 grid grid-cols-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 text-xs font-medium">
               <button
+                type="button"
                 onClick={() => setLibraryScope('project')}
-                className={`w-full py-1 rounded-md transition cursor-pointer ${
+                className={`w-full h-full flex items-center justify-center rounded-md transition cursor-pointer ${
                   libraryScope === 'project'
                     ? 'bg-[#26231f] text-white'
                     : 'text-[#6e655c] hover:text-[#26231f]'
@@ -2143,21 +2168,22 @@ export default function VideoEditorStudio() {
                 Current Project
               </button>
               <button
+                type="button"
                 onClick={() => setLibraryScope('favorites')}
-                className={`w-full flex items-center justify-center gap-1 py-1 rounded-md transition cursor-pointer ${
+                className={`w-full h-full flex items-center justify-center gap-1 rounded-md transition cursor-pointer ${
                   libraryScope === 'favorites'
                     ? 'bg-[#26231f] text-white'
                     : 'text-[#6e655c] hover:text-[#26231f]'
                 }`}
               >
-                <Star className="w-3 h-3 text-[#c6923a] fill-[#c6923a]" />
+                <Star className="w-3 h-3 text-[#c6923a] fill-[#c6923a] shrink-0" />
                 <span>Favorites</span>
               </button>
             </div>
           </div>
 
-          {/* Category Tabs: Videos | Images | Sound */}
-          <div className="p-2 border-b border-[#ded7c8] grid grid-cols-3 gap-1.5 text-xs font-medium shrink-0">
+          {/* Category Tabs: Videos | Images | Sound (Locked h-11 height & tabular-nums counts) */}
+          <div className="h-11 px-2.5 border-b border-[#ded7c8] grid grid-cols-3 gap-1.5 items-center text-xs font-medium shrink-0">
             {(
               [
                 { id: 'video', label: 'Videos', icon: Film },
@@ -2174,9 +2200,10 @@ export default function VideoEditorStudio() {
               const active = libraryCategory === id;
               return (
                 <button
+                  type="button"
                   key={id}
                   onClick={() => setLibraryCategory(id)}
-                  className={`w-full flex items-center justify-center gap-1 py-1.5 rounded-lg border transition cursor-pointer ${
+                  className={`w-full h-7 flex items-center justify-center gap-1 px-1 rounded-lg border transition cursor-pointer tabular-nums ${
                     active
                       ? 'bg-[#26231f] border-[#26231f] text-white'
                       : 'bg-[#f4f1ea] border-[#ded7c8] text-[#6e655c] hover:text-[#26231f] hover:bg-[#f0ece1]'
@@ -2192,9 +2219,9 @@ export default function VideoEditorStudio() {
             })}
           </div>
 
-          {/* Full-Height Media Asset List */}
-          <div className="flex-1 flex flex-col p-2.5 gap-2 overflow-y-auto min-h-0">
-            <label className="w-full flex items-center justify-center py-2 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
+          {/* Full-Height Media Asset List (Stable Scrollbar Gutter & Fixed Item Heights) */}
+          <div className="flex-1 flex flex-col p-2.5 gap-2 overflow-hidden min-h-0">
+            <label className="w-full h-8 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
               <span>
                 Add {libraryCategory === 'audio' ? 'Sound' : libraryCategory === 'image' ? 'Image' : 'Video'}
               </span>
@@ -2213,16 +2240,16 @@ export default function VideoEditorStudio() {
               />
             </label>
 
-            {filteredLibraryItems.length === 0 ? (
-              <div className="flex-1 w-full flex flex-col items-center justify-center text-center p-4 text-xs text-[#8c8277]">
-                <span>
-                  No {libraryCategory === 'audio' ? 'sound' : `${libraryCategory}s`} in{' '}
-                  {libraryScope === 'favorites' ? 'Favorites' : 'Current Project'}
-                </span>
-              </div>
-            ) : (
-              <div className="flex-1 space-y-1.5 overflow-y-auto">
-                {filteredLibraryItems.map((asset) => {
+            <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable] space-y-1.5 min-h-0">
+              {filteredLibraryItems.length === 0 ? (
+                <div className="h-full w-full flex flex-col items-center justify-center text-center p-4 text-xs text-[#8c8277]">
+                  <span>
+                    No {libraryCategory === 'audio' ? 'sound' : `${libraryCategory}s`} in{' '}
+                    {libraryScope === 'favorites' ? 'Favorites' : 'Current Project'}
+                  </span>
+                </div>
+              ) : (
+                filteredLibraryItems.map((asset) => {
                   const isActive =
                     videoUrl === asset.url ||
                     activeImageUrl === asset.url ||
@@ -2231,7 +2258,7 @@ export default function VideoEditorStudio() {
                     <div
                       key={asset.id}
                       onClick={() => activateMediaAsset(asset)}
-                      className={`w-full group flex items-center justify-between gap-1.5 p-2 rounded-xl border transition cursor-pointer ${
+                      className={`w-full h-9 group flex items-center justify-between gap-1.5 px-2.5 rounded-xl border transition cursor-pointer ${
                         isActive
                           ? 'bg-[#f0ece1] border-[#26231f]'
                           : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
@@ -2252,6 +2279,7 @@ export default function VideoEditorStudio() {
 
                       <div className="flex items-center gap-1 shrink-0">
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleFavoriteAsset(asset.id);
@@ -2261,7 +2289,7 @@ export default function VideoEditorStudio() {
                               ? 'Remove from Favorites'
                               : 'Save to Favorites (persisted across sessions)'
                           }
-                          className="p-1 rounded hover:bg-black/5 cursor-pointer"
+                          className="w-6 h-6 flex items-center justify-center rounded hover:bg-black/5 cursor-pointer"
                         >
                           <Star
                             className={`w-3.5 h-3.5 ${
@@ -2274,6 +2302,7 @@ export default function VideoEditorStudio() {
 
                         {libraryScope === 'project' && (
                           <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               recordHistorySnapshot();
@@ -2288,7 +2317,7 @@ export default function VideoEditorStudio() {
                               );
                             }}
                             title="Remove from project"
-                            className="p-1 rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
+                            className="w-6 h-6 flex items-center justify-center rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -2296,15 +2325,15 @@ export default function VideoEditorStudio() {
                       </div>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
           </div>
         </aside>
 
-        {/* CENTER: UNIFIED TOP BAR, STAGE, PROMPT BAR, TIMELINE */}
-        <div className="flex-1 flex flex-col min-w-0 bg-[#f4f1ea]">
-          {/* UNIFIED TOP BAR: Box, Dot, Cut on left; Import, Save, Settings, Export on right */}
+        {/* CENTER: UNIFIED TOP BAR, STAGE, PROMPT BAR, TIMELINE (Locked Flex Column) */}
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-[#f4f1ea]">
+          {/* UNIFIED TOP BAR: Box, Dot, Cut, Delete, Undo/Redo on left; Save, Settings, Export on right */}
           <div className="h-11 border-b border-[#ded7c8] bg-[#faf8f4] px-3 flex items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2">
               <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
@@ -2333,7 +2362,7 @@ export default function VideoEditorStudio() {
               <button
                 onClick={handleCutInterval}
                 title={`Cut at red playhead (${currentTime.toFixed(1)}s) [Shortcut: C]`}
-                className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium tabular-nums text-[#26231f] transition cursor-pointer"
               >
                 <Scissors className="w-3.5 h-3.5" />
                 <span>Cut ({currentTime.toFixed(1)}s)</span>
@@ -2347,7 +2376,7 @@ export default function VideoEditorStudio() {
                     ? `Delete selected segment (${selectedSegment.startTime.toFixed(1)}s–${selectedSegment.endTime.toFixed(1)}s) [Del / Backspace]`
                     : 'Delete cut segment or selected Box/Dot [Del / Backspace]'
                 }
-                className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-xs font-medium tabular-nums text-[#26231f] transition cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>
@@ -2443,14 +2472,14 @@ export default function VideoEditorStudio() {
             </div>
           </div>
 
-          {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY */}
-          <div className="flex-1 relative flex items-center justify-center p-3 min-h-0 overflow-hidden bg-[#ebe6dc]">
-            <div className="relative w-full aspect-video max-h-full max-w-full rounded-xl border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden">
+          {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY (Locked Stage Geometry — Never Shifts on Resolution Switch) */}
+          <div className="flex-1 relative p-3 min-h-0 overflow-hidden bg-[#ebe6dc]">
+            <div className="relative w-full h-full rounded-xl border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden">
               <canvas
                 ref={displayCanvasRef}
                 width={1280}
                 height={720}
-                className="w-full h-full block object-contain"
+                className="w-full h-full block"
               />
 
               {!videoUrl && !activeImageUrl && (

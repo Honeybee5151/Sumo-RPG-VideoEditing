@@ -21,11 +21,17 @@
   --ochre-cream: #fbf09c;
 }
 
+html,
 body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
   background-color: #f4f1ea;
   color: #26231f;
   font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
   overflow: hidden;
+  overscroll-behavior: none;
   user-select: none;
 }
 
