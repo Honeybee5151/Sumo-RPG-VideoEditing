@@ -183,12 +183,21 @@ export function summarizeColorGroups(annotations: ScreenAnnotation[]): ColorGrou
           : 0;
       const hasArrow = matching.some((m) => m.tool === 'arrow');
 
+      const startTimes = matching
+        .map((m) => m.startTime)
+        .filter((v): v is number => typeof v === 'number');
+      const endTimes = matching
+        .map((m) => m.endTime)
+        .filter((v): v is number => typeof v === 'number');
+
       summaries.push({
         color,
         count: matching.length,
         combinedBbox: mergeBoundingBoxes(matching.map((m) => m.bbox)),
         tools: Array.from(new Set(matching.map((m) => m.tool))),
         isMotionTracked: timeSpan >= 0.35 || (hasArrow && matching.length > 1),
+        startTime: startTimes.length > 0 ? Math.min(...startTimes) : 1.0,
+        endTime: endTimes.length > 0 ? Math.max(...endTimes) : 6.0,
       });
     }
   }

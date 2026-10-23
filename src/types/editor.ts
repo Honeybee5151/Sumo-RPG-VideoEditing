@@ -146,6 +146,8 @@ export interface ColorGroupSummary {
   combinedBbox: BoundingBox;
   tools: DrawingTool[];
   isMotionTracked: boolean;
+  startTime: number;
+  endTime: number;
 }
 
 export type ExportResolutionPreset = '720p' | '1080p' | '1440p' | '4k' | 'native';
