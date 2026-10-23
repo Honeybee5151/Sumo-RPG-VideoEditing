@@ -1,13 +1,15 @@
-const { app, BrowserWindow, shell, dialog } = require('electron');
+const { app, BrowserWindow, shell, dialog, nativeImage } = require('electron');
 const http = require('http');
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
 const { exec } = require('child_process');
 
+const APP_USER_MODEL_ID = 'com.sumo.videoeditor';
+
 app.setName('Sumo VideoEditor');
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.sumo.videoeditor');
+  app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 
 let mainWindow = null;
@@ -16,6 +18,31 @@ const APP_URL = `http://127.0.0.1:${PORT}`;
 const ICON_PATH = path.join(__dirname, '..', 'public', 'sumo-icon.ico');
 const GITHUB_REPO = 'Honeybee5151/Sumo-RPG-VideoEditing';
 const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+
+function ensureWindowsTaskbarIconRegistration() {
+  if (process.platform !== 'win32' || !fs.existsSync(ICON_PATH)) return;
+  try {
+    const startMenuShortcut = path.join(
+      app.getPath('appData'),
+      'Microsoft',
+      'Windows',
+      'Start Menu',
+      'Programs',
+      'Sumo VideoEditor.lnk'
+    );
+    shell.writeShortcutLink(startMenuShortcut, 'replace', {
+      target: process.execPath,
+      args: `"${__filename}"`,
+      cwd: path.join(__dirname, '..'),
+      description: 'Sumo VideoEditor',
+      icon: ICON_PATH,
+      iconIndex: 0,
+      appUserModelId: APP_USER_MODEL_ID,
+    });
+  } catch {
+    // Ignore shortcut registration errors on restricted filesystems
+  }
+}
 
 function getLocalVersion() {
   try {
@@ -180,6 +207,11 @@ function waitForServer(url, timeout = 120000) {
 }
 
 async function createWindow() {
+  ensureWindowsTaskbarIconRegistration();
+  const appIcon = fs.existsSync(ICON_PATH)
+    ? nativeImage.createFromPath(ICON_PATH)
+    : ICON_PATH;
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -187,7 +219,7 @@ async function createWindow() {
     minHeight: 720,
     show: false,
     title: 'Sumo VideoEditor',
-    icon: ICON_PATH,
+    icon: appIcon,
     backgroundColor: '#f4f1ea',
     autoHideMenuBar: true,
     webPreferences: {
@@ -195,6 +227,10 @@ async function createWindow() {
       contextIsolation: true,
     },
   });
+
+  if (appIcon && typeof appIcon !== 'string' && !appIcon.isEmpty()) {
+    mainWindow.setIcon(appIcon);
+  }
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);

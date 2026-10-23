@@ -13,7 +13,10 @@
     "productName": "Sumo VideoEditor",
     "win": {
       "icon": "public/sumo-icon.ico",
-      "target": ["nsis", "zip"]
+      "target": [
+        "nsis",
+        "zip"
+      ]
     },
     "publish": [
       {
@@ -25,8 +28,9 @@
     ]
   },
   "scripts": {
+    "postinstall": "node scripts/set-electron-icon.cjs",
     "dev": "next dev",
-    "app": "electron electron/main.cjs",
+    "app": "node scripts/set-electron-icon.cjs && electron electron/main.cjs",
     "build": "next build",
     "start": "next start"
   },
@@ -43,6 +47,7 @@
     "@types/react-dom": "^19.0.3",
     "electron": "^35.0.0",
     "postcss": "^8.5.2",
+    "rcedit": "^5.0.2",
     "tailwindcss": "^4.0.6",
     "typescript": "^5.7.3"
   }
