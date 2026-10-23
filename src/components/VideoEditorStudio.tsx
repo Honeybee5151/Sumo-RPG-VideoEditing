@@ -31,6 +31,7 @@ import {
   Zap,
   BookOpen,
   Music,
+  Mic,
   Scissors,
   Star,
   Image as ImageIcon,
@@ -1357,6 +1358,145 @@ export default function VideoEditorStudio() {
     if (files && files.length > 0) {
       Array.from(files).forEach((file) => processImportedFile(file));
       e.target.value = '';
+    }
+  };
+
+  // Microphone Audio Recording State & Handler for "Record Sound"
+  const [isRecordingAudio, setIsRecordingAudio] = useState<boolean>(false);
+  const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
+  const audioRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
+  const recordingStartWallRef = useRef<number>(0);
+
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current !== null) {
+        window.clearInterval(recordingTimerRef.current);
+      }
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+    };
+  }, []);
+
+  const handleToggleRecordSound = async () => {
+    if (isRecordingAudio) {
+      try {
+        if (
+          audioRecorderRef.current &&
+          audioRecorderRef.current.state !== 'inactive'
+        ) {
+          audioRecorderRef.current.stop();
+        }
+      } catch {
+        // ignore stop errors
+      }
+      if (recordingTimerRef.current !== null) {
+        window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      setIsRecordingAudio(false);
+      return;
+    }
+
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+      setStatusMessage('Microphone recording is not available on this device.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+
+      const mimeCandidates = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg',
+      ];
+      let chosenMime = '';
+      if (typeof MediaRecorder !== 'undefined') {
+        for (const m of mimeCandidates) {
+          if (MediaRecorder.isTypeSupported(m)) {
+            chosenMime = m;
+            break;
+          }
+        }
+      }
+
+      const recorder = chosenMime
+        ? new MediaRecorder(stream, { mimeType: chosenMime })
+        : new MediaRecorder(stream);
+      audioRecorderRef.current = recorder;
+
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          chunks.push(ev.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        if (recordingTimerRef.current !== null) {
+          window.clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+        stream.getTracks().forEach((t) => t.stop());
+        audioStreamRef.current = null;
+        setIsRecordingAudio(false);
+
+        if (chunks.length === 0) return;
+
+        const recordedSec = Math.max(
+          0.5,
+          Number(((performance.now() - recordingStartWallRef.current) / 1000).toFixed(2))
+        );
+        const existingAudioCount = mediaLibrary.filter(
+          (m) => m.category === 'audio'
+        ).length;
+        const ext = chosenMime.includes('mp4')
+          ? 'm4a'
+          : chosenMime.includes('ogg')
+          ? 'ogg'
+          : 'webm';
+        const fileName = `Recorded Sound ${existingAudioCount + 1}.${ext}`;
+        const file = new File(chunks, fileName, {
+          type: (chosenMime || 'audio/webm').split(';')[0],
+        });
+
+        processImportedFile(file);
+        if (!videoUrl) {
+          setDuration(recordedSec);
+          setCurrentTime(0);
+          setIntervalStart(0);
+          setIntervalEnd(recordedSec);
+        }
+        setStatusMessage(
+          `Saved "${fileName}" (${recordedSec.toFixed(1)}s) to Sound library!`
+        );
+      };
+
+      recordingStartWallRef.current = performance.now();
+      setRecordingSeconds(0);
+      setIsRecordingAudio(true);
+      recorder.start(150);
+
+      recordingTimerRef.current = window.setInterval(() => {
+        const sec = (performance.now() - recordingStartWallRef.current) / 1000;
+        setRecordingSeconds(sec);
+      }, 100);
+
+      setStatusMessage('Recording sound from microphone... Click Stop when done.');
+    } catch {
+      setIsRecordingAudio(false);
+      setStatusMessage(
+        'Could not access microphone. Please check your microphone connection or permissions.'
+      );
     }
   };
 
@@ -3031,24 +3171,62 @@ export default function VideoEditorStudio() {
 
           {/* Full-Height Media Asset List (Stable Scrollbar Gutter & Fixed Item Heights) */}
           <div className="flex-1 flex flex-col p-2.5 gap-2 overflow-hidden min-h-0">
-            <label className="w-full h-8 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
-              <span>
-                Add {libraryCategory === 'audio' ? 'Sound' : libraryCategory === 'image' ? 'Image' : 'Video'}
-              </span>
-              <input
-                type="file"
-                multiple
-                accept={
-                  libraryCategory === 'video'
-                    ? 'video/*'
-                    : libraryCategory === 'image'
-                    ? 'image/*'
-                    : 'audio/*'
-                }
-                onChange={handleFileInputChange}
-                className="hidden"
-              />
-            </label>
+            {libraryCategory === 'audio' ? (
+              <div className="w-full h-8 grid grid-cols-2 gap-1.5 shrink-0">
+                <label className="w-full h-full flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
+                  <span className="truncate">Add Sound</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept="audio/*"
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleToggleRecordSound}
+                  title={
+                    isRecordingAudio
+                      ? 'Stop microphone recording'
+                      : 'Record sound from microphone'
+                  }
+                  className={`w-full h-full flex items-center justify-center gap-1.5 px-2 rounded-lg border text-xs font-medium tabular-nums transition cursor-pointer ${
+                    isRecordingAudio
+                      ? 'bg-[#b82d23] hover:bg-[#a1261d] border-[#b82d23] text-white animate-pulse'
+                      : 'bg-[#f0ece1] hover:bg-[#e5dfd0] border-[#d6cfc2] text-[#26231f]'
+                  }`}
+                >
+                  {isRecordingAudio ? (
+                    <>
+                      <Square className="w-3 h-3 fill-current shrink-0" />
+                      <span className="truncate">
+                        Stop {recordingSeconds.toFixed(1)}s
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
+                      <span className="truncate">Record Sound</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <label className="w-full h-8 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
+                <span>
+                  Add {libraryCategory === 'image' ? 'Image' : 'Video'}
+                </span>
+                <input
+                  type="file"
+                  multiple
+                  accept={libraryCategory === 'video' ? 'video/*' : 'image/*'}
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                />
+              </label>
+            )}
 
             <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable] space-y-1.5 min-h-0">
               {filteredLibraryItems.map((asset) => {

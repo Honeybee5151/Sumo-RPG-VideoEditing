@@ -332,6 +332,21 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
+  // Grant microphone / audio capture permissions for the "Record Sound" feature
+  mainWindow.webContents.session.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+      if (
+        permission === 'media' ||
+        permission === 'audioCapture' ||
+        permission === 'Media'
+      ) {
+        callback(true);
+        return;
+      }
+      callback(true);
+    }
+  );
+
   mainWindow.webContents.on('did-finish-load', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     mainWindow.webContents
