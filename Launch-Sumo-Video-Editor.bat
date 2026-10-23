@@ -1,7 +1,9 @@
 @echo off
-title ChromaCut Studio Desktop App Launcher
+title ChromaCut AI Studio Launcher
 cd /d "%~dp0"
-echo Starting ChromaCut Studio Desktop App...
-start /b npm run dev
-timeout /t 2 /nobreak >nul
-start msedge --app=http://localhost:3000 --window-size=1440,900
+netstat -ano | findstr ":3000.*LISTENING" >nul
+if %errorlevel% neq 0 (
+  echo Starting ChromaCut AI local server on port 3000...
+  start /b npm run dev
+)
+start "" "node_modules\electron\dist\electron.exe" "electron\main.cjs"
