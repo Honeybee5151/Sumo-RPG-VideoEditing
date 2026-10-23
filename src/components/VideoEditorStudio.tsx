@@ -420,23 +420,22 @@ export default function VideoEditorStudio() {
     [focusedColor, recordHistorySnapshot]
   );
 
-  // Cut right on the Red Playhead (`currentTime`)
+  // Cut right on the Red Playhead (`currentTime`) — max 2 cuts at a time; clicking Cut a 3rd time removes the 1st cut
   const handleCutInterval = useCallback(() => {
     const t = Number(
       Math.max(0.05, Math.min(duration - 0.05, currentTime)).toFixed(2)
     );
     recordHistorySnapshot();
-    const nextSplits = Array.from(
-      new Set([...splitPoints.filter((p) => Math.abs(p - t) > 0.05), t])
-    ).sort((a, b) => a - b);
+    const filtered = splitPoints.filter((p) => Math.abs(p - t) > 0.05);
+    const nextSplits = [...filtered, t].slice(-2);
     setSplitPoints(nextSplits);
 
-    const boundaries = [0, ...nextSplits, duration];
-    const idx = nextSplits.indexOf(t);
-    if (idx > 0) {
+    if (nextSplits.length === 2) {
+      const low = Math.min(nextSplits[0], nextSplits[1]);
+      const high = Math.max(nextSplits[0], nextSplits[1]);
       setSelectedSegment({
-        startTime: boundaries[idx],
-        endTime: boundaries[idx + 1],
+        startTime: low,
+        endTime: high,
       });
     } else {
       setSelectedSegment({
@@ -458,12 +457,14 @@ export default function VideoEditorStudio() {
           endTime: selectedSegment.endTime,
         },
       ]);
+      setSplitPoints([]);
       setSelectedSegment(null);
       return;
     }
 
     if (splitPoints.length > 0) {
-      const boundaries = [0, ...splitPoints, duration];
+      const sortedSplits = [...splitPoints].sort((a, b) => a - b);
+      const boundaries = [0, ...sortedSplits, duration];
       for (let i = 0; i < boundaries.length - 1; i++) {
         const s = boundaries[i];
         const e = boundaries[i + 1];
@@ -477,6 +478,8 @@ export default function VideoEditorStudio() {
               endTime: e,
             },
           ]);
+          setSplitPoints([]);
+          setSelectedSegment(null);
           return;
         }
       }
@@ -3184,10 +3187,11 @@ export default function VideoEditorStudio() {
                 })}
               </div>
 
-              {/* Split Segments (Created by Cutting on the Red Playhead — click any segment to select & Delete) */}
+              {/* Split Segments (Created by Cutting on the Red Playhead — max 2 cuts at a time; click any segment to select & Delete) */}
               {splitPoints.length > 0 &&
                 (() => {
-                  const boundaries = [0, ...splitPoints, duration];
+                  const sortedSplits = [...splitPoints].sort((a, b) => a - b);
+                  const boundaries = [0, ...sortedSplits, duration];
                   return boundaries.slice(0, -1).map((segStart, idx) => {
                     const segEnd = boundaries[idx + 1];
                     const isDeleted = cuts.some(
@@ -3242,16 +3246,44 @@ export default function VideoEditorStudio() {
                   });
                 })()}
 
-              {/* Split Lines placed by the Red Playhead */}
-              {splitPoints.map((pt) => (
+              {/* Split Lines placed by the Red Playhead (max 2; clicking a 3rd cut drops the 1st, or click/right-click ✂ to remove) */}
+              {splitPoints.map((pt, cutIdx) => (
                 <div
                   key={`split-${pt}`}
                   style={{ left: `${(pt / duration) * 100}%` }}
                   className="absolute top-0 bottom-0 w-0.5 border-l border-dashed border-[#b82d23] z-15 pointer-events-none"
                 >
-                  <span className="absolute bottom-0.5 -left-2 text-[10px] text-[#b82d23] font-bold">
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      recordHistorySnapshot();
+                      const remaining = splitPoints.filter((p) => p !== pt);
+                      setSplitPoints(remaining);
+                      if (remaining.length === 1) {
+                        setSelectedSegment({ startTime: 0, endTime: remaining[0] });
+                      } else {
+                        setSelectedSegment(null);
+                      }
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      recordHistorySnapshot();
+                      const remaining = splitPoints.filter((p) => p !== pt);
+                      setSplitPoints(remaining);
+                      if (remaining.length === 1) {
+                        setSelectedSegment({ startTime: 0, endTime: remaining[0] });
+                      } else {
+                        setSelectedSegment(null);
+                      }
+                    }}
+                    title={`Cut #${cutIdx + 1} at ${pt.toFixed(1)}s (Click or right-click to remove, or place a new Cut to replace #1)`}
+                    className="pointer-events-auto absolute bottom-0.5 -left-2.5 w-5 h-4 rounded bg-[#faf8f4]/90 border border-[#b82d23]/40 text-[10px] text-[#b82d23] hover:bg-[#b82d23] hover:text-white font-bold flex items-center justify-center cursor-pointer"
+                  >
                     ✂
-                  </span>
+                  </button>
                 </div>
               ))}
 
