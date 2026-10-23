@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import http from 'http';
+import https from 'https';
+import dns from 'dns';
 import {
   AiEditorContextInput,
   buildAiEditorSystemPrompt,
@@ -12,6 +15,60 @@ import {
   MarkColor,
   ScreenAnnotation,
 } from '@/types/editor';
+
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Ignore if unsupported
+}
+
+function postJsonRequest(
+  urlStr: string,
+  headers: Record<string, string>,
+  payload: unknown,
+  timeoutMs = 30000
+): Promise<{ status: number; ok: boolean; text: string }> {
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(urlStr);
+    const isHttps = parsedUrl.protocol === 'https:';
+    const lib = isHttps ? https : http;
+    const bodyBuffer = Buffer.from(JSON.stringify(payload), 'utf8');
+
+    const req = lib.request(
+      parsedUrl,
+      {
+        method: 'POST',
+        family: 4,
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+          'Content-Length': String(bodyBuffer.length),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const status = res.statusCode || 500;
+          resolve({
+            status,
+            ok: status >= 200 && status < 300,
+            text,
+          });
+        });
+      }
+    );
+
+    req.on('error', (err) => reject(err));
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
+
+    req.write(bodyBuffer);
+    req.end();
+  });
+}
 
 interface AiEditRequestBody {
   mode?: 'edit' | 'test';
@@ -122,7 +179,11 @@ function resolveActiveProviderAndKey(body: AiEditRequestBody): Array<{
           baseUrl: def?.baseUrl,
         },
       ];
-      if (requestedProvider === 'deepseek' && key.startsWith('sk-')) {
+      if (
+        requestedProvider === 'deepseek' &&
+        key.startsWith('sk-') &&
+        !/^sk-[0-9a-f]{28,40}$/i.test(key)
+      ) {
         candidates.push({
           provider: 'openai',
           key,
@@ -160,8 +221,8 @@ function resolveActiveProviderAndKey(body: AiEditRequestBody): Array<{
         model: def?.defaultModel || 'deepseek-chat',
         baseUrl: def?.baseUrl,
       });
-      // If key starts with sk- (and isn't sk-ant- or sk-or-), try both DeepSeek and OpenAI automatically
-      if (detected === 'deepseek') {
+      // Only try OpenAI fallback if it's not a 32-hex DeepSeek key
+      if (detected === 'deepseek' && !/^sk-[0-9a-f]{28,40}$/i.test(autoKey)) {
         candidates.push({
           provider: 'openai',
           key: autoKey,
@@ -245,29 +306,25 @@ async function callProviderLlm(params: {
       }
     }
 
-    const res = await fetch(
+    const res = await postJsonRequest(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
         geminiModel
       )}:generateContent?key=${encodeURIComponent(key)}`,
+      {},
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.15,
-          },
-        }),
+        contents: [{ parts }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.15,
+        },
       }
     );
 
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Gemini API HTTP ${res.status}: ${errText.slice(0, 220)}`);
+      throw new Error(`Gemini API HTTP ${res.status}: ${res.text.slice(0, 220)}`);
     }
 
-    const data = await res.json();
+    const data = JSON.parse(res.text);
     const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
     return {
       rawText,
@@ -301,28 +358,26 @@ async function callProviderLlm(params: {
       text: `User Prompt: "${userPrompt}"\n\nReturn ONLY a valid JSON array of edit objects.`,
     });
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const res = await postJsonRequest(
+      'https://api.anthropic.com/v1/messages',
+      {
         'x-api-key': key,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
+      {
         model: claudeModel,
         max_tokens: 1500,
         temperature: 0.15,
         system: systemPrompt,
         messages: [{ role: 'user', content: contentBlocks }],
-      }),
-    });
+      }
+    );
 
     if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Anthropic API HTTP ${res.status}: ${errText.slice(0, 220)}`);
+      throw new Error(`Anthropic API HTTP ${res.status}: ${res.text.slice(0, 220)}`);
     }
 
-    const data = await res.json();
+    const data = JSON.parse(res.text);
     const textPart = Array.isArray(data?.content)
       ? data.content.find((b: { type?: string; text?: string }) => b.type === 'text')
       : null;
@@ -371,9 +426,7 @@ async function callProviderLlm(params: {
         ]
       : `User Prompt: "${userPrompt}"\n\nReturn ONLY a valid JSON array of edit objects.`;
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+  const headers: Record<string, string> = {};
   if (key) {
     headers.Authorization = `Bearer ${key}`;
   }
@@ -395,18 +448,13 @@ async function callProviderLlm(params: {
     requestPayload.temperature = 0.15;
   }
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(requestPayload),
-  });
+  const res = await postJsonRequest(endpoint, headers, requestPayload);
 
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`${provider.toUpperCase()} API HTTP ${res.status}: ${errText.slice(0, 220)}`);
+    throw new Error(`${provider.toUpperCase()} API HTTP ${res.status}: ${res.text.slice(0, 220)}`);
   }
 
-  const data = await res.json();
+  const data = JSON.parse(res.text);
   const rawText = data?.choices?.[0]?.message?.content || '[]';
 
   const friendlyLabels: Record<string, string> = {
