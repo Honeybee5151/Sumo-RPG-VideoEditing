@@ -2232,15 +2232,7 @@ export default function VideoEditorStudio() {
             </label>
 
             <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable] space-y-1.5 min-h-0">
-              {filteredLibraryItems.length === 0 ? (
-                <div className="h-full w-full flex flex-col items-center justify-center text-center p-4 text-xs text-[#8c8277]">
-                  <span>
-                    No {libraryCategory === 'audio' ? 'sound' : `${libraryCategory}s`} in{' '}
-                    {libraryScope === 'favorites' ? 'Favorites' : 'Current Project'}
-                  </span>
-                </div>
-              ) : (
-                filteredLibraryItems.map((asset) => {
+              {filteredLibraryItems.map((asset) => {
                   const isActive =
                     videoUrl === asset.url ||
                     activeImageUrl === asset.url ||
@@ -2316,8 +2308,7 @@ export default function VideoEditorStudio() {
                       </div>
                     </div>
                   );
-                })
-              )}
+                })}
             </div>
           </div>
         </aside>
@@ -2481,18 +2472,6 @@ export default function VideoEditorStudio() {
                 height={720}
                 className="w-full h-full block"
               />
-
-              {!videoUrl && !activeImageUrl && (
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center p-6 text-[#aba18c] space-y-1.5">
-                  <Film className="w-7 h-7 opacity-60" />
-                  <p className="text-xs font-medium text-[#f4f1ea]">
-                    No media loaded
-                  </p>
-                  <p className="text-[11px] text-[#8c8277]">
-                    Add or select a Video, Image, or Sound from the Left Library (or drag &amp; drop a file)
-                  </p>
-                </div>
-              )}
 
               {/* Interactive SVG Drawing Layer */}
               <svg
@@ -3347,11 +3326,7 @@ export default function VideoEditorStudio() {
                       : allColorGroups[0];
 
                   if (!selectedGroup) {
-                    return (
-                      <div className="w-full h-7 flex items-center justify-center text-center text-[11px] text-[#8c8277] pointer-events-none">
-                        Place a Box or Dot on the video or select a color on the right to edit its timeframe
-                      </div>
-                    );
+                    return <div className="w-full h-7 pointer-events-none" />;
                   }
 
                   const cfg = MARK_COLORS[selectedGroup.color];
@@ -3515,16 +3490,7 @@ export default function VideoEditorStudio() {
 
           {/* Scrollable List of Placed Colors & Their Connected Edits */}
           <div className="flex-1 flex flex-col overflow-y-auto [scrollbar-gutter:stable] p-3 gap-2 min-h-0">
-            {allColorGroups.length === 0 && edits.length === 0 ? (
-              <div className="flex-1 w-full flex flex-col items-center justify-center text-center p-4 text-xs text-[#8c8277] gap-1">
-                <span className="font-medium text-[#6e655c]">No colors placed yet</span>
-                <span>
-                  Place a Box or Dot on the video scene to see its color here
-                </span>
-              </div>
-            ) : (
-              <>
-                {allColorGroups.map((cg) => {
+            {allColorGroups.map((cg) => {
                   const cfg = MARK_COLORS[cg.color];
                   const isFocused = focusedColor === cg.color;
                   const colorAnns = annotations.filter(
@@ -3716,8 +3682,6 @@ export default function VideoEditorStudio() {
                       </div>
                     );
                   })}
-              </>
-            )}
           </div>
 
           {/* Fine-Tune Selected Edit Inspector */}
