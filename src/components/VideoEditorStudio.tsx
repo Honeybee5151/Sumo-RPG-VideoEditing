@@ -2364,62 +2364,37 @@ export default function VideoEditorStudio() {
 
         {/* RIGHT SIDEBAR: SCROLLABLE COLORS & EDITS HUB */}
         <aside className="w-80 border-l border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0">
-          {/* Header showcasing Placed Color Count & Variety */}
-          <div className="px-3.5 py-2.5 border-b border-[#ded7c8] space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Layers className="w-3.5 h-3.5 text-[#6e655c]" />
-                <h2 className="text-xs font-semibold text-[#26231f]">
-                  Colors ({allColorGroups.length}) & Edits ({edits.length})
-                </h2>
-              </div>
-              <div className="flex items-center gap-2">
-                {undoStack.length > 0 && (
-                  <button
-                    onClick={handleUndoEdit}
-                    className="text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
-                  >
-                    Undo
-                  </button>
-                )}
-                {(allColorGroups.length > 0 || edits.length > 0) && (
-                  <button
-                    onClick={() => {
-                      setAnnotations([]);
-                      pushEditsWithUndo(() => []);
-                      setSelectedEditId(null);
-                      setFocusedColor('all');
-                    }}
-                    className="text-xs text-[#6e655c] hover:text-[#b82d23] cursor-pointer"
-                  >
-                    Clear All
-                  </button>
-                )}
-              </div>
+          {/* Header showcasing Placed Color Count */}
+          <div className="h-11 px-3.5 border-b border-[#ded7c8] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Layers className="w-3.5 h-3.5 text-[#6e655c]" />
+              <h2 className="text-xs font-semibold text-[#26231f]">
+                Colors ({allColorGroups.length}) & Edits ({edits.length})
+              </h2>
             </div>
-
-            {/* Placed Color Variety Mosaic (only displays placed colors — drawing colors are picked automatically) */}
-            {allColorGroups.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-1.5 max-h-16 overflow-y-auto">
-                {allColorGroups.map((cg) => {
-                  const cfg = MARK_COLORS[cg.color];
-                  const isSelected = focusedColor === cg.color;
-                  return (
-                    <button
-                      key={cg.color}
-                      onClick={() => selectColorForAi(cg.color)}
-                      title={`${cfg.name} (${cg.startTime.toFixed(1)}s–${cg.endTime.toFixed(1)}s)`}
-                      style={{ backgroundColor: cfg.hex }}
-                      className={`w-4 h-4 rounded-full transition cursor-pointer ${
-                        isSelected
-                          ? 'ring-2 ring-[#26231f] scale-110'
-                          : 'opacity-80 hover:opacity-100'
-                      }`}
-                    />
-                  );
-                })}
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {undoStack.length > 0 && (
+                <button
+                  onClick={handleUndoEdit}
+                  className="text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
+                >
+                  Undo
+                </button>
+              )}
+              {(allColorGroups.length > 0 || edits.length > 0) && (
+                <button
+                  onClick={() => {
+                    setAnnotations([]);
+                    pushEditsWithUndo(() => []);
+                    setSelectedEditId(null);
+                    setFocusedColor('all');
+                  }}
+                  className="text-xs text-[#6e655c] hover:text-[#b82d23] cursor-pointer"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Scrollable List of Placed Colors & Their Connected Edits */}
