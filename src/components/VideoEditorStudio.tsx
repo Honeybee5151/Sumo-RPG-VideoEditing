@@ -2946,9 +2946,9 @@ export default function VideoEditorStudio() {
             </div>
           </div>
 
-          {/* ADAPTIVE BOTTOM AI BAR (Constant height & consistent layout whether Box/Dot is selected or not) */}
-          <div className="h-12 border-t border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center shrink-0">
-            <div className="w-full flex items-center gap-2">
+          {/* ADAPTIVE BOTTOM AI BAR (Enlarged & locked height/width base so clicking color never shifts video or bar) */}
+          <div className="h-14 min-h-[3.5rem] max-h-[3.5rem] border-t border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center shrink-0 overflow-hidden">
+            <div className="w-full flex items-center gap-2.5 min-w-0">
               {isEditingIntervalBadge ? (
                 <div
                   style={
@@ -2959,7 +2959,7 @@ export default function VideoEditorStudio() {
                         }
                       : undefined
                   }
-                  className={`h-8 flex items-center gap-1.5 px-2.5 rounded-lg text-xs font-medium shrink-0 border ${
+                  className={`w-64 min-w-[16rem] max-w-[16rem] h-9 flex items-center justify-between gap-1.5 px-2.5 rounded-lg text-xs font-medium shrink-0 border ${
                     focusedColor === 'all'
                       ? 'bg-[#f0ece1] border-[#26231f] text-[#26231f]'
                       : 'border-black/15'
@@ -2970,76 +2970,78 @@ export default function VideoEditorStudio() {
                     onClick={() =>
                       commitCustomInterval(draftIntervalStart, draftIntervalEnd, true)
                     }
-                    className="flex items-center gap-1 cursor-pointer"
+                    className="flex items-center gap-1 cursor-pointer truncate shrink-0"
                     title="Click to finish editing interval"
                   >
                     {focusedColor !== 'all' ? (
                       <>
                         <span
-                          className="w-2 h-2 rounded-full border border-white/70"
+                          className="w-2 h-2 rounded-full border border-white/70 shrink-0"
                           style={{ backgroundColor: MARK_COLORS[focusedColor].hex }}
                         />
-                        <span>{MARK_COLORS[focusedColor].name}</span>
+                        <span className="truncate">{MARK_COLORS[focusedColor].name}</span>
                       </>
                     ) : (
-                      <Clock className="w-3.5 h-3.5 text-[#6e655c]" />
+                      <Clock className="w-3.5 h-3.5 text-[#6e655c] shrink-0" />
                     )}
                   </button>
-                  <input
-                    type="number"
-                    step={0.1}
-                    min={0}
-                    max={duration}
-                    autoFocus
-                    value={draftIntervalStart}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setDraftIntervalStart(val);
-                      commitCustomInterval(val, draftIntervalEnd, false);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        commitCustomInterval(draftIntervalStart, draftIntervalEnd, true);
-                      } else if (e.key === 'Escape') {
-                        setIsEditingIntervalBadge(false);
+                  <div className="flex items-center gap-1 shrink-0">
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={0}
+                      max={duration}
+                      autoFocus
+                      value={draftIntervalStart}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDraftIntervalStart(val);
+                        commitCustomInterval(val, draftIntervalEnd, false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          commitCustomInterval(draftIntervalStart, draftIntervalEnd, true);
+                        } else if (e.key === 'Escape') {
+                          setIsEditingIntervalBadge(false);
+                        }
+                      }}
+                      className="w-13 px-1.5 py-0.5 rounded bg-white/95 text-[#26231f] font-mono text-xs tabular-nums border border-black/20 focus:outline-none"
+                      title="Start time (seconds)"
+                    />
+                    <span className="opacity-80">–</span>
+                    <input
+                      type="number"
+                      step={0.1}
+                      min={0}
+                      max={duration}
+                      value={draftIntervalEnd}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setDraftIntervalEnd(val);
+                        commitCustomInterval(draftIntervalStart, val, false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          commitCustomInterval(draftIntervalStart, draftIntervalEnd, true);
+                        } else if (e.key === 'Escape') {
+                          setIsEditingIntervalBadge(false);
+                        }
+                      }}
+                      className="w-13 px-1.5 py-0.5 rounded bg-white/95 text-[#26231f] font-mono text-xs tabular-nums border border-black/20 focus:outline-none"
+                      title="End time (seconds)"
+                    />
+                    <span className="opacity-80 text-[11px]">s</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        commitCustomInterval(draftIntervalStart, draftIntervalEnd, true)
                       }
-                    }}
-                    className="w-14 px-1.5 py-0.5 rounded bg-white/95 text-[#26231f] font-mono text-xs border border-black/20 focus:outline-none"
-                    title="Start time (seconds)"
-                  />
-                  <span className="opacity-80">–</span>
-                  <input
-                    type="number"
-                    step={0.1}
-                    min={0}
-                    max={duration}
-                    value={draftIntervalEnd}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setDraftIntervalEnd(val);
-                      commitCustomInterval(draftIntervalStart, val, false);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        commitCustomInterval(draftIntervalStart, draftIntervalEnd, true);
-                      } else if (e.key === 'Escape') {
-                        setIsEditingIntervalBadge(false);
-                      }
-                    }}
-                    className="w-14 px-1.5 py-0.5 rounded bg-white/95 text-[#26231f] font-mono text-xs border border-black/20 focus:outline-none"
-                    title="End time (seconds)"
-                  />
-                  <span className="opacity-80 text-[11px]">s</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      commitCustomInterval(draftIntervalStart, draftIntervalEnd, true)
-                    }
-                    className="ml-0.5 px-1.5 py-0.5 rounded bg-black/25 hover:bg-black/40 text-white text-[10px] font-semibold cursor-pointer"
-                    title="Set timeframe"
-                  >
-                    ✓
-                  </button>
+                      className="ml-0.5 px-1.5 py-0.5 rounded bg-black/25 hover:bg-black/40 text-white text-[10px] font-semibold cursor-pointer"
+                      title="Set timeframe"
+                    >
+                      ✓
+                    </button>
+                  </div>
                 </div>
               ) : focusedColor !== 'all' ? (
                 <button
@@ -3055,14 +3057,17 @@ export default function VideoEditorStudio() {
                     color: MARK_COLORS[focusedColor].textColorHex,
                   }}
                   title="Click color name to type a specific start & end time"
-                  className="h-8 flex items-center gap-1.5 px-2.5 rounded-lg border border-black/15 text-xs font-medium shrink-0 cursor-pointer hover:opacity-90 transition"
+                  className="w-64 min-w-[16rem] max-w-[16rem] h-9 flex items-center justify-between gap-2 px-3 rounded-lg border border-black/15 text-xs font-medium shrink-0 cursor-pointer hover:opacity-90 transition"
                 >
-                  <span
-                    className="w-2 h-2 rounded-full border border-white/70"
-                    style={{ backgroundColor: MARK_COLORS[focusedColor].hex }}
-                  />
-                  <span>
-                    {MARK_COLORS[focusedColor].name} • {intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s
+                  <span className="flex items-center gap-1.5 truncate">
+                    <span
+                      className="w-2 h-2 rounded-full border border-white/70 shrink-0"
+                      style={{ backgroundColor: MARK_COLORS[focusedColor].hex }}
+                    />
+                    <span className="truncate">{MARK_COLORS[focusedColor].name}</span>
+                  </span>
+                  <span className="font-mono tabular-nums opacity-95 shrink-0">
+                    {intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s
                   </span>
                 </button>
               ) : (
@@ -3075,10 +3080,13 @@ export default function VideoEditorStudio() {
                     setIsEditingIntervalBadge(true);
                   }}
                   title="Click to type a specific start & end time"
-                  className="h-8 flex items-center gap-1.5 px-2.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-mono font-medium text-[#26231f] shrink-0 cursor-pointer transition"
+                  className="w-64 min-w-[16rem] max-w-[16rem] h-9 flex items-center justify-between gap-2 px-3 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-mono font-medium text-[#26231f] shrink-0 cursor-pointer transition"
                 >
-                  <Clock className="w-3.5 h-3.5 text-[#6e655c]" />
-                  <span>
+                  <span className="flex items-center gap-1.5 font-sans">
+                    <Clock className="w-3.5 h-3.5 text-[#6e655c]" />
+                    <span>Timeframe</span>
+                  </span>
+                  <span className="tabular-nums">
                     {intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s
                   </span>
                 </button>
@@ -3101,7 +3109,7 @@ export default function VideoEditorStudio() {
                     ? `Describe edit for ${MARK_COLORS[focusedColor].name}...`
                     : 'Describe edit...'
                 }
-                className="h-8 flex-1 px-3 bg-[#f4f1ea] border border-[#d6cfc2] rounded-lg focus:outline-none focus:border-[#26231f] text-sm text-[#26231f] placeholder-[#8c8277]"
+                className="h-9 flex-1 min-w-0 px-3 bg-[#f4f1ea] border border-[#d6cfc2] rounded-lg focus:outline-none focus:border-[#26231f] text-sm text-[#26231f] placeholder-[#8c8277]"
               />
 
               <button
@@ -3112,15 +3120,15 @@ export default function VideoEditorStudio() {
                   )
                 }
                 disabled={isCompiling || !prompt.trim()}
-                className="h-8 px-4 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-40 rounded-lg text-xs font-medium text-white transition cursor-pointer shrink-0"
+                className="h-9 px-4 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-40 rounded-lg text-xs font-medium text-white transition cursor-pointer shrink-0"
               >
                 {isCompiling ? 'Applying...' : 'Apply'}
               </button>
             </div>
           </div>
 
-          {/* SINGLE-FOCUS TIMELINE (Shows ONLY the currently selected color so you can stretch & edit it) */}
-          <div className="h-36 border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2 flex flex-col gap-1.5 shrink-0">
+          {/* SINGLE-FOCUS TIMELINE (Enlarged & locked h-44 base height so video size never shifts) */}
+          <div className="h-44 min-h-[11rem] max-h-[11rem] border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2.5 flex flex-col gap-2 shrink-0 overflow-hidden">
             <div className="h-7 flex items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 shrink-0">
                 <button
