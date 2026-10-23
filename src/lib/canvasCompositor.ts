@@ -128,6 +128,19 @@ type AiCompiledRenderFn = (
     ) => void;
     holdFrame: (stepSeconds?: number) => HTMLCanvasElement;
     getPastFrame: (secondsAgo?: number) => HTMLCanvasElement;
+    createBuffer: (
+      id?: string,
+      bw?: number,
+      bh?: number
+    ) => { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D };
+    hash: (n: number) => number;
+    noise: (nx: number, ny?: number) => number;
+    playTone: (
+      freqHz?: number,
+      durationSec?: number,
+      type?: OscillatorType,
+      volume?: number
+    ) => void;
     lagEffect: (intensity?: number) => void;
     glitchSlices: (intensity?: number, sliceCount?: number) => void;
     shakeScreen: (intensityPx?: number) => void;
@@ -157,7 +170,7 @@ function getOrCompileRenderCode(rawCode: string): AiCompiledRenderFn | null {
     const fn = new Function(
       'ctx',
       'env',
-      `const { sourceCanvas, state, cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, drawSvg, holdFrame, getPastFrame, lagEffect, glitchSlices, shakeScreen, zoomFrame, clearFrame, setPlaybackRate } = env;\n${body}`
+      `const { sourceCanvas, state, cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, drawSvg, holdFrame, getPastFrame, createBuffer, hash, noise, playTone, lagEffect, glitchSlices, shakeScreen, zoomFrame, clearFrame, setPlaybackRate } = env;\n${body}`
     ) as AiCompiledRenderFn;
     renderCodeCache.set(trimmed, fn);
     return fn;
@@ -1045,20 +1058,12 @@ export function renderCompositedFrame(
 
     // 6. OPEN-ENDED AI CUSTOM SHADER, PARTICLES, VECTOR SVG & PROCEDURAL CANVAS ENGINE
     const editCombinedText = `${edit.prompt || ''} ${edit.summary || ''}`.toLowerCase();
-    const isLagEdit =
-      /\b(lag|lagging|laggy|stutter|stuttering|choppy|frame\s*drop|low\s*fps|rubberband|buffering)\b/i.test(
-        editCombinedText
-      );
+    // Run the AI's own renderCode directly; only patch the two legacy saved edits from before the temporal engine existed
     const effectiveRenderCode =
-      isLagEdit &&
-      (!params.renderCode ||
-        /\b__lagEchoBuf\b/.test(params.renderCode) ||
-        !/\b(lagEffect|holdFrame|getPastFrame)\b/.test(params.renderCode))
+      params.renderCode && /\b__lagEchoBuf\b/.test(params.renderCode)
         ? `lagEffect(1.0);`
-        : /\b(bounce|bouncing)\b/i.test(editCombinedText) &&
-          (!params.renderCode ||
-            /\bprogress\s*\*\s*bounces\b/.test(params.renderCode))
-        ? `const phase = elapsed * 8.5;\nconst bounce = Math.abs(Math.sin(phase));\nconst offsetY = -bounce * 64 * scale;\nconst squash = 1 + Math.cos(phase * 2) * 0.045;\nctx.fillStyle = '#000000';\nctx.fillRect(0, 0, width, height);\nctx.save();\nctx.translate(width / 2, height / 2 + offsetY);\nctx.scale(1 / squash, squash);\nctx.translate(-width / 2, -height / 2);\nctx.drawImage(sourceCanvas, 0, 0, width, height);\nctx.restore();`
+        : !params.renderCode && /\b(bounce|bouncing)\b/i.test(editCombinedText)
+        ? `const phase = elapsed * 8.5;\nconst bounce = Math.abs(Math.sin(phase));\nconst offsetY = -bounce * 64 * scale;\nconst squash = 1 + Math.cos(phase * 2) * 0.045;\nclearFrame('#000000');\nctx.save();\nctx.translate(width / 2, height / 2 + offsetY);\nctx.scale(1 / squash, squash);\nctx.translate(-width / 2, -height / 2);\nctx.drawImage(sourceCanvas, 0, 0, width, height);\nctx.restore();`
         : params.renderCode;
 
     if (
@@ -1357,6 +1362,109 @@ export function renderCompositedFrame(
           const getPastFrameFn = (secondsAgo = 0.35): HTMLCanvasElement =>
             getHistoricalFrameCanvas(secondsAgo, currentTime, sourceCanvas);
 
+          const hashFn = (n: number): number => {
+            const s = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+            return s - Math.floor(s);
+          };
+
+          const noiseFn = (nx: number, ny = 0): number => {
+            const ix = Math.floor(nx);
+            const iy = Math.floor(ny);
+            const fx = nx - ix;
+            const fy = ny - iy;
+            const u = fx * fx * (3 - 2 * fx);
+            const v = fy * fy * (3 - 2 * fy);
+            const n00 = hashFn(ix + iy * 57.0);
+            const n10 = hashFn(ix + 1 + iy * 57.0);
+            const n01 = hashFn(ix + (iy + 1) * 57.0);
+            const n11 = hashFn(ix + 1 + (iy + 1) * 57.0);
+            return (
+              n00 * (1 - u) * (1 - v) +
+              n10 * u * (1 - v) +
+              n01 * (1 - u) * v +
+              n11 * u * v
+            );
+          };
+
+          const createBufferFn = (
+            id = 'default',
+            bw = width,
+            bh = height
+          ): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } => {
+            const key = `__buf_${id}`;
+            const targetW = Math.max(1, Math.round(bw));
+            const targetH = Math.max(1, Math.round(bh));
+            let buf = editState![key] as
+              | { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }
+              | undefined;
+            if (
+              !buf ||
+              buf.canvas.width !== targetW ||
+              buf.canvas.height !== targetH
+            ) {
+              const c = document.createElement('canvas');
+              c.width = targetW;
+              c.height = targetH;
+              const cCtx = c.getContext('2d') || mainCtx;
+              buf = { canvas: c, ctx: cCtx };
+              editState![key] = buf;
+            }
+            return buf;
+          };
+
+          const playToneFn = (
+            freqHz = 440,
+            durationSec = 0.08,
+            type: OscillatorType = 'sine',
+            volume = 0.12
+          ) => {
+            if (typeof window === 'undefined' || typeof AudioContext === 'undefined') {
+              return;
+            }
+            const nowMs = performance.now();
+            const lastToneMs = (editState!.__lastToneMs as number) || 0;
+            if (nowMs - lastToneMs < 90) return;
+            editState!.__lastToneMs = nowMs;
+            try {
+              const AudioCtx =
+                window.AudioContext ||
+                (window as unknown as { webkitAudioContext: typeof AudioContext })
+                  .webkitAudioContext;
+              let sharedCtx = (
+                window as unknown as { __sumoSynthCtx?: AudioContext }
+              ).__sumoSynthCtx;
+              if (!sharedCtx) {
+                sharedCtx = new AudioCtx();
+                (
+                  window as unknown as { __sumoSynthCtx?: AudioContext }
+                ).__sumoSynthCtx = sharedCtx;
+              }
+              if (sharedCtx.state === 'suspended') {
+                sharedCtx.resume().catch(() => {});
+              }
+              const osc = sharedCtx.createOscillator();
+              const gain = sharedCtx.createGain();
+              osc.type = type;
+              osc.frequency.setValueAtTime(
+                Math.max(40, Math.min(8000, freqHz)),
+                sharedCtx.currentTime
+              );
+              const clampedVol = Math.max(0.01, Math.min(0.4, volume));
+              const clampedDur = Math.max(0.02, Math.min(1.5, durationSec));
+              gain.gain.setValueAtTime(clampedVol, sharedCtx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(
+                0.001,
+                sharedCtx.currentTime + clampedDur
+              );
+              osc.connect(gain);
+              gain.connect(sharedCtx.destination);
+              osc.start();
+              osc.stop(sharedCtx.currentTime + clampedDur);
+            } catch {
+              // ignore audio context errors
+            }
+          };
+
           const clearFrameFn = (color = '#000000') => {
             mainCtx.save();
             mainCtx.fillStyle = color;
@@ -1542,6 +1650,10 @@ export function renderCompositedFrame(
             },
             holdFrame: holdFrameFn,
             getPastFrame: getPastFrameFn,
+            createBuffer: createBufferFn,
+            hash: hashFn,
+            noise: noiseFn,
+            playTone: playToneFn,
             lagEffect: lagEffectFn,
             glitchSlices: glitchSlicesFn,
             shakeScreen: shakeScreenFn,
