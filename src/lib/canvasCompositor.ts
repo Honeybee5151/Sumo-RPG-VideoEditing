@@ -736,7 +736,8 @@ export function renderCompositedFrame(
   );
 
   mainCtx.save();
-  mainCtx.clearRect(0, 0, width, height);
+  mainCtx.fillStyle = '#000000';
+  mainCtx.fillRect(0, 0, width, height);
 
   let scale = 1;
   let focusX = 0.5;
@@ -1094,6 +1095,23 @@ export function renderCompositedFrame(
 
         mainCtx.save();
         try {
+          // When AI renderCode transforms/spins/redraws sourceCanvas without a clip/filter, clear the old un-transformed frame behind it to pure black (#000000)
+          if (
+            /\bdrawImage\s*\(\s*sourceCanvas\b/.test(params.renderCode) &&
+            !/\bctx\.clip\s*\(/.test(params.renderCode)
+          ) {
+            const usesSubRegionCrop =
+              /drawImage\s*\(\s*sourceCanvas\s*,[^)]*,[^)]*,[^)]*,[^)]*,[^)]*,/.test(
+                params.renderCode
+              );
+            mainCtx.fillStyle = '#000000';
+            if (usesSubRegionCrop && targetBbox.width * targetBbox.height < 0.65) {
+              mainCtx.fillRect(boxX, boxY, boxW, boxH);
+            } else {
+              mainCtx.fillRect(0, 0, width, height);
+            }
+          }
+
           compiledFn(mainCtx, {
             ctx: mainCtx,
             sourceCanvas,
@@ -1522,6 +1540,13 @@ export function renderCompositedFrame(
     }
   }
 
+  mainCtx.restore();
+
+  // Guarantee pure black (#000000) behind any region cleared via ctx.clearRect()
+  mainCtx.save();
+  mainCtx.globalCompositeOperation = 'destination-over';
+  mainCtx.fillStyle = '#000000';
+  mainCtx.fillRect(0, 0, width, height);
   mainCtx.restore();
 
   // Optional Before / After Split-Screen Wipe Comparison
