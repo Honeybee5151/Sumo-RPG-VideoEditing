@@ -2468,7 +2468,10 @@ export default function VideoEditorStudio() {
     const e = a.endTime ?? duration;
     return (
       (currentTime >= s - 0.05 && currentTime <= e + 0.05) ||
-      (!isPlaying && focusedColor !== 'all' && a.color === focusedColor)
+      (!isPlaying &&
+        ((focusedColor !== 'all' && a.color === focusedColor) ||
+          (Math.abs(s - intervalStart) < 0.08 &&
+            Math.abs(e - intervalEnd) < 0.08)))
     );
   });
 
@@ -2777,16 +2780,15 @@ export default function VideoEditorStudio() {
       return;
     }
 
-    // Ensure the new placement's timeframe includes the current playhead timestamp (`currentTime`)
-    let targetStart = intervalStart;
-    let targetEnd = intervalEnd;
-    if (currentTime < intervalStart - 0.05 || currentTime > intervalEnd + 0.05) {
-      const span = Math.max(2.5, intervalEnd - intervalStart);
-      targetStart = Number(Math.max(0, Math.min(duration - 0.5, currentTime)).toFixed(1));
-      targetEnd = Number(Math.min(duration, targetStart + span).toFixed(1));
-      setIntervalStart(targetStart);
-      setIntervalEnd(targetEnd);
-    }
+    // Spawn the new Box / Dot interval strictly from the `[` start and `]` end interval points in the timeframe (`intervalStart` and `intervalEnd`), completely independent of the Red Playhead / Cut tool (`currentTime`)!
+    const low = Math.min(intervalStart, intervalEnd);
+    const high = Math.max(intervalStart, intervalEnd);
+    const targetStart = Number(
+      Math.max(0, Math.min(duration - 0.3, low)).toFixed(2)
+    );
+    const targetEnd = Number(
+      Math.min(duration, Math.max(targetStart + 0.3, high)).toFixed(2)
+    );
 
     const drawnColor =
       activeTool === 'arrow' && focusedColor !== 'all' ? focusedColor : activeColor;
@@ -2800,7 +2802,7 @@ export default function VideoEditorStudio() {
           : currentStroke,
       strokeWidth: 4,
       bbox,
-      createdAtTime: currentTime,
+      createdAtTime: targetStart,
       startTime: targetStart,
       endTime: targetEnd,
     };
@@ -3323,18 +3325,10 @@ export default function VideoEditorStudio() {
       const t = getTimeFromTimelineEvent(e.clientX);
       if (draggingHandleRef.current === 'start') {
         const nextStart = Math.min(t, intervalEnd - 0.3);
-        if (focusedColor !== 'all') {
-          stretchColorInterval(focusedColor, nextStart, intervalEnd);
-        } else {
-          setIntervalStart(nextStart);
-        }
+        setIntervalStart(nextStart);
       } else if (draggingHandleRef.current === 'end') {
         const nextEnd = Math.max(t, intervalStart + 0.3);
-        if (focusedColor !== 'all') {
-          stretchColorInterval(focusedColor, intervalStart, nextEnd);
-        } else {
-          setIntervalEnd(nextEnd);
-        }
+        setIntervalEnd(nextEnd);
       } else if (draggingHandleRef.current === 'playhead') {
         setCurrentTime(t);
         if (videoRef.current && videoUrl) {
@@ -5528,7 +5522,7 @@ export default function VideoEditorStudio() {
                   left: `${timeToTimelinePct(intervalStart)}%`,
                   width: `${spanToTimelinePct(intervalEnd - intervalStart)}%`,
                 }}
-                className="absolute top-0 bottom-0 bg-[#c6923a]/15 border-x border-[#c6923a] pointer-events-none"
+                className="absolute top-0 bottom-0 bg-[#c6923a]/15 border-x border-[#c6923a] z-15 pointer-events-none"
               >
                 <div
                   onPointerDown={(e) => {
