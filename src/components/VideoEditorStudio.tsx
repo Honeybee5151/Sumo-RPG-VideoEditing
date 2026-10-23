@@ -2534,7 +2534,7 @@ export default function VideoEditorStudio() {
                 width: 'min(100cqw, calc(100cqh * 16 / 9))',
                 height: 'min(100cqh, calc(100cqw * 9 / 16))',
               }}
-              className="relative rounded-xl border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden shrink-0"
+              className="relative border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden shrink-0"
             >
               <canvas
                 ref={displayCanvasRef}
