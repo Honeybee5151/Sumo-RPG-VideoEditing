@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { compilePromptLocally, summarizeColorGroups } from '@/lib/editCompiler';
-import { EffectType, MarkColor, ScreenAnnotation, TimelineEditItem } from '@/types/editor';
+import {
+  COLOR_PROGRESSION,
+  EffectType,
+  MarkColor,
+  ScreenAnnotation,
+  TimelineEditItem,
+} from '@/types/editor';
 
 interface AiEditRequestBody {
   prompt: string;
@@ -65,7 +71,7 @@ Each item in the returned JSON array MUST have:
 {
   "summary": "Short human-readable label (e.g. 'Zoom 2.0x -> RED', 'Manga Ink -> GREEN')",
   "effectType": EffectType,
-  "targetColor": "red" | "blue" | "green" | "yellow" | "all",
+  "targetColor": "red" | "blue" | "green" | "yellow" | "purple" | "cyan" | "orange" | "pink" | "all",
   "params": { ... }
 }
 Return ONLY valid JSON array.`;
@@ -111,7 +117,7 @@ Return ONLY valid JSON array.`;
           const parsed = JSON.parse(rawText);
           if (Array.isArray(parsed) && parsed.length > 0) {
             const edits: TimelineEditItem[] = parsed.map((item, idx) => {
-              const targetColor: MarkColor | 'all' = ['red', 'blue', 'green', 'yellow'].includes(
+              const targetColor: MarkColor | 'all' = COLOR_PROGRESSION.includes(
                 item.targetColor
               )
                 ? item.targetColor

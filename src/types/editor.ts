@@ -1,4 +1,24 @@
-export type MarkColor = 'red' | 'blue' | 'green' | 'yellow';
+// Simple colors first, followed by unusual/extended colors when simple ones are used up in an interval
+export type MarkColor =
+  | 'red'
+  | 'blue'
+  | 'green'
+  | 'yellow'
+  | 'purple'
+  | 'cyan'
+  | 'orange'
+  | 'pink';
+
+export const COLOR_PROGRESSION: MarkColor[] = [
+  'red',
+  'blue',
+  'green',
+  'yellow',
+  'purple',
+  'cyan',
+  'orange',
+  'pink',
+];
 
 export type DrawingTool = 'brush' | 'rect' | 'circle' | 'arrow';
 
@@ -26,6 +46,8 @@ export interface ScreenAnnotation {
   strokeWidth: number;
   bbox: BoundingBox;
   createdAtTime: number;
+  startTime?: number; // Timeframe start that this highlight belongs to
+  endTime?: number;   // Timeframe end that this highlight belongs to
 }
 
 export type EffectType =
@@ -208,4 +230,67 @@ export const MARK_COLORS: Record<
     badgeBg: 'bg-[#c6923a] border-[#1d1a16]',
     badgeText: 'text-[#1d1a16]',
   },
+  purple: {
+    name: 'Purple',
+    hex: '#7a3b69',
+    fillRgba: 'rgba(122, 59, 105, 0.26)',
+    borderHex: '#1d1a16',
+    badgeBg: 'bg-[#7a3b69] border-[#1d1a16]',
+    badgeText: 'text-[#f5f2e8]',
+  },
+  cyan: {
+    name: 'Cyan',
+    hex: '#2b7a78',
+    fillRgba: 'rgba(43, 122, 120, 0.26)',
+    borderHex: '#1d1a16',
+    badgeBg: 'bg-[#2b7a78] border-[#1d1a16]',
+    badgeText: 'text-[#f5f2e8]',
+  },
+  orange: {
+    name: 'Orange',
+    hex: '#cc5a2b',
+    fillRgba: 'rgba(204, 90, 43, 0.26)',
+    borderHex: '#1d1a16',
+    badgeBg: 'bg-[#cc5a2b] border-[#1d1a16]',
+    badgeText: 'text-[#f5f2e8]',
+  },
+  pink: {
+    name: 'Pink',
+    hex: '#b84a69',
+    fillRgba: 'rgba(184, 74, 105, 0.26)',
+    borderHex: '#1d1a16',
+    badgeBg: 'bg-[#b84a69] border-[#1d1a16]',
+    badgeText: 'text-[#f5f2e8]',
+  },
 };
+
+/**
+ * Picks the next unused highlight color in the current timeframe:
+ * Simple colors first (Red -> Blue -> Green -> Yellow),
+ * followed by unusual colors (Purple -> Cyan -> Orange -> Pink) once simple ones are used up.
+ */
+export function getNextHighlightColor(
+  timeframeAnnotations: ScreenAnnotation[]
+): MarkColor {
+  const used = new Set(timeframeAnnotations.map((a) => a.color));
+  for (const color of COLOR_PROGRESSION) {
+    if (!used.has(color)) return color;
+  }
+  // If all 8 colors are used in this timeframe, cycle based on count
+  return COLOR_PROGRESSION[timeframeAnnotations.length % COLOR_PROGRESSION.length];
+}
+
+/**
+ * Checks whether a highlight annotation belongs to or overlaps the given [startTime, endTime] timeframe.
+ */
+export function isAnnotationInTimeframe(
+  ann: ScreenAnnotation,
+  startTime: number,
+  endTime: number
+): boolean {
+  if (ann.startTime === undefined || ann.endTime === undefined) {
+    return true;
+  }
+  // Overlap check with small epsilon
+  return ann.startTime <= endTime + 0.05 && ann.endTime >= startTime - 0.05;
+}

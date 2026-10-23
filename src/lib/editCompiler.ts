@@ -1,5 +1,6 @@
 import {
   BoundingBox,
+  COLOR_PROGRESSION,
   ColorGroupSummary,
   DrawingTool,
   MarkColor,
@@ -170,10 +171,9 @@ export function getInterpolatedAnnotations(
 }
 
 export function summarizeColorGroups(annotations: ScreenAnnotation[]): ColorGroupSummary[] {
-  const colors: MarkColor[] = ['red', 'blue', 'green', 'yellow'];
   const summaries: ColorGroupSummary[] = [];
 
-  for (const color of colors) {
+  for (const color of COLOR_PROGRESSION) {
     const matching = annotations.filter((a) => a.color === color);
     if (matching.length > 0) {
       const sorted = [...matching].sort((a, b) => a.createdAtTime - b.createdAtTime);
@@ -201,7 +201,7 @@ const COLOR_HEX_LOOKUP: Record<string, string> = {
   vermilion: '#b82d23',
   blue: '#234c7a',
   indigo: '#234c7a',
-  cyan: '#4479a8',
+  cyan: '#2b7a78',
   aqua: '#84adc4',
   green: '#50793e',
   matcha: '#50793e',
@@ -210,10 +210,10 @@ const COLOR_HEX_LOOKUP: Record<string, string> = {
   yellow: '#c6923a',
   gold: '#c6923a',
   ochre: '#9a6c24',
-  orange: '#c6923a',
-  purple: '#7a5133',
-  violet: '#48586b',
-  pink: '#a64147',
+  orange: '#cc5a2b',
+  purple: '#7a3b69',
+  violet: '#7a3b69',
+  pink: '#b84a69',
   white: '#f5f2e8',
 };
 
@@ -222,16 +222,16 @@ function detectTargetColorInClause(
   availableColors: MarkColor[]
 ): MarkColor | 'all' {
   const lower = clause.toLowerCase();
-  for (const c of ['red', 'blue', 'green', 'yellow'] as MarkColor[]) {
+  for (const c of COLOR_PROGRESSION) {
     const regex = new RegExp(
-      `\\b${c}\\s*(area|region|zone|mark|marking|drawing|box|circle|spot|object|part|selection|stroke|arrow|line|one|target)?\\b`,
+      `\\b${c}\\s*(area|region|zone|mark|marking|drawing|box|circle|spot|object|part|selection|stroke|arrow|line|one|target|highlight)?\\b`,
       'i'
     );
     if (regex.test(lower) && availableColors.includes(c)) {
       return c;
     }
   }
-  for (const c of ['red', 'blue', 'green', 'yellow'] as MarkColor[]) {
+  for (const c of COLOR_PROGRESSION) {
     if (new RegExp(`\\b${c}\\b`, 'i').test(lower)) {
       return c;
     }
