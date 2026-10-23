@@ -3607,50 +3607,36 @@ export default function VideoEditorStudio() {
               </div>
             </div>
 
-            {/* Horizontal Slider Underneath the Timeframe */}
-            <div className="h-5 flex items-center gap-2 px-1 shrink-0">
-              <span className="text-[10px] font-mono text-[#8c8277] tabular-nums w-9 shrink-0">
-                {timelineZoom > 1
-                  ? `${timelineViewStart.toFixed(1)}s`
-                  : `${currentTime.toFixed(1)}s`}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={
-                  timelineZoom > 1
-                    ? Number(maxTimelineScrollStart.toFixed(2))
-                    : Number(duration.toFixed(2))
+            {/* Full-Width Elongated Slider Underneath Timeframe (1:1 Aligned with Red Cut Playhead) */}
+            <div
+              onPointerDown={(e) => {
+                const t = getTimeFromTimelineEvent(e.clientX);
+                setCurrentTime(t);
+                if (videoRef.current && videoUrl) {
+                  videoRef.current.currentTime = t;
                 }
-                step={0.05}
-                value={
-                  timelineZoom > 1
-                    ? Number(timelineViewStart.toFixed(2))
-                    : Number(currentTime.toFixed(2))
-                }
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (timelineZoom > 1) {
-                    setTimelineScrollStart(val);
-                  } else {
-                    setCurrentTime(val);
-                    if (videoRef.current && videoUrl) {
-                      videoRef.current.currentTime = val;
-                    }
-                  }
+                draggingHandleRef.current = 'playhead';
+              }}
+              title={`Slide to scrub playhead (${currentTime.toFixed(1)}s)`}
+              className="relative w-full h-5 flex items-center cursor-pointer select-none shrink-0"
+            >
+              {/* Full-width slider track matching the exact width of the timeframe box above */}
+              <div className="w-full h-2 bg-[#e5dfd0] border border-[#d6cfc2] rounded-full overflow-hidden">
+                <div
+                  style={{
+                    width: `${Math.min(100, Math.max(0, timeToTimelinePct(currentTime)))}%`,
+                  }}
+                  className="h-full bg-[#b82d23]/75"
+                />
+              </div>
+
+              {/* Slider thumb locked to the exact same X percentage as the Red Cut Playhead */}
+              <div
+                style={{
+                  left: `${Math.min(100, Math.max(0, timeToTimelinePct(currentTime)))}%`,
                 }}
-                title={
-                  timelineZoom > 1
-                    ? `Slide to pan zoomed timeframe (${timelineViewStart.toFixed(1)}s–${timelineViewEnd.toFixed(1)}s)`
-                    : 'Slide across timeframe'
-                }
-                className="flex-1 h-1.5 bg-[#e5dfd0] rounded-lg appearance-none cursor-pointer accent-[#26231f]"
+                className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-[#b82d23] border-2 border-[#faf8f4] shadow-xs"
               />
-              <span className="text-[10px] font-mono text-[#8c8277] tabular-nums w-9 text-right shrink-0">
-                {timelineZoom > 1
-                  ? `${timelineViewEnd.toFixed(1)}s`
-                  : `${duration.toFixed(1)}s`}
-              </span>
             </div>
           </div>
         </div>
