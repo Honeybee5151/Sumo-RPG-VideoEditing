@@ -267,7 +267,9 @@ export default function VideoEditorStudio() {
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlaySvgRef = useRef<SVGSVGElement | null>(null);
   const timelineTrackRef = useRef<HTMLDivElement | null>(null);
-  const draggingHandleRef = useRef<'start' | 'end' | 'playhead' | null>(null);
+  const draggingHandleRef = useRef<
+    'start' | 'end' | 'playhead' | 'zoom_slider' | null
+  >(null);
   const draggingColorEdgeRef = useRef<{
     color: MarkColor;
     edge: 'start' | 'end' | 'move';
@@ -2149,12 +2151,14 @@ export default function VideoEditorStudio() {
       const nextZoom = Math.min(16, Math.max(1, Number(nextZoomRaw.toFixed(2))));
       const nextSpan = Math.max(0.5, duration / nextZoom);
       const nextMaxScroll = Math.max(0, duration - nextSpan);
-      const centeredScroll = Math.min(
+      const progressRatio =
+        duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0;
+      const anchoredScroll = Math.min(
         nextMaxScroll,
-        Math.max(0, currentTime - nextSpan / 2)
+        Math.max(0, progressRatio * nextMaxScroll)
       );
       setTimelineZoom(nextZoom);
-      setTimelineScrollStart(nextZoom === 1 ? 0 : centeredScroll);
+      setTimelineScrollStart(nextZoom === 1 ? 0 : anchoredScroll);
     },
     [hasMediaLoaded, duration, currentTime]
   );
@@ -2206,8 +2210,72 @@ export default function VideoEditorStudio() {
     [duration, timelineViewStart, visibleTimelineSpan]
   );
 
+  // Full-duration scrubber used by the bottom slider so you can slide across ALL time (0..duration) even when zoomed in
+  const scrubGlobalTimelineFromClientX = useCallback(
+    (clientX: number) => {
+      const track = timelineTrackRef.current;
+      if (!track) return;
+      const rect = track.getBoundingClientRect();
+      const innerLeft = rect.left + (track.clientLeft || 0);
+      const innerWidth = track.clientWidth || rect.width;
+      const ratio = Math.min(1, Math.max(0, (clientX - innerLeft) / innerWidth));
+      const nextTime = Number(
+        Math.min(duration, Math.max(0, ratio * duration)).toFixed(3)
+      );
+      setCurrentTime(nextTime);
+      if (videoRef.current && videoUrl) {
+        videoRef.current.currentTime = nextTime;
+      }
+      if (timelineZoom > 1) {
+        const nextScroll = Number(
+          Math.min(
+            maxTimelineScrollStart,
+            Math.max(0, ratio * maxTimelineScrollStart)
+          ).toFixed(3)
+        );
+        setTimelineScrollStart(nextScroll);
+      }
+    },
+    [duration, videoUrl, timelineZoom, maxTimelineScrollStart]
+  );
+
   useEffect(() => {
     const handleWindowPointerMove = (e: PointerEvent) => {
+      if (draggingHandleRef.current === 'zoom_slider') {
+        scrubGlobalTimelineFromClientX(e.clientX);
+        return;
+      }
+
+      // Auto-pan zoomed timeframe when dragging any handle or color interval near/past the left or right edge
+      if (
+        (draggingHandleRef.current || draggingColorEdgeRef.current) &&
+        timelineZoom > 1 &&
+        timelineTrackRef.current
+      ) {
+        const track = timelineTrackRef.current;
+        const rect = track.getBoundingClientRect();
+        const innerLeft = rect.left + (track.clientLeft || 0);
+        const innerWidth = track.clientWidth || rect.width;
+        const rawRatio = (e.clientX - innerLeft) / innerWidth;
+        if (rawRatio < 0.04 && timelineScrollStart > 0) {
+          const edgeFactor = Math.min(1.5, Math.max(0.08, (0.04 - rawRatio) * 4));
+          setTimelineScrollStart((prev) =>
+            Math.max(0, prev - visibleTimelineSpan * 0.06 * edgeFactor)
+          );
+        } else if (
+          rawRatio > 0.96 &&
+          timelineScrollStart < maxTimelineScrollStart
+        ) {
+          const edgeFactor = Math.min(1.5, Math.max(0.08, (rawRatio - 0.96) * 4));
+          setTimelineScrollStart((prev) =>
+            Math.min(
+              maxTimelineScrollStart,
+              prev + visibleTimelineSpan * 0.06 * edgeFactor
+            )
+          );
+        }
+      }
+
       if (draggingColorEdgeRef.current) {
         const { color, edge, initialStart, initialEnd, grabTime } =
           draggingColorEdgeRef.current;
@@ -2287,10 +2355,15 @@ export default function VideoEditorStudio() {
     duration,
     focusedColor,
     getTimeFromTimelineEvent,
+    scrubGlobalTimelineFromClientX,
     intervalStart,
     intervalEnd,
     stretchColorInterval,
     videoUrl,
+    timelineZoom,
+    timelineScrollStart,
+    maxTimelineScrollStart,
+    visibleTimelineSpan,
   ]);
 
   // TRUE HIGH-DEFINITION EXPORT ENGINE (720p, 1080p, 1440p, 4K UHD)
@@ -4069,37 +4142,86 @@ export default function VideoEditorStudio() {
               </div>
             </div>
 
-            {/* Full-Width Elongated Slider Underneath Timeframe (Sub-pixel 1:1 Aligned with Red Cut Playhead) */}
-            <div
-              onPointerDown={(e) => {
-                const t = getTimeFromTimelineEvent(e.clientX);
-                setCurrentTime(t);
-                if (videoRef.current && videoUrl) {
-                  videoRef.current.currentTime = t;
-                }
-                draggingHandleRef.current = 'playhead';
-              }}
-              title={`Slide to scrub playhead (${currentTime.toFixed(1)}s)`}
-              className="relative w-full h-5 border-x border-transparent flex items-center cursor-pointer select-none shrink-0"
-            >
-              {/* Full-width slider track matching the exact inner width of the timeframe box above */}
-              <div className="w-full h-2 bg-[#e5dfd0] ring-1 ring-inset ring-[#d6cfc2] rounded-full overflow-hidden">
+            {/* Full-Width Elongated Slider Underneath Timeframe (Slides across full 0..duration even when zoomed in & 1:1 aligned with Red Cut Playhead) */}
+            {(() => {
+              const globalTimePct =
+                duration > 0
+                  ? Math.min(100, Math.max(0, (currentTime / duration) * 100))
+                  : 0;
+              const zoomWindowLeftPct =
+                duration > 0
+                  ? Math.min(
+                      100,
+                      Math.max(0, (timelineViewStart / duration) * 100)
+                    )
+                  : 0;
+              const zoomWindowWidthPct =
+                duration > 0
+                  ? Math.min(
+                      100 - zoomWindowLeftPct,
+                      Math.max(2, (visibleTimelineSpan / duration) * 100)
+                    )
+                  : 100;
+              return (
                 <div
-                  style={{
-                    width: `${Math.min(100, Math.max(0, timeToTimelinePct(currentTime)))}%`,
+                  onWheel={(e) => {
+                    if (!hasMediaLoaded) return;
+                    if (e.ctrlKey || e.metaKey || e.altKey) {
+                      e.preventDefault();
+                      const factor = e.deltaY < 0 ? 1.25 : 0.8;
+                      handleTimelineZoomChange(timelineZoom * factor);
+                    } else if (timelineZoom > 1) {
+                      const deltaSec =
+                        ((e.deltaX !== 0 ? e.deltaX : e.deltaY) / 300) *
+                        visibleTimelineSpan;
+                      setTimelineScrollStart((prev) =>
+                        Math.min(
+                          maxTimelineScrollStart,
+                          Math.max(0, prev + deltaSec)
+                        )
+                      );
+                    }
                   }}
-                  className="h-full bg-[#b82d23]/75"
-                />
-              </div>
+                  onPointerDown={(e) => {
+                    scrubGlobalTimelineFromClientX(e.clientX);
+                    draggingHandleRef.current = 'zoom_slider';
+                  }}
+                  title={
+                    timelineZoom > 1
+                      ? `Slide through full timeline at ${timelineZoom.toFixed(1).replace(/\.0$/, '')}x zoom (${currentTime.toFixed(1)}s / ${duration.toFixed(1)}s — viewing ${timelineViewStart.toFixed(1)}s–${timelineViewEnd.toFixed(1)}s)`
+                      : `Slide to scrub playhead (${currentTime.toFixed(1)}s / ${duration.toFixed(1)}s)`
+                  }
+                  className="relative w-full h-5 border-x border-transparent flex items-center cursor-pointer select-none shrink-0"
+                >
+                  {/* Full-width slider track matching the exact inner width of the timeframe box above */}
+                  <div className="relative w-full h-2 bg-[#e5dfd0] ring-1 ring-inset ring-[#d6cfc2] rounded-full overflow-hidden">
+                    {timelineZoom > 1 && (
+                      <div
+                        style={{
+                          left: `${zoomWindowLeftPct}%`,
+                          width: `${zoomWindowWidthPct}%`,
+                        }}
+                        className="absolute top-0 bottom-0 bg-[#26231f]/15 ring-1 ring-inset ring-[#26231f]/25 rounded-full pointer-events-none"
+                      />
+                    )}
+                    <div
+                      style={{
+                        width: `${globalTimePct}%`,
+                      }}
+                      className="h-full bg-[#b82d23]/75"
+                    />
+                  </div>
 
-              {/* Slider thumb locked to the exact same X coordinate as the Red Cut Playhead */}
-              <div
-                style={{
-                  left: `${Math.min(100, Math.max(0, timeToTimelinePct(currentTime)))}%`,
-                }}
-                className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-[#b82d23] border-2 border-[#faf8f4] shadow-xs"
-              />
-            </div>
+                  {/* Slider thumb locked to the global timeline progress and 1:1 aligned with the Red Cut Playhead */}
+                  <div
+                    style={{
+                      left: `${globalTimePct}%`,
+                    }}
+                    className="pointer-events-none absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-[#b82d23] border-2 border-[#faf8f4] shadow-xs"
+                  />
+                </div>
+              );
+            })()}
           </div>
         </div>
 
