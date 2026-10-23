@@ -3961,8 +3961,8 @@ export default function VideoEditorStudio() {
 
       {/* MAIN FULL-HEIGHT WORKSPACE (Locked 3-Column Layout) */}
       <div className="flex-1 flex min-h-0 w-full overflow-hidden">
-        {/* LEFT SIDEBAR: VIDEOS, IMAGES & SOUND LIBRARY (Locked 16rem width & constant row heights) */}
-        <aside className="w-64 min-w-[16rem] max-w-[16rem] border-r border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0 h-full overflow-hidden">
+        {/* LEFT SIDEBAR: VIDEOS, IMAGES & SOUND LIBRARY (Locked 15rem width & constant row heights) */}
+        <aside className="w-60 min-w-[15rem] max-w-[15rem] border-r border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0 h-full overflow-hidden">
           {/* Top Bar (h-11 aligned with Center Toolbar & Right Sidebar Header): Current Project vs Favorites */}
           <div className="h-11 px-2.5 border-b border-[#ded7c8] flex items-center shrink-0">
             <div className="w-full h-7 grid grid-cols-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 text-xs font-medium">
@@ -4495,7 +4495,7 @@ export default function VideoEditorStudio() {
           {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY (Strict 16:9 Fit Inside Locked Container — Never Stretched & Never Shifts) */}
           <div
             style={{ containerType: 'size' }}
-            className="flex-1 relative flex items-center justify-center p-3 min-h-0 overflow-hidden bg-[#ebe6dc]"
+            className="flex-1 relative flex items-center justify-center p-0.5 min-h-0 overflow-hidden bg-[#ebe6dc]"
           >
             <div
               style={{
@@ -4914,8 +4914,8 @@ export default function VideoEditorStudio() {
             </div>
           </div>
 
-          {/* ADAPTIVE BOTTOM AI BAR (Enlarged & locked height/width base so clicking color never shifts video or bar) */}
-          <div className="h-14 min-h-[3.5rem] max-h-[3.5rem] border-t border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center shrink-0 overflow-hidden">
+          {/* ADAPTIVE BOTTOM AI BAR (Locked height/width base so clicking color never shifts video or bar) */}
+          <div className="h-12 min-h-[3rem] max-h-[3rem] border-t border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center shrink-0 overflow-hidden">
             <div className="w-full flex items-center gap-2.5 min-w-0">
               {isEditingIntervalBadge ? (
                 <div
@@ -5155,8 +5155,8 @@ export default function VideoEditorStudio() {
             </div>
           </div>
 
-          {/* SINGLE-FOCUS TIMELINE (Enlarged & locked h-44 base height so video size never shifts) */}
-          <div className="h-44 min-h-[11rem] max-h-[11rem] border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2.5 flex flex-col gap-2 shrink-0 overflow-hidden">
+          {/* SINGLE-FOCUS TIMELINE (Locked h-40 base height so video size never shifts) */}
+          <div className="h-40 min-h-[10rem] max-h-[10rem] border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2 flex flex-col gap-1.5 shrink-0 overflow-hidden">
             <div className="h-7 min-h-[1.75rem] max-h-[1.75rem] flex items-center justify-between gap-2 shrink-0 overflow-hidden">
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
@@ -5756,8 +5756,8 @@ export default function VideoEditorStudio() {
           </div>
         </div>
 
-        {/* RIGHT SIDEBAR: SCROLLABLE COLORS & EDITS HUB (Constant w-80 width & rigid card layout) */}
-        <aside className="w-80 min-w-[20rem] max-w-[20rem] h-full border-l border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0 overflow-hidden">
+        {/* RIGHT SIDEBAR: SCROLLABLE COLORS & EDITS HUB (Constant w-72 width & rigid card layout) */}
+        <aside className="w-72 min-w-[18rem] max-w-[18rem] h-full border-l border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0 overflow-hidden">
           {/* Header showcasing Placed Color Count */}
           <div className="h-11 min-h-[2.75rem] max-h-[2.75rem] px-3.5 border-b border-[#ded7c8] flex items-center justify-between shrink-0 overflow-hidden">
             <div className="flex items-center gap-2 min-w-0">
