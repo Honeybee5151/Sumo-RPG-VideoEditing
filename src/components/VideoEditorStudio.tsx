@@ -1653,85 +1653,7 @@ export default function VideoEditorStudio() {
         />
       )}
 
-      {/* TOP HEADER BAR (No preset scene dropdown or Demo button) */}
-      <header className="h-12 border-b border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="h-7 w-7 rounded-lg bg-[#b82d23] flex items-center justify-center text-white">
-            <Wand2 className="w-3.5 h-3.5" />
-          </div>
-          <span className="font-semibold text-sm text-[#26231f]">
-            ChromaCut
-          </span>
-          <span className="text-xs text-[#6e655c] truncate max-w-xs pl-2 border-l border-[#ded7c8]">
-            {videoFileName}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
-            <Upload className="w-3.5 h-3.5 text-[#234c7a]" />
-            <span>Import</span>
-            <input
-              type="file"
-              multiple
-              accept="video/*,image/*,audio/*,.json"
-              onChange={handleFileInputChange}
-              className="hidden"
-            />
-          </label>
-
-          <button
-            onClick={() =>
-              exportProjectFile({
-                sceneId,
-                intervalStart,
-                intervalEnd,
-                annotations,
-                edits,
-              })
-            }
-            title="Save Project (.chromacut.json)"
-            className="p-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer"
-          >
-            <Save className="w-3.5 h-3.5 text-[#50793e]" />
-          </button>
-
-          <button
-            onClick={() => setShowSettingsModal(true)}
-            title="AI Settings"
-            className="p-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer"
-          >
-            <Settings className="w-3.5 h-3.5 text-[#6e655c]" />
-          </button>
-
-          {/* Export Button + ⋯ Export Options Modal Trigger */}
-          <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
-            <button
-              onClick={startHighDefinitionExport}
-              disabled={isExporting}
-              className="flex items-center gap-1.5 px-3 py-1 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-50 rounded-md text-xs font-medium text-white transition cursor-pointer"
-              title="Export video"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>
-                {isExporting
-                  ? `${exportProgress}%`
-                  : `Export ${exportConfig.resolution.toUpperCase()}`}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setShowExportModal(true)}
-              className="px-2 py-1 text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
-              title="Export settings (Resolution, FPS, Bitrate, Frame PNG)"
-            >
-              ⋯
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* MAIN WORKSPACE */}
+      {/* MAIN FULL-HEIGHT WORKSPACE (Top header removed so Left Library & Center Stage move all the way up) */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* LEFT SIDEBAR: VIDEOS, IMAGES & SOUND LIBRARY (Current Project & Persistent Favorites) */}
         <aside className="w-60 border-r border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0">
@@ -1918,10 +1840,10 @@ export default function VideoEditorStudio() {
           </div>
         </aside>
 
-        {/* CENTER: STAGE, TOOL BAR, PROMPT BAR, TIMELINE */}
+        {/* CENTER: UNIFIED TOP BAR, STAGE, PROMPT BAR, TIMELINE */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#f4f1ea]">
-          {/* CLEAN TOOL BAR: Box, Dot, and Cut Tool (Compare & Track removed) */}
-          <div className="h-10 border-b border-[#ded7c8] bg-[#faf8f4] px-3 flex items-center justify-between gap-3 shrink-0">
+          {/* UNIFIED TOP BAR: Box, Dot, Cut on left; Import, Save, Settings, Export on right */}
+          <div className="h-11 border-b border-[#ded7c8] bg-[#faf8f4] px-3 flex items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2">
               <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
                 {(
@@ -1966,10 +1888,7 @@ export default function VideoEditorStudio() {
                   Undo Cut ({cuts.length})
                 </button>
               )}
-            </div>
 
-            {/* Right: Show / Hide Highlights Toggle */}
-            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={() => setShowMarkingsOverlay((v) => !v)}
                 title="Show / Hide Highlights"
@@ -1981,6 +1900,69 @@ export default function VideoEditorStudio() {
                   <EyeOff className="w-3.5 h-3.5 text-[#837a6d]" />
                 )}
               </button>
+            </div>
+
+            {/* Right Actions: Import, Save, Settings, Export + ⋯ */}
+            <div className="flex items-center gap-2 shrink-0">
+              <label className="flex items-center gap-1.5 px-2.5 py-1 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
+                <Upload className="w-3.5 h-3.5 text-[#234c7a]" />
+                <span>Import</span>
+                <input
+                  type="file"
+                  multiple
+                  accept="video/*,image/*,audio/*,.json"
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                />
+              </label>
+
+              <button
+                onClick={() =>
+                  exportProjectFile({
+                    sceneId,
+                    intervalStart,
+                    intervalEnd,
+                    annotations,
+                    edits,
+                  })
+                }
+                title="Save Project (.chromacut.json)"
+                className="p-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5 text-[#50793e]" />
+              </button>
+
+              <button
+                onClick={() => setShowSettingsModal(true)}
+                title="AI Settings"
+                className="p-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer"
+              >
+                <Settings className="w-3.5 h-3.5 text-[#6e655c]" />
+              </button>
+
+              <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
+                <button
+                  onClick={startHighDefinitionExport}
+                  disabled={isExporting}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-50 rounded-md text-xs font-medium text-white transition cursor-pointer"
+                  title="Export video"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>
+                    {isExporting
+                      ? `${exportProgress}%`
+                      : `Export ${exportConfig.resolution.toUpperCase()}`}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setShowExportModal(true)}
+                  className="px-2 py-1 text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
+                  title="Export settings (Resolution, FPS, Bitrate, Frame PNG)"
+                >
+                  ⋯
+                </button>
+              </div>
             </div>
           </div>
 
