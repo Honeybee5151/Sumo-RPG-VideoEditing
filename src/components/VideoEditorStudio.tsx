@@ -38,6 +38,8 @@ import {
   Star,
   Image as ImageIcon,
   Plus,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import {
   AI_PROVIDER_CATALOG,
@@ -130,6 +132,8 @@ export default function VideoEditorStudio() {
     endTime: number;
   } | null>(null);
   const [cuts, setCuts] = useState<Array<{ id: string; startTime: number; endTime: number }>>([]);
+  const [timelineZoom, setTimelineZoom] = useState<number>(1);
+  const [timelineScrollStart, setTimelineScrollStart] = useState<number>(0);
 
   const [videoMeta, setVideoMeta] = useState<VideoMetadataInfo>({
     width: 1920,
@@ -933,6 +937,8 @@ export default function VideoEditorStudio() {
         setVideoFileName(asset.name);
         setIsMuted(false);
         setCurrentTime(0);
+        setTimelineZoom(1);
+        setTimelineScrollStart(0);
         setAnnotations([]);
         setEdits([]);
         setCuts([]);
@@ -951,6 +957,8 @@ export default function VideoEditorStudio() {
         setVideoFileName(asset.name);
         setDuration(10);
         setCurrentTime(0);
+        setTimelineZoom(1);
+        setTimelineScrollStart(0);
         setIntervalStart(0);
         setIntervalEnd(5);
         setAnnotations([]);
@@ -1755,15 +1763,75 @@ export default function VideoEditorStudio() {
     }
   };
 
+  const visibleTimelineSpan = Math.max(0.5, duration / timelineZoom);
+  const maxTimelineScrollStart = Math.max(0, duration - visibleTimelineSpan);
+  const timelineViewStart = Math.min(
+    maxTimelineScrollStart,
+    Math.max(0, timelineScrollStart)
+  );
+  const timelineViewEnd = timelineViewStart + visibleTimelineSpan;
+
+  const timeToTimelinePct = useCallback(
+    (t: number) => ((t - timelineViewStart) / visibleTimelineSpan) * 100,
+    [timelineViewStart, visibleTimelineSpan]
+  );
+
+  const spanToTimelinePct = useCallback(
+    (span: number) => (span / visibleTimelineSpan) * 100,
+    [visibleTimelineSpan]
+  );
+
+  const handleTimelineZoomChange = useCallback(
+    (nextZoomRaw: number) => {
+      const nextZoom = Math.min(16, Math.max(1, Number(nextZoomRaw.toFixed(2))));
+      const nextSpan = Math.max(0.5, duration / nextZoom);
+      const nextMaxScroll = Math.max(0, duration - nextSpan);
+      const centeredScroll = Math.min(
+        nextMaxScroll,
+        Math.max(0, currentTime - nextSpan / 2)
+      );
+      setTimelineZoom(nextZoom);
+      setTimelineScrollStart(nextZoom === 1 ? 0 : centeredScroll);
+    },
+    [duration, currentTime]
+  );
+
+  useEffect(() => {
+    if (!isPlaying || timelineZoom <= 1) return;
+    if (
+      currentTime > timelineViewEnd - visibleTimelineSpan * 0.05 ||
+      currentTime < timelineViewStart
+    ) {
+      const nextScroll = Math.min(
+        maxTimelineScrollStart,
+        Math.max(0, currentTime - visibleTimelineSpan * 0.15)
+      );
+      setTimelineScrollStart(nextScroll);
+    }
+  }, [
+    currentTime,
+    isPlaying,
+    timelineZoom,
+    timelineViewStart,
+    timelineViewEnd,
+    visibleTimelineSpan,
+    maxTimelineScrollStart,
+  ]);
+
   const getTimeFromTimelineEvent = useCallback(
     (clientX: number) => {
       const track = timelineTrackRef.current;
       if (!track) return 0;
       const rect = track.getBoundingClientRect();
       const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-      return Number((ratio * duration).toFixed(2));
+      return Number(
+        Math.min(
+          duration,
+          Math.max(0, timelineViewStart + ratio * visibleTimelineSpan)
+        ).toFixed(2)
+      );
     },
-    [duration]
+    [duration, timelineViewStart, visibleTimelineSpan]
   );
 
   useEffect(() => {
@@ -3052,7 +3120,7 @@ export default function VideoEditorStudio() {
           </div>
 
           {/* SINGLE-FOCUS TIMELINE (Shows ONLY the currently selected color so you can stretch & edit it) */}
-          <div className="h-32 border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2 flex flex-col gap-1.5 shrink-0">
+          <div className="h-36 border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2 flex flex-col gap-1.5 shrink-0">
             <div className="h-7 flex items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -3095,6 +3163,50 @@ export default function VideoEditorStudio() {
                   <Repeat className="w-3 h-3" />
                   <span>Loop</span>
                 </button>
+
+                {/* Timeframe Zoom Out / Zoom In Controls right beside Loop */}
+                <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-md p-0.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleTimelineZoomChange(
+                        timelineZoom <= 1.5
+                          ? 1
+                          : Math.max(1, Math.round((timelineZoom / 1.5) * 2) / 2)
+                      )
+                    }
+                    disabled={timelineZoom <= 1}
+                    title="Zoom out of timeframe"
+                    className="h-5 w-5 flex items-center justify-center rounded text-[#26231f] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition"
+                  >
+                    <ZoomOut className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTimelineZoomChange(1)}
+                    title="Reset timeframe zoom to 1x"
+                    className="px-1.5 text-[11px] font-mono font-medium text-[#26231f] hover:text-[#b82d23] cursor-pointer tabular-nums"
+                  >
+                    {timelineZoom % 1 === 0
+                      ? `${timelineZoom}x`
+                      : `${timelineZoom.toFixed(1)}x`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleTimelineZoomChange(
+                        timelineZoom < 1.5
+                          ? 1.5
+                          : Math.min(16, Math.round(timelineZoom * 1.5 * 2) / 2)
+                      )
+                    }
+                    disabled={timelineZoom >= 16}
+                    title="Zoom in into timeframe"
+                    className="h-5 w-5 flex items-center justify-center rounded text-[#26231f] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition"
+                  >
+                    <ZoomIn className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center gap-2 text-xs text-[#6e655c] shrink-0">
@@ -3119,6 +3231,20 @@ export default function VideoEditorStudio() {
             {/* Interactive Scrubber & Single Selected Color Stretch Track */}
             <div
               ref={timelineTrackRef}
+              onWheel={(e) => {
+                if (e.ctrlKey || e.metaKey || e.altKey) {
+                  e.preventDefault();
+                  const factor = e.deltaY < 0 ? 1.25 : 0.8;
+                  handleTimelineZoomChange(timelineZoom * factor);
+                } else if (timelineZoom > 1) {
+                  const deltaSec =
+                    ((e.deltaX !== 0 ? e.deltaX : e.deltaY) / 300) *
+                    visibleTimelineSpan;
+                  setTimelineScrollStart((prev) =>
+                    Math.min(maxTimelineScrollStart, Math.max(0, prev + deltaSec))
+                  );
+                }
+              }}
               onPointerDown={(e) => {
                 const t = getTimeFromTimelineEvent(e.clientX);
                 setCurrentTime(t);
@@ -3131,8 +3257,18 @@ export default function VideoEditorStudio() {
             >
               {/* Background Audio Waveform Envelope */}
               <div className="pointer-events-none absolute inset-x-2 bottom-1 h-7 flex items-end justify-between gap-[2px] opacity-20">
-                {waveformPeaks.map((peak, idx) => {
-                  const barTime = (idx / waveformPeaks.length) * duration;
+                {waveformPeaks.map((_, idx) => {
+                  const barTime =
+                    timelineViewStart +
+                    (idx / waveformPeaks.length) * visibleTimelineSpan;
+                  const peakIdx = Math.min(
+                    waveformPeaks.length - 1,
+                    Math.max(
+                      0,
+                      Math.floor((barTime / Math.max(0.1, duration)) * waveformPeaks.length)
+                    )
+                  );
+                  const peak = waveformPeaks[peakIdx] ?? 0.08;
                   const inActiveInterval =
                     barTime >= intervalStart && barTime <= intervalEnd;
                   return (
@@ -3150,7 +3286,10 @@ export default function VideoEditorStudio() {
               {/* Time Ruler Ticks */}
               <div className="relative z-10 flex justify-between text-[10px] font-mono text-[#8c8277] px-1 pointer-events-none">
                 {Array.from({ length: 13 }).map((_, i) => {
-                  const tickTime = ((duration / 12) * i).toFixed(1);
+                  const tickTime = (
+                    timelineViewStart +
+                    (visibleTimelineSpan / 12) * i
+                  ).toFixed(timelineZoom >= 4 ? 2 : 1);
                   return <span key={i}>{tickTime}s</span>;
                 })}
               </div>
@@ -3183,8 +3322,8 @@ export default function VideoEditorStudio() {
                           });
                         }}
                         style={{
-                          left: `${(segStart / duration) * 100}%`,
-                          width: `${((segEnd - segStart) / duration) * 100}%`,
+                          left: `${timeToTimelinePct(segStart)}%`,
+                          width: `${spanToTimelinePct(segEnd - segStart)}%`,
                         }}
                         title={`Cut segment ${segStart.toFixed(1)}s–${segEnd.toFixed(1)}s (Click to select, then click Delete)`}
                         className={`absolute top-0 bottom-0 z-10 flex items-end justify-between px-1.5 pb-1 transition cursor-pointer ${
@@ -3218,7 +3357,7 @@ export default function VideoEditorStudio() {
               {splitPoints.map((pt, cutIdx) => (
                 <div
                   key={`split-${pt}`}
-                  style={{ left: `${(pt / duration) * 100}%` }}
+                  style={{ left: `${timeToTimelinePct(pt)}%` }}
                   className="absolute top-0 bottom-0 w-0.5 border-l border-dashed border-[#b82d23] z-15 pointer-events-none"
                 >
                   <button
@@ -3260,8 +3399,8 @@ export default function VideoEditorStudio() {
                 <div
                   key={cut.id}
                   style={{
-                    left: `${(cut.startTime / duration) * 100}%`,
-                    width: `${((cut.endTime - cut.startTime) / duration) * 100}%`,
+                    left: `${timeToTimelinePct(cut.startTime)}%`,
+                    width: `${spanToTimelinePct(cut.endTime - cut.startTime)}%`,
                   }}
                   className="absolute top-0 bottom-0 bg-[#b82d23]/25 border-x border-[#b82d23] z-10 flex items-end justify-between px-1.5 pb-1"
                   title={`Deleted: ${cut.startTime.toFixed(1)}s–${cut.endTime.toFixed(1)}s`}
@@ -3287,8 +3426,8 @@ export default function VideoEditorStudio() {
               {/* Active Interval Highlight Zone [intervalStart, intervalEnd] */}
               <div
                 style={{
-                  left: `${(intervalStart / duration) * 100}%`,
-                  width: `${((intervalEnd - intervalStart) / duration) * 100}%`,
+                  left: `${timeToTimelinePct(intervalStart)}%`,
+                  width: `${spanToTimelinePct(intervalEnd - intervalStart)}%`,
                 }}
                 className="absolute top-0 bottom-0 bg-[#c6923a]/15 border-x border-[#c6923a] pointer-events-none"
               >
@@ -3330,13 +3469,11 @@ export default function VideoEditorStudio() {
                   }
 
                   const cfg = MARK_COLORS[selectedGroup.color];
-                  const leftPct = Math.max(
-                    0,
-                    Math.min(94, (selectedGroup.startTime / duration) * 100)
+                  const leftPct = timeToTimelinePct(selectedGroup.startTime);
+                  const rawWidthPct = spanToTimelinePct(
+                    selectedGroup.endTime - selectedGroup.startTime
                   );
-                  const rawWidthPct =
-                    ((selectedGroup.endTime - selectedGroup.startTime) / duration) * 100;
-                  const widthPct = Math.min(100 - leftPct, Math.max(6, rawWidthPct));
+                  const widthPct = Math.max(4, rawWidthPct);
                   const colorEdits = edits.filter(
                     (e) => e.targetColor === selectedGroup.color
                   );
@@ -3425,7 +3562,7 @@ export default function VideoEditorStudio() {
 
               {/* Current Time Red Playhead Line with On-Playhead Cut Button */}
               <div
-                style={{ left: `${(currentTime / duration) * 100}%` }}
+                style={{ left: `${timeToTimelinePct(currentTime)}%` }}
                 className="absolute top-0 bottom-0 w-0.5 bg-[#b82d23] pointer-events-none z-20"
               >
                 <button
@@ -3441,6 +3578,52 @@ export default function VideoEditorStudio() {
                   <Scissors className="w-2.5 h-2.5" />
                 </button>
               </div>
+            </div>
+
+            {/* Horizontal Slider Underneath the Timeframe */}
+            <div className="h-5 flex items-center gap-2 px-1 shrink-0">
+              <span className="text-[10px] font-mono text-[#8c8277] tabular-nums w-9 shrink-0">
+                {timelineZoom > 1
+                  ? `${timelineViewStart.toFixed(1)}s`
+                  : `${currentTime.toFixed(1)}s`}
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={
+                  timelineZoom > 1
+                    ? Number(maxTimelineScrollStart.toFixed(2))
+                    : Number(duration.toFixed(2))
+                }
+                step={0.05}
+                value={
+                  timelineZoom > 1
+                    ? Number(timelineViewStart.toFixed(2))
+                    : Number(currentTime.toFixed(2))
+                }
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (timelineZoom > 1) {
+                    setTimelineScrollStart(val);
+                  } else {
+                    setCurrentTime(val);
+                    if (videoRef.current && videoUrl) {
+                      videoRef.current.currentTime = val;
+                    }
+                  }
+                }}
+                title={
+                  timelineZoom > 1
+                    ? `Slide to pan zoomed timeframe (${timelineViewStart.toFixed(1)}s–${timelineViewEnd.toFixed(1)}s)`
+                    : 'Slide across timeframe'
+                }
+                className="flex-1 h-1.5 bg-[#e5dfd0] rounded-lg appearance-none cursor-pointer accent-[#26231f]"
+              />
+              <span className="text-[10px] font-mono text-[#8c8277] tabular-nums w-9 text-right shrink-0">
+                {timelineZoom > 1
+                  ? `${timelineViewEnd.toFixed(1)}s`
+                  : `${duration.toFixed(1)}s`}
+              </span>
             </div>
           </div>
         </div>
