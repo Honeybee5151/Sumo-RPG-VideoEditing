@@ -2111,11 +2111,7 @@ export default function VideoEditorStudio() {
                 disabled={isCompiling || !prompt.trim()}
                 className="px-4 py-1.5 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-40 rounded-lg text-xs font-medium text-white transition cursor-pointer shrink-0"
               >
-                {isCompiling
-                  ? 'Applying...'
-                  : focusedColor !== 'all'
-                  ? `Apply to ${MARK_COLORS[focusedColor].name}`
-                  : 'Apply'}
+                {isCompiling ? 'Applying...' : 'Apply'}
               </button>
             </div>
           </div>
