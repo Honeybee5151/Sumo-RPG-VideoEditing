@@ -47,8 +47,8 @@ function buildCenterWeights(): Float32Array {
   for (let py = -HALF_PATCH; py <= HALF_PATCH; py++) {
     for (let px = -HALF_PATCH; px <= HALF_PATCH; px++) {
       const dist2 = (px * px + py * py) / (HALF_PATCH * HALF_PATCH);
-      // Gaussian center weight so the Dot/Box center object dominates over background edges
-      const val = Math.exp(-dist2 * 2.2);
+      // Tight Gaussian center weight so the Dot/Box center object dominates over background edges
+      const val = Math.exp(-dist2 * 2.6);
       const idx = (py + HALF_PATCH) * PATCH_DIM + (px + HALF_PATCH);
       w[idx] = val;
       sum += val;
@@ -105,7 +105,9 @@ function evaluateCandidate(
   adaptivePatch: Float32Array,
   weights: Float32Array,
   predX: number,
-  predY: number
+  predY: number,
+  curX: number,
+  curY: number
 ): number {
   let score = 0;
   let wIdx = 0;
@@ -130,16 +132,16 @@ function evaluateCandidate(
           Math.abs(imgData[(yr * TRACK_W + x) * 4 + 1] - imgData[(yl * TRACK_W + x) * 4 + 1])) *
         0.75;
 
-      const tr = initPatch[pIdx] * 0.65 + adaptivePatch[pIdx] * 0.35;
-      const tg = initPatch[pIdx + 1] * 0.65 + adaptivePatch[pIdx + 1] * 0.35;
-      const tb = initPatch[pIdx + 2] * 0.65 + adaptivePatch[pIdx + 2] * 0.35;
-      const tGrad = initPatch[pIdx + 3] * 0.65 + adaptivePatch[pIdx + 3] * 0.35;
+      const tr = initPatch[pIdx] * 0.55 + adaptivePatch[pIdx] * 0.45;
+      const tg = initPatch[pIdx + 1] * 0.55 + adaptivePatch[pIdx + 1] * 0.45;
+      const tb = initPatch[pIdx + 2] * 0.55 + adaptivePatch[pIdx + 2] * 0.45;
+      const tGrad = initPatch[pIdx + 3] * 0.55 + adaptivePatch[pIdx + 3] * 0.45;
 
       const diff =
         Math.abs(r - tr) +
         Math.abs(g - tg) +
         Math.abs(b - tb) +
-        Math.abs(grad - tGrad) * 1.3;
+        Math.abs(grad - tGrad) * 1.35;
 
       score += diff * weights[wIdx];
       wIdx++;
@@ -147,15 +149,20 @@ function evaluateCandidate(
     }
   }
 
-  // Gentle motion continuity regularization so uniform backgrounds don't cause jumps
+  // Strong spatial continuity regularization so the tracker never teleports to distant background patches
+  const dxPred = candX - predX;
+  const dyPred = candY - predY;
+  const dxCur = candX - curX;
+  const dyCur = candY - curY;
   const distPenalty =
-    Math.hypot(candX - predX, candY - predY) * 0.32;
+    Math.hypot(dxPred, dyPred) * 1.9 + (dxCur * dxCur + dyCur * dyCur) * 0.28;
   return score + distPenalty;
 }
 
 /**
  * Tracks the target bounding box / dot across frames of `sourceCanvas` in real time.
- * Returns the live tracked BoundingBox in normalized 0..1 coordinates.
+ * Uses bounded physical per-frame displacement, confidence gating, and Steadicam smoothing
+ * so the camera follows the object without jumping away.
  */
 export function getRealtimeTrackedBbox(
   editId: string,
@@ -231,32 +238,49 @@ export function getRealtimeTrackedBbox(
     };
   }
 
-  const clampedDt = Math.min(0.2, Math.max(0.008, dt));
+  const clampedDt = Math.min(0.12, Math.max(0.008, dt));
   const curPx = state.currCx * TRACK_W;
   const curPy = state.currCy * TRACK_H;
   const predPx = Math.min(
     TRACK_W - HALF_PATCH - 2,
-    Math.max(HALF_PATCH + 2, curPx + state.velX * clampedDt * TRACK_W * 0.55)
+    Math.max(HALF_PATCH + 2, curPx + state.velX * clampedDt * TRACK_W * 0.45)
   );
   const predPy = Math.min(
     TRACK_H - HALF_PATCH - 2,
-    Math.max(HALF_PATCH + 2, curPy + state.velY * clampedDt * TRACK_H * 0.55)
+    Math.max(HALF_PATCH + 2, curPy + state.velY * clampedDt * TRACK_H * 0.45)
   );
 
-  // Stage 1: Coarse search around predicted position
-  const searchRx = 34;
-  const searchRy = 24;
-  let bestX = Math.round(predPx);
-  let bestY = Math.round(predPy);
-  let bestScore = Number.POSITIVE_INFINITY;
+  // Physically bounded per-frame search radius (prevents teleporting to distant false matches)
+  const searchRx = Math.max(7, Math.min(15, Math.ceil(clampedDt * TRACK_W * 1.4)));
+  const searchRy = Math.max(6, Math.min(12, Math.ceil(clampedDt * TRACK_H * 1.4)));
 
-  const minX = Math.max(HALF_PATCH + 1, Math.round(predPx) - searchRx);
-  const maxX = Math.min(TRACK_W - HALF_PATCH - 2, Math.round(predPx) + searchRx);
-  const minY = Math.max(HALF_PATCH + 1, Math.round(predPy) - searchRy);
-  const maxY = Math.min(TRACK_H - HALF_PATCH - 2, Math.round(predPy) + searchRy);
+  const stayX = Math.round(predPx);
+  const stayY = Math.round(predPy);
+  const stayScore = evaluateCandidate(
+    imgData,
+    stayX,
+    stayY,
+    state.initPatch,
+    state.adaptivePatch,
+    state.weights,
+    predPx,
+    predPy,
+    curPx,
+    curPy
+  );
 
-  for (let cy = minY; cy <= maxY; cy += 2) {
-    for (let cx = minX; cx <= maxX; cx += 2) {
+  let bestX = stayX;
+  let bestY = stayY;
+  let bestScore = stayScore;
+
+  const minX = Math.max(HALF_PATCH + 1, stayX - searchRx);
+  const maxX = Math.min(TRACK_W - HALF_PATCH - 2, stayX + searchRx);
+  const minY = Math.max(HALF_PATCH + 1, stayY - searchRy);
+  const maxY = Math.min(TRACK_H - HALF_PATCH - 2, stayY + searchRy);
+
+  // Full 1-pixel precision search inside the bounded neighborhood
+  for (let cy = minY; cy <= maxY; cy++) {
+    for (let cx = minX; cx <= maxX; cx++) {
       const s = evaluateCandidate(
         imgData,
         cx,
@@ -265,7 +289,9 @@ export function getRealtimeTrackedBbox(
         state.adaptivePatch,
         state.weights,
         predPx,
-        predPy
+        predPy,
+        curPx,
+        curPy
       );
       if (s < bestScore) {
         bestScore = s;
@@ -275,85 +301,46 @@ export function getRealtimeTrackedBbox(
     }
   }
 
-  // Stage 2: If fast motion exceeded local window, run wide recovery search
-  if (bestScore > 75) {
-    const wideRx = 72;
-    const wideRy = 45;
-    const wMinX = Math.max(HALF_PATCH + 1, Math.round(curPx) - wideRx);
-    const wMaxX = Math.min(TRACK_W - HALF_PATCH - 2, Math.round(curPx) + wideRx);
-    const wMinY = Math.max(HALF_PATCH + 1, Math.round(curPy) - wideRy);
-    const wMaxY = Math.min(TRACK_H - HALF_PATCH - 2, Math.round(curPy) + wideRy);
-
-    for (let cy = wMinY; cy <= wMaxY; cy += 3) {
-      for (let cx = wMinX; cx <= wMaxX; cx += 3) {
-        const s = evaluateCandidate(
-          imgData,
-          cx,
-          cy,
-          state.initPatch,
-          state.adaptivePatch,
-          state.weights,
-          predPx,
-          predPy
-        );
-        if (s < bestScore) {
-          bestScore = s;
-          bestX = cx;
-          bestY = cy;
-        }
-      }
-    }
-  }
-
-  // Stage 3: Single-pixel refinement around winner
-  const refMinX = Math.max(HALF_PATCH + 1, bestX - 2);
-  const refMaxX = Math.min(TRACK_W - HALF_PATCH - 2, bestX + 2);
-  const refMinY = Math.max(HALF_PATCH + 1, bestY - 2);
-  const refMaxY = Math.min(TRACK_H - HALF_PATCH - 2, bestY + 2);
-
-  for (let cy = refMinY; cy <= refMaxY; cy++) {
-    for (let cx = refMinX; cx <= refMaxX; cx++) {
-      const s = evaluateCandidate(
-        imgData,
-        cx,
-        cy,
-        state.initPatch,
-        state.adaptivePatch,
-        state.weights,
-        predPx,
-        predPy
-      );
-      if (s < bestScore) {
-        bestScore = s;
-        bestX = cx;
-        bestY = cy;
-      }
-    }
-  }
-
-  // Gently blend matched patch into adaptivePatch so slight object rotation/scale is tracked
-  if (bestScore < 95) {
+  // Confidence gate: only accept displacement if the match is confident and beats staying put
+  const isConfidentMatch = bestScore < 82 && bestScore <= stayScore - 0.8;
+  if (!isConfidentMatch && stayScore >= 82) {
+    // Object briefly occluded or motion-blurred: coast gently and decay velocity
+    state.velX *= 0.7;
+    state.velY *= 0.7;
+    bestX = Math.round(curPx + state.velX * clampedDt * TRACK_W * 0.3);
+    bestY = Math.round(curPy + state.velY * clampedDt * TRACK_H * 0.3);
+  } else if (bestScore < 68) {
+    // High-confidence match: gently update adaptive appearance template
     const currentPatch = new Float32Array(PATCH_DIM * PATCH_DIM * 4);
     extractPatch(imgData, bestX, bestY, currentPatch);
     for (let i = 0; i < state.adaptivePatch.length; i++) {
       state.adaptivePatch[i] =
-        state.adaptivePatch[i] * 0.82 + currentPatch[i] * 0.18;
+        state.adaptivePatch[i] * 0.86 + currentPatch[i] * 0.14;
     }
   }
 
-  const nextCx = bestX / TRACK_W;
-  const nextCy = bestY / TRACK_H;
+  // Clamp per-frame step to prevent any single-frame spike
+  const maxStepNormX = 0.045;
+  const maxStepNormY = 0.045;
+  const rawNextCx = bestX / TRACK_W;
+  const rawNextCy = bestY / TRACK_H;
+  const nextCx =
+    state.currCx +
+    Math.max(-maxStepNormX, Math.min(maxStepNormX, rawNextCx - state.currCx));
+  const nextCy =
+    state.currCy +
+    Math.max(-maxStepNormY, Math.min(maxStepNormY, rawNextCy - state.currCy));
 
-  const instVelX = (nextCx - state.currCx) / clampedDt;
-  const instVelY = (nextCy - state.currCy) / clampedDt;
-  state.velX = state.velX * 0.5 + instVelX * 0.5;
-  state.velY = state.velY * 0.5 + instVelY * 0.5;
+  const instVelX = Math.max(-0.9, Math.min(0.9, (nextCx - state.currCx) / clampedDt));
+  const instVelY = Math.max(-0.9, Math.min(0.9, (nextCy - state.currCy) / clampedDt));
+  state.velX = state.velX * 0.65 + instVelX * 0.35;
+  state.velY = state.velY * 0.65 + instVelY * 0.35;
 
   state.currCx = nextCx;
   state.currCy = nextCy;
 
-  // Smooth camera follow filter
-  const smoothAlpha = Math.min(1, clampedDt * 15);
+  // Steadicam low-pass filter so camera glides smoothly without sudden jumps
+  const smoothAlpha = Math.min(1, clampedDt * 9.5);
   state.smoothCx += (nextCx - state.smoothCx) * smoothAlpha;
   state.smoothCy += (nextCy - state.smoothCy) * smoothAlpha;
   state.lastTime = currentTime;
