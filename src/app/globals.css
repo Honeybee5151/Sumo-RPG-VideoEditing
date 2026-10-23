@@ -22,26 +22,24 @@
 }
 
 body {
-  background-color: var(--washi-bg);
-  color: var(--sumi-ink);
+  background-color: #f4f1ea;
+  color: #26231f;
   font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
   overflow: hidden;
   user-select: none;
 }
 
-/* Custom Sumo Washi scrollbars */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #d9ceb4;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #544b43;
-  border-radius: 2px;
-  border: 1px solid #1d1a16;
+  background: #cdc5b4;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #b82d23;
+  background: #a39a88;
 }
