@@ -2332,7 +2332,7 @@ export default function VideoEditorStudio() {
     if (!cleanPrompt || isAiDrawing) return;
 
     setIsAiDrawing(true);
-    setStatusMessage(`AI drawing 1920×1080 image: "${cleanPrompt}"...`);
+    setStatusMessage(`AI drawing: "${cleanPrompt}"...`);
 
     try {
       const activeKey =
@@ -2372,9 +2372,8 @@ export default function VideoEditorStudio() {
         throw new Error('Could not initialize 2D drawing canvas.');
       }
 
-      // Base background
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Start with a clean transparent canvas so single-object drawings are isolated without a forced fullscreen background
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // A) If a Native Image Generation model returned a raster imageDataUrl (DALL-E 3, Gemini Imagen 3, Grok Image, FLUX.1, Stability SDXL)
       if (
@@ -4290,7 +4289,7 @@ export default function VideoEditorStudio() {
                         }
                       }}
                       disabled={isAiDrawing}
-                      placeholder="Describe image to generate..."
+                      placeholder="Describe object or image..."
                       className="w-full h-7 px-2 rounded-lg bg-[#faf8f4] border border-[#d6cfc2] text-xs text-[#26231f] placeholder-[#8a8377] focus:outline-none focus:border-[#26231f]"
                     />
                     <button
@@ -4301,7 +4300,7 @@ export default function VideoEditorStudio() {
                     >
                       <Sparkles className="w-3 h-3 text-[#c6923a] shrink-0" />
                       <span>
-                        {isAiDrawing ? 'Generating Image...' : 'Generate 1080p Image'}
+                        {isAiDrawing ? 'Generating...' : 'Generate Image'}
                       </span>
                     </button>
                   </div>

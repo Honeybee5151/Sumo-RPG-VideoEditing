@@ -579,22 +579,23 @@ async function callProviderLlm(params: {
 
 function buildDrawImageSystemPrompt(): string {
   return `You are an expert digital illustrator, concept artist, and HTML5 2D Canvas graphics programmer inside the Sumo VideoEditor studio.
-Your job is to draw a rich, detailed, high-definition 1920x1080 widescreen illustration matching the user's prompt by writing synchronous HTML5 2D Canvas JavaScript drawing code (\`renderCode\`) and/or vector SVG (\`svg\`).
+Your job is to draw what the user asks for by writing synchronous HTML5 2D Canvas JavaScript drawing code (\`renderCode\`) and/or vector SVG (\`svg\`).
 
 Return ONLY a valid JSON object with the following structure:
 {
-  "title": "Short descriptive title of the image (2-5 words)",
+  "title": "Short descriptive title (1-3 words)",
   "renderCode": "/* JavaScript statements using ctx, width, height */"
 }
 
 STRICT RULES FOR \`renderCode\`:
 1. Available variables in scope: \`ctx\` (CanvasRenderingContext2D), \`width\` (1920), \`height\` (1080), \`Math\`.
 2. Do NOT wrap your code in \`function() { ... }\` or markdown fences. Write the JavaScript statements directly as the string value of \`renderCode\`.
-3. Paint a complete, multi-layered 1920x1080 scene from back to front:
-   - Layer 1 (Background): Fill the entire \`width x height\` canvas using rich \`ctx.createLinearGradient\` / \`ctx.createRadialGradient\`, atmospheric sky/lighting, stars, clouds, sun/moon, or room backdrop.
-   - Layer 2 (Environment / Midground): Draw detailed scenery, horizon, mountains, buildings, trees, water reflections, perspective grids, or studio props.
-   - Layer 3 (Main Subject): Draw the exact subject(s) requested by the user with expressive geometry (\`beginPath\`, \`bezierCurveTo\`, \`quadraticCurveTo\`, \`arc\`, \`ellipse\`, \`roundRect\`), multi-stop gradients, shading, highlights, shadows (\`ctx.shadowColor\`, \`ctx.shadowBlur\`), and crisp details.
-   - Layer 4 (Lighting & Polish): Add atmospheric glow, rim lighting, particles/bokeh, and subtle framing so the final 1920x1080 PNG looks like a polished illustration.
+3. **SINGLE OBJECT vs. FULL SCENE (CRITICAL)**:
+   - **By default, if the user asks for an object, item, character, animal, weapon, vehicle, food, icon, or prop** (e.g. "a sword", "a red apple", "a cat", "a dragon", "a sports car", "a tree") and does NOT explicitly ask for a background, landscape, room, sky, or full scene:
+     - **Keep the canvas background 100% TRANSPARENT!** Do NOT call \`ctx.fillRect(0, 0, width, height)\` and do NOT draw a sky, wall, ground plane, mountains, or room behind the object!
+     - Draw **ONLY the requested object** centered around \`(width / 2, height / 2)\` at a generous, prominent scale (~55%–75% of \`height\`), using rich multi-stop gradients, expressive geometry (\`beginPath\`, \`bezierCurveTo\`, \`quadraticCurveTo\`, \`arc\`, \`ellipse\`, \`roundRect\`), internal shading, specular highlights, and crisp silhouette details.
+   - **ONLY if the user explicitly asks for a full scene, background, landscape, wallpaper, environment, sky, or room** (e.g. "a sunset mountain landscape", "a cyberpunk city street background", "a starry night sky over an ocean"):
+     - Then paint the full \`width x height\` canvas from back to front (sky/backdrop, midground scenery, and foreground lighting).
 4. Always balance \`ctx.save()\` and \`ctx.restore()\`.
 5. Never use external network resources (\`new Image()\`, \`fetch\`), \`document\`, or \`window\`. Everything must render synchronously onto \`ctx\`.`;
 }
@@ -1083,7 +1084,7 @@ async function tryNativeImageGeneration(params: {
             model: cand.model,
             baseUrl: cand.baseUrl,
             systemPrompt: drawSystemPrompt,
-            userPrompt: `Draw a detailed 1920x1080 illustration of: ${prompt.trim()}`,
+            userPrompt: prompt.trim(),
             jsonSuffix:
               'Return ONLY a valid JSON object: {"title": "...", "renderCode": "..."}',
             reasoningEffort: body.reasoningEffort,
