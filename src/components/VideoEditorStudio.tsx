@@ -1255,6 +1255,22 @@ export default function VideoEditorStudio() {
 
   const editAudioMapRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewRafRef = useRef<number | null>(null);
+  const [previewAudioState, setPreviewAudioState] = useState<{
+    assetId: string | null;
+    isPlaying: boolean;
+    finished: boolean;
+    progress: number;
+    currentTime: number;
+    duration: number;
+  }>({
+    assetId: null,
+    isPlaying: false,
+    finished: false,
+    progress: 0,
+    currentTime: 0,
+    duration: 0,
+  });
   const mediaGainNodesRef = useRef<
     WeakMap<HTMLMediaElement, { ctx: AudioContext; gain: GainNode }>
   >(new WeakMap());
@@ -1287,6 +1303,165 @@ export default function VideoEditorStudio() {
       }
     },
     []
+  );
+
+  const togglePreviewSoundAsset = useCallback(
+    (asset: MediaAssetItem) => {
+      const fallbackDur =
+        asset.durationSec && asset.durationSec > 0 ? asset.durationSec : 1;
+
+      const startProgressLoop = (audioEl: HTMLAudioElement, assetId: string) => {
+        if (previewRafRef.current !== null) {
+          cancelAnimationFrame(previewRafRef.current);
+        }
+        const tick = () => {
+          const validDur =
+            Number.isFinite(audioEl.duration) && audioEl.duration > 0
+              ? audioEl.duration
+              : fallbackDur;
+          const cur = Math.max(0, audioEl.currentTime || 0);
+          const pct = Math.max(0, Math.min(1, cur / Math.max(0.05, validDur)));
+          setPreviewAudioState({
+            assetId,
+            isPlaying: !audioEl.paused && !audioEl.ended,
+            finished: audioEl.ended,
+            progress: audioEl.ended ? 1 : pct,
+            currentTime: cur,
+            duration: validDur,
+          });
+          if (!audioEl.paused && !audioEl.ended) {
+            previewRafRef.current = requestAnimationFrame(tick);
+          }
+        };
+        previewRafRef.current = requestAnimationFrame(tick);
+      };
+
+      // If clicking the same sound that is already loaded in previewAudioRef
+      if (
+        previewAudioState.assetId === asset.id &&
+        previewAudioRef.current
+      ) {
+        const existing = previewAudioRef.current;
+        if (!existing.paused && !existing.ended) {
+          existing.pause();
+          if (previewRafRef.current !== null) {
+            cancelAnimationFrame(previewRafRef.current);
+            previewRafRef.current = null;
+          }
+          setPreviewAudioState((prev) => ({
+            ...prev,
+            isPlaying: false,
+          }));
+          return;
+        }
+        // Resume or restart if finished
+        if (existing.ended || previewAudioState.progress >= 0.99) {
+          existing.currentTime = 0;
+        }
+        applyMediaElementVolume(existing, masterVolume, isMuted);
+        existing.play().catch(() => {});
+        startProgressLoop(existing, asset.id);
+        return;
+      }
+
+      // Otherwise stop any previous preview and start playing this sound
+      if (previewRafRef.current !== null) {
+        cancelAnimationFrame(previewRafRef.current);
+        previewRafRef.current = null;
+      }
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+      }
+
+      const preview = new Audio(asset.url);
+      applyMediaElementVolume(preview, masterVolume, isMuted);
+      previewAudioRef.current = preview;
+
+      setPreviewAudioState({
+        assetId: asset.id,
+        isPlaying: true,
+        finished: false,
+        progress: 0,
+        currentTime: 0,
+        duration: fallbackDur,
+      });
+
+      preview.onended = () => {
+        if (previewRafRef.current !== null) {
+          cancelAnimationFrame(previewRafRef.current);
+          previewRafRef.current = null;
+        }
+        const finalDur =
+          Number.isFinite(preview.duration) && preview.duration > 0
+            ? preview.duration
+            : fallbackDur;
+        setPreviewAudioState({
+          assetId: asset.id,
+          isPlaying: false,
+          finished: true,
+          progress: 1,
+          currentTime: finalDur,
+          duration: finalDur,
+        });
+      };
+
+      preview
+        .play()
+        .then(() => {
+          startProgressLoop(preview, asset.id);
+        })
+        .catch(() => {
+          setPreviewAudioState((prev) => ({
+            ...prev,
+            isPlaying: false,
+          }));
+        });
+
+      setStatusMessage(
+        `Playing "${asset.name}"${
+          asset.durationSec ? ` (${asset.durationSec.toFixed(1)}s)` : ''
+        }. Ask AI e.g. "use ${asset.name.replace(/\.[a-z0-9]+$/i, '')} here" on any color/dot!`
+      );
+    },
+    [
+      previewAudioState.assetId,
+      previewAudioState.progress,
+      applyMediaElementVolume,
+      masterVolume,
+      isMuted,
+    ]
+  );
+
+  const seekPreviewSoundAsset = useCallback(
+    (asset: MediaAssetItem, ratio: number) => {
+      const clamped = Math.max(0, Math.min(1, ratio));
+      const fallbackDur =
+        asset.durationSec && asset.durationSec > 0 ? asset.durationSec : 1;
+      if (
+        previewAudioState.assetId === asset.id &&
+        previewAudioRef.current
+      ) {
+        const el = previewAudioRef.current;
+        const validDur =
+          Number.isFinite(el.duration) && el.duration > 0
+            ? el.duration
+            : fallbackDur;
+        const targetTime = clamped * validDur;
+        if (Number.isFinite(el.duration) && el.duration > 0) {
+          el.currentTime = targetTime;
+        }
+        setPreviewAudioState((prev) => ({
+          ...prev,
+          finished: false,
+          progress: clamped,
+          currentTime: targetTime,
+          duration: validDur,
+        }));
+      } else {
+        togglePreviewSoundAsset(asset);
+      }
+    },
+    [previewAudioState.assetId, togglePreviewSoundAsset]
   );
 
   useEffect(() => {
@@ -1557,20 +1732,9 @@ export default function VideoEditorStudio() {
           setColorPrompts({});
         }
       } else if (asset.category === 'audio') {
-        // If a video or image is already on the stage, keep the video/image on stage and preview the sound!
+        togglePreviewSoundAsset(asset);
+        // If a video or image is already on the stage, keep the video/image on stage!
         if (videoUrl || activeImageUrl) {
-          if (previewAudioRef.current) {
-            previewAudioRef.current.pause();
-          }
-          const preview = new Audio(asset.url);
-          applyMediaElementVolume(preview, masterVolume, isMuted);
-          previewAudioRef.current = preview;
-          preview.play().catch(() => {});
-          setStatusMessage(
-            `Previewing "${asset.name}"${
-              asset.durationSec ? ` (${asset.durationSec.toFixed(1)}s)` : ''
-            }. Ask AI e.g. "use ${asset.name.replace(/\.[a-z0-9]+$/i, '')} here" on any color/dot!`
-          );
           return;
         }
         setActiveAudioUrl(asset.url);
@@ -1605,9 +1769,7 @@ export default function VideoEditorStudio() {
       activeColor,
       colorPrompts,
       imageHasAiTime,
-      masterVolume,
-      isMuted,
-      applyMediaElementVolume,
+      togglePreviewSoundAsset,
     ]
   );
 
@@ -4007,27 +4169,67 @@ export default function VideoEditorStudio() {
 
             <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable] space-y-1.5 min-h-0">
               {filteredLibraryItems.map((asset) => {
-                  const isActive =
-                    videoUrl === asset.url ||
-                    activeImageUrl === asset.url ||
-                    activeAudioUrl === asset.url;
-                  return (
-                    <div
-                      key={asset.id}
-                      onClick={() => activateMediaAsset(asset)}
-                      className={`w-full h-9 group flex items-center justify-between gap-1.5 px-2.5 rounded-xl border transition cursor-pointer ${
-                        isActive
-                          ? 'bg-[#f0ece1] border-[#26231f]'
-                          : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
-                      }`}
-                    >
+                const isActive =
+                  videoUrl === asset.url ||
+                  activeImageUrl === asset.url ||
+                  activeAudioUrl === asset.url;
+                const isAudio = asset.category === 'audio';
+                const isThisAudioActive =
+                  isAudio && previewAudioState.assetId === asset.id;
+                const isThisAudioPlaying =
+                  isThisAudioActive && previewAudioState.isPlaying;
+                const isThisAudioFinished =
+                  isThisAudioActive && previewAudioState.finished;
+                const audioProgressPct = isThisAudioActive
+                  ? Math.round(previewAudioState.progress * 100)
+                  : 0;
+                const totalDurSec =
+                  isThisAudioActive && previewAudioState.duration > 0
+                    ? previewAudioState.duration
+                    : asset.durationSec || 0;
+
+                return (
+                  <div
+                    key={asset.id}
+                    onClick={() => activateMediaAsset(asset)}
+                    className={`w-full ${
+                      isAudio ? 'py-1.5 px-2.5' : 'h-9 px-2.5'
+                    } group flex flex-col justify-center gap-1 rounded-xl border transition cursor-pointer ${
+                      isActive || isThisAudioPlaying
+                        ? 'bg-[#f0ece1] border-[#26231f]'
+                        : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
+                    }`}
+                  >
+                    <div className="w-full flex items-center justify-between gap-1.5 min-w-0">
                       <div className="flex items-center gap-2 min-w-0">
                         {asset.category === 'video' ? (
                           <Film className="w-3.5 h-3.5 text-[#234c7a] shrink-0" />
                         ) : asset.category === 'image' ? (
                           <ImageIcon className="w-3.5 h-3.5 text-[#50793e] shrink-0" />
                         ) : (
-                          <Music className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePreviewSoundAsset(asset);
+                            }}
+                            title={
+                              isThisAudioPlaying
+                                ? 'Pause sound'
+                                : 'Play sound'
+                            }
+                            className={`w-6 h-6 rounded-full flex items-center justify-center transition cursor-pointer shrink-0 ${
+                              isThisAudioPlaying
+                                ? 'bg-[#b82d23] text-white shadow-xs'
+                                : 'bg-[#b82d23]/15 hover:bg-[#b82d23] text-[#b82d23] hover:text-white'
+                            }`}
+                          >
+                            {isThisAudioPlaying ? (
+                              <Pause className="w-3 h-3 fill-current" />
+                            ) : (
+                              <Play className="w-3 h-3 fill-current ml-0.5" />
+                            )}
+                          </button>
                         )}
                         <span className="text-xs font-medium text-[#26231f] truncate">
                           {asset.name}
@@ -4035,6 +4237,28 @@ export default function VideoEditorStudio() {
                       </div>
 
                       <div className="flex items-center gap-1 shrink-0">
+                        {isAudio && (
+                          <span
+                            className={`text-[10px] font-mono tabular-nums px-1 rounded ${
+                              isThisAudioFinished
+                                ? 'text-[#50793e] font-semibold'
+                                : isThisAudioPlaying
+                                ? 'text-[#b82d23] font-semibold'
+                                : 'text-[#6e655c]'
+                            }`}
+                          >
+                            {isThisAudioFinished
+                              ? `Done (${totalDurSec.toFixed(1)}s)`
+                              : isThisAudioActive
+                              ? `${previewAudioState.currentTime.toFixed(
+                                  1
+                                )}s/${totalDurSec.toFixed(1)}s`
+                              : totalDurSec > 0
+                              ? `${totalDurSec.toFixed(1)}s`
+                              : ''}
+                          </span>
+                        )}
+
                         <button
                           type="button"
                           onClick={(e) => {
@@ -4063,6 +4287,17 @@ export default function VideoEditorStudio() {
                             onClick={(e) => {
                               e.stopPropagation();
                               recordHistorySnapshot();
+                              if (isThisAudioActive && previewAudioRef.current) {
+                                previewAudioRef.current.pause();
+                                setPreviewAudioState({
+                                  assetId: null,
+                                  isPlaying: false,
+                                  finished: false,
+                                  progress: 0,
+                                  currentTime: 0,
+                                  duration: 0,
+                                });
+                              }
                               if (videoUrl === asset.url) {
                                 setVideoUrl(null);
                                 setVideoFileName('No media loaded');
@@ -4101,8 +4336,34 @@ export default function VideoEditorStudio() {
                         )}
                       </div>
                     </div>
-                  );
-                })}
+
+                    {/* Sound Playback Progress Bar so user can see progress & when it finishes */}
+                    {isAudio && (
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          if (rect.width > 0) {
+                            const ratio = (e.clientX - rect.left) / rect.width;
+                            seekPreviewSoundAsset(asset, ratio);
+                          }
+                        }}
+                        title="Click anywhere on the progress bar to seek sound"
+                        className="w-full h-1.5 bg-[#ded7c8] rounded-full overflow-hidden cursor-pointer"
+                      >
+                        <div
+                          style={{ width: `${audioProgressPct}%` }}
+                          className={`h-full rounded-full transition-[width] duration-75 ${
+                            isThisAudioFinished
+                              ? 'bg-[#50793e]'
+                              : 'bg-[#b82d23]'
+                          }`}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </aside>
