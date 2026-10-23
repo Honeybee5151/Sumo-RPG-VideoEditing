@@ -38,6 +38,8 @@ import {
   Plus,
   ZoomIn,
   ZoomOut,
+  Pencil,
+  Check,
 } from 'lucide-react';
 import {
   AI_PROVIDER_CATALOG,
@@ -1888,6 +1890,56 @@ export default function VideoEditorStudio() {
       imageHasAiTime,
       togglePreviewSoundAsset,
     ]
+  );
+
+  const [renamingAssetId, setRenamingAssetId] = useState<string | null>(null);
+  const [renamingAssetValue, setRenamingAssetValue] = useState<string>('');
+
+  const commitRenameAsset = useCallback(
+    (assetId: string, rawNewName: string) => {
+      const trimmed = rawNewName.trim();
+      setRenamingAssetId(null);
+      if (!trimmed) return;
+      recordHistorySnapshot();
+      setMediaLibrary((prev) =>
+        prev.map((item) => {
+          if (item.id !== assetId) return item;
+          const extMatch = item.name.match(
+            /\.(webm|mp3|wav|ogg|m4a|aac|flac|mp4|mov|mkv|avi|png|jpe?g|webp|gif|svg)$/i
+          );
+          const ext = extMatch ? extMatch[0] : '';
+          const nextName =
+            ext && !trimmed.toLowerCase().endsWith(ext.toLowerCase())
+              ? `${trimmed}${ext}`
+              : trimmed;
+          const updated = { ...item, name: nextName };
+          if (updated.inCurrentProject || updated.isFavorite) {
+            saveMediaAssetToDb(updated);
+          }
+          if (updated.isFavorite) {
+            saveFavoriteToDb(updated);
+          }
+          if (videoUrl === item.url || activeImageUrl === item.url) {
+            setVideoFileName(nextName);
+          }
+          return updated;
+        })
+      );
+      setEdits((prev) =>
+        prev.map((ed) =>
+          ed.params?.audioAssetId === assetId
+            ? {
+                ...ed,
+                params: {
+                  ...ed.params,
+                  audioAssetName: trimmed,
+                },
+              }
+            : ed
+        )
+      );
+    },
+    [recordHistorySnapshot, videoUrl, activeImageUrl]
   );
 
   const toggleFavoriteAsset = useCallback(
@@ -4297,10 +4349,13 @@ export default function VideoEditorStudio() {
                 return (
                   <div
                     key={asset.id}
-                    onClick={() => activateMediaAsset(asset)}
+                    onClick={() => {
+                      if (renamingAssetId === asset.id) return;
+                      activateMediaAsset(asset);
+                    }}
                     title={asset.name}
                     className={`w-full ${
-                      isAudio ? 'py-1.5 px-2' : 'h-9 px-2'
+                      isAudio ? 'py-1.5 px-1.5' : 'h-9 px-1.5'
                     } group flex flex-col justify-center gap-1 rounded-xl border transition cursor-pointer ${
                       isActive || isThisAudioPlaying
                         ? 'bg-[#f0ece1] border-[#26231f]'
@@ -4308,7 +4363,7 @@ export default function VideoEditorStudio() {
                     }`}
                   >
                     <div className="w-full flex items-center justify-between gap-1 min-w-0">
-                      <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                      <div className="flex-1 flex items-center gap-1 min-w-0">
                         {asset.category === 'video' ? (
                           <Film className="w-3.5 h-3.5 text-[#234c7a] shrink-0" />
                         ) : asset.category === 'image' ? (
@@ -4338,13 +4393,45 @@ export default function VideoEditorStudio() {
                             )}
                           </button>
                         )}
-                        <span className="text-[11px] font-medium text-[#26231f] overflow-hidden whitespace-nowrap text-clip">
-                          {displayAssetName}
-                        </span>
+                        {renamingAssetId === asset.id ? (
+                          <input
+                            type="text"
+                            value={renamingAssetValue}
+                            autoFocus
+                            onFocus={(e) => e.currentTarget.select()}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setRenamingAssetValue(e.target.value)}
+                            onBlur={() =>
+                              commitRenameAsset(asset.id, renamingAssetValue)
+                            }
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                commitRenameAsset(asset.id, renamingAssetValue);
+                              } else if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setRenamingAssetId(null);
+                              }
+                            }}
+                            className="flex-1 min-w-0 h-5 px-1 rounded bg-[#faf8f4] border border-[#26231f] text-[11px] font-medium text-[#26231f] outline-none"
+                          />
+                        ) : (
+                          <span
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingAssetId(asset.id);
+                              setRenamingAssetValue(displayAssetName);
+                            }}
+                            className="text-[11px] font-medium text-[#26231f] overflow-hidden whitespace-nowrap text-clip"
+                          >
+                            {displayAssetName}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-0.5 shrink-0">
-                        {isAudio && (
+                        {isAudio && renamingAssetId !== asset.id && (
                           <span
                             className={`text-[10px] font-mono tabular-nums px-0.5 rounded whitespace-nowrap ${
                               isThisAudioFinished
@@ -4368,6 +4455,36 @@ export default function VideoEditorStudio() {
 
                         <button
                           type="button"
+                          onMouseDown={(e) => {
+                            if (renamingAssetId === asset.id) {
+                              e.preventDefault();
+                            }
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (renamingAssetId === asset.id) {
+                              commitRenameAsset(asset.id, renamingAssetValue);
+                            } else {
+                              setRenamingAssetId(asset.id);
+                              setRenamingAssetValue(displayAssetName);
+                            }
+                          }}
+                          title={
+                            renamingAssetId === asset.id
+                              ? 'Save name'
+                              : `Rename ${asset.category === 'audio' ? 'sound' : asset.category}`
+                          }
+                          className="w-4 h-4 flex items-center justify-center rounded hover:bg-black/5 text-[#8c8277] hover:text-[#26231f] cursor-pointer"
+                        >
+                          {renamingAssetId === asset.id ? (
+                            <Check className="w-2.5 h-2.5 text-[#50793e]" />
+                          ) : (
+                            <Pencil className="w-2.5 h-2.5" />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             toggleFavoriteAsset(asset.id);
@@ -4377,10 +4494,10 @@ export default function VideoEditorStudio() {
                               ? 'Remove from Favorites'
                               : 'Save to Favorites (persisted across sessions)'
                           }
-                          className="w-5 h-5 flex items-center justify-center rounded hover:bg-black/5 cursor-pointer"
+                          className="w-4 h-4 flex items-center justify-center rounded hover:bg-black/5 cursor-pointer"
                         >
                           <Star
-                            className={`w-3 h-3 ${
+                            className={`w-2.5 h-2.5 ${
                               asset.isFavorite
                                 ? 'text-[#c6923a] fill-[#c6923a]'
                                 : 'text-[#8c8277]'
@@ -4436,9 +4553,9 @@ export default function VideoEditorStudio() {
                               );
                             }}
                             title="Remove from project"
-                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
+                            className="w-4 h-4 flex items-center justify-center rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
                           >
-                            <Trash2 className="w-3 h-3" />
+                            <Trash2 className="w-2.5 h-2.5" />
                           </button>
                         )}
                       </div>
