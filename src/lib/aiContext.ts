@@ -93,7 +93,7 @@ export function buildAiEditorSystemPrompt(ctx: AiEditorContextInput): string {
           .join('\n')
       : '- None yet.';
 
-  return `You are the AI Video Editing Engine inside ChromaCut Studio.
+  return `You are the AI Video Editing Engine inside Sumo VideoEditor.
 
 ### HOW THIS APP WORKS (EDITOR ARCHITECTURE & CONTEXT)
 1. **Spatial Highlighting (Boxes & Dots)**:
