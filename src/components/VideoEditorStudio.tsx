@@ -116,7 +116,7 @@ export default function VideoEditorStudio() {
 
   // Screen Drawing / Multi-Color Annotation state
   const [activeColor, setActiveColor] = useState<MarkColor>('red');
-  const [focusedColor, setFocusedColor] = useState<MarkColor | 'all'>('red');
+  const [focusedColor, setFocusedColor] = useState<MarkColor | 'all'>('all');
   const [activeTool, setActiveTool] = useState<DrawingTool>('rect');
   const [annotations, setAnnotations] = useState<ScreenAnnotation[]>([]);
   const [currentStroke, setCurrentStroke] = useState<NormalizedPoint[] | null>(null);
@@ -943,14 +943,14 @@ export default function VideoEditorStudio() {
       startTime: intervalStart,
       endTime: intervalEnd,
     };
-    const nextTimeframeAnns = [...timeframeAnnotations, newAnnotation];
-    setAnnotations((prev) => [...prev, newAnnotation]);
+    const nextAllAnns = [...annotations, newAnnotation];
+    setAnnotations(nextAllAnns);
     setCurrentStroke(null);
 
-    // Connect the Bottom AI Bar to the color just drawn, while queueing the next unused color for the next drag
+    // Connect the Bottom AI Bar to the color just drawn, while algorithmically picking a maximally distinct next color
     setFocusedColor(drawnColor);
     if (activeTool !== 'arrow') {
-      const nextColor = getNextHighlightColor(nextTimeframeAnns);
+      const nextColor = getNextHighlightColor(nextAllAnns, [drawnColor]);
       setActiveColor(nextColor);
     }
   };
@@ -1555,7 +1555,7 @@ export default function VideoEditorStudio() {
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* LEFT / CENTER: STAGE, HIGHLIGHT BAR, PROMPT BAR, TIMELINE */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#f4f1ea]">
-          {/* CLEAN TOOL & VIEW BAR (No redundant color lists here) */}
+          {/* CLEAN TOOL & VIEW BAR (Colors are picked automatically via Max-Min perceptual distance) */}
           <div className="h-11 border-b border-[#ded7c8] bg-[#faf8f4] px-4 flex items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2">
               <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
@@ -1579,21 +1579,6 @@ export default function VideoEditorStudio() {
                   </button>
                 ))}
               </div>
-
-              <span className="text-xs text-[#6e655c] flex items-center gap-1.5 pl-2">
-                <span>Drawing color:</span>
-                <button
-                  onClick={handleCycleHighlightColor}
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] text-[#26231f] font-medium cursor-pointer"
-                  title="Click to cycle next drawing color"
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: MARK_COLORS[activeColor].hex }}
-                  />
-                  <span>{MARK_COLORS[activeColor].name}</span>
-                </button>
-              </span>
             </div>
 
             {/* Right: View Controls */}
@@ -1714,7 +1699,8 @@ export default function VideoEditorStudio() {
                       if (ann.tool === 'dot') {
                         const dcx = ann.bbox.cx * 1000;
                         const dcy = ann.bbox.cy * 562.5;
-                        const dotLabelX = Math.max(4, Math.min(880, dcx - 47));
+                        const dotBadgeW = Math.max(56, Math.round(cfg.name.length * 6.2 + 20));
+                        const dotLabelX = Math.max(4, Math.min(975 - dotBadgeW, dcx - dotBadgeW / 2));
                         const dotLabelY = Math.max(4, dcy - 36);
                         return (
                           <g key={ann.id}>
@@ -1778,20 +1764,20 @@ export default function VideoEditorStudio() {
                               <rect
                                 x={dotLabelX}
                                 y={dotLabelY}
-                                width={94}
+                                width={dotBadgeW}
                                 height={18}
                                 rx={4}
                                 fill={cfg.hex}
                               />
                               <text
-                                x={dotLabelX + 47}
+                                x={dotLabelX + dotBadgeW / 2}
                                 y={dotLabelY + 12.5}
-                                fill="#ffffff"
+                                fill={cfg.textColorHex}
                                 fontSize="10"
                                 fontWeight="600"
                                 textAnchor="middle"
                               >
-                                ● {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
+                                ● {cfg.name}
                               </text>
                             </g>
 
@@ -1801,7 +1787,7 @@ export default function VideoEditorStudio() {
                               className="cursor-pointer"
                             >
                               <rect
-                                x={dotLabelX + 96}
+                                x={dotLabelX + dotBadgeW + 2}
                                 y={dotLabelY}
                                 width={18}
                                 height={18}
@@ -1809,7 +1795,7 @@ export default function VideoEditorStudio() {
                                 fill="#26231f"
                               />
                               <text
-                                x={dotLabelX + 105}
+                                x={dotLabelX + dotBadgeW + 11}
                                 y={dotLabelY + 13}
                                 fill="#ffffff"
                                 fontSize="12"
@@ -1875,6 +1861,7 @@ export default function VideoEditorStudio() {
                       ];
 
                       const labelY = Math.max(4, by - 22);
+                      const boxBadgeW = Math.max(52, Math.round(cfg.name.length * 6.2 + 14));
 
                       return (
                         <g key={ann.id}>
@@ -1912,20 +1899,20 @@ export default function VideoEditorStudio() {
                             <rect
                               x={bx}
                               y={labelY}
-                              width={94}
+                              width={boxBadgeW}
                               height={18}
                               rx={4}
                               fill={cfg.hex}
                             />
                             <text
-                              x={bx + 47}
+                              x={bx + boxBadgeW / 2}
                               y={labelY + 12.5}
-                              fill="#ffffff"
+                              fill={cfg.textColorHex}
                               fontSize="10"
                               fontWeight="600"
                               textAnchor="middle"
                             >
-                              {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
+                              {cfg.name}
                             </text>
                           </g>
 
@@ -1935,7 +1922,7 @@ export default function VideoEditorStudio() {
                             className="cursor-pointer"
                           >
                             <rect
-                              x={bx + 96}
+                              x={bx + boxBadgeW + 2}
                               y={labelY}
                               width={18}
                               height={18}
@@ -1943,7 +1930,7 @@ export default function VideoEditorStudio() {
                               fill="#26231f"
                             />
                             <text
-                              x={bx + 105}
+                              x={bx + boxBadgeW + 11}
                               y={labelY + 13}
                               fill="#ffffff"
                               fontSize="12"
@@ -2048,7 +2035,11 @@ export default function VideoEditorStudio() {
             <div className="max-w-5xl mx-auto flex items-center gap-2">
               {focusedColor !== 'all' ? (
                 <div
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shrink-0 ${MARK_COLORS[focusedColor].badgeBg} ${MARK_COLORS[focusedColor].badgeText}`}
+                  style={{
+                    backgroundColor: MARK_COLORS[focusedColor].hex,
+                    color: MARK_COLORS[focusedColor].textColorHex,
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shrink-0"
                 >
                   <span
                     className="w-2 h-2 rounded-full border border-white/70"
@@ -2293,8 +2284,10 @@ export default function VideoEditorStudio() {
                       style={{
                         marginLeft: `${leftPct}%`,
                         width: `${widthPct}%`,
+                        backgroundColor: cfg.hex,
+                        color: cfg.textColorHex,
                       }}
-                      className={`relative h-7 pl-4 pr-8 flex items-center justify-between text-xs font-medium rounded-md ring-2 ring-[#26231f] transition cursor-grab active:cursor-grabbing select-none ${cfg.badgeBg} ${cfg.badgeText}`}
+                      className="relative h-7 pl-4 pr-8 flex items-center justify-between text-xs font-medium rounded-md ring-2 ring-[#26231f] transition cursor-grab active:cursor-grabbing select-none"
                     >
                       {/* Left Stretch Handle */}
                       <div
@@ -2373,7 +2366,7 @@ export default function VideoEditorStudio() {
               <div className="flex items-center gap-2">
                 <Layers className="w-3.5 h-3.5 text-[#6e655c]" />
                 <h2 className="text-xs font-semibold text-[#26231f]">
-                  Colors ({allColorGroups.length}/{COLOR_PROGRESSION.length}) & Edits ({edits.length})
+                  Colors ({allColorGroups.length}) & Edits ({edits.length})
                 </h2>
               </div>
               <div className="flex items-center gap-2">
@@ -2401,47 +2394,28 @@ export default function VideoEditorStudio() {
               </div>
             </div>
 
-            {/* Color Variety Strip: Shows all 6 available colors, which ones are placed, and lets user click to select/draw */}
-            <div className="flex items-center justify-between gap-1 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-1">
-              {COLOR_PROGRESSION.map((c) => {
-                const cfg = MARK_COLORS[c];
-                const placedGroup = allColorGroups.find((cg) => cg.color === c);
-                const isSelected = focusedColor === c;
-                return (
-                  <button
-                    key={c}
-                    onClick={() => {
-                      if (placedGroup) {
-                        selectColorForAi(c);
-                      } else {
-                        setActiveColor(c);
-                        setFocusedColor(c);
-                      }
-                    }}
-                    title={
-                      placedGroup
-                        ? `${cfg.name} (Placed: ${placedGroup.startTime.toFixed(1)}s–${placedGroup.endTime.toFixed(1)}s)`
-                        : `Select ${cfg.name} for next drawing`
-                    }
-                    className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-[11px] font-medium transition cursor-pointer ${
-                      isSelected
-                        ? 'bg-[#26231f] text-white'
-                        : placedGroup
-                        ? 'bg-[#faf8f4] text-[#26231f] border border-[#d6cfc2]'
-                        : 'text-[#8c8277] hover:text-[#26231f]'
-                    }`}
-                  >
-                    <span
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
+            {/* Placed Color Variety Mosaic (only displays placed colors — drawing colors are picked automatically) */}
+            {allColorGroups.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-1.5 max-h-16 overflow-y-auto">
+                {allColorGroups.map((cg) => {
+                  const cfg = MARK_COLORS[cg.color];
+                  const isSelected = focusedColor === cg.color;
+                  return (
+                    <button
+                      key={cg.color}
+                      onClick={() => selectColorForAi(cg.color)}
+                      title={`${cfg.name} (${cg.startTime.toFixed(1)}s–${cg.endTime.toFixed(1)}s)`}
                       style={{ backgroundColor: cfg.hex }}
+                      className={`w-4 h-4 rounded-full transition cursor-pointer ${
+                        isSelected
+                          ? 'ring-2 ring-[#26231f] scale-110'
+                          : 'opacity-80 hover:opacity-100'
+                      }`}
                     />
-                    {placedGroup && (
-                      <span className="text-[9px] font-mono opacity-80">✓</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Scrollable List of Placed Colors & Their Connected Edits */}

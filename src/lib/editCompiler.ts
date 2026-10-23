@@ -3,6 +3,7 @@ import {
   COLOR_PROGRESSION,
   ColorGroupSummary,
   DrawingTool,
+  MARK_COLORS,
   MarkColor,
   NormalizedPoint,
   ScreenAnnotation,
@@ -186,8 +187,9 @@ export function getInterpolatedAnnotations(
 
 export function summarizeColorGroups(annotations: ScreenAnnotation[]): ColorGroupSummary[] {
   const summaries: ColorGroupSummary[] = [];
+  const uniqueColors = Array.from(new Set(annotations.map((a) => a.color)));
 
-  for (const color of COLOR_PROGRESSION) {
+  for (const color of uniqueColors) {
     const matching = annotations.filter((a) => a.color === color);
     if (matching.length > 0) {
       const sorted = [...matching].sort((a, b) => a.createdAtTime - b.createdAtTime);
@@ -244,23 +246,23 @@ function detectTargetColorInClause(
   clause: string,
   availableColors: MarkColor[]
 ): MarkColor | 'all' {
+  if (availableColors.length === 1) {
+    return availableColors[0];
+  }
   const lower = clause.toLowerCase();
-  for (const c of COLOR_PROGRESSION) {
-    const regex = new RegExp(
-      `\\b${c}\\s*(area|region|zone|mark|marking|drawing|box|circle|spot|object|part|selection|stroke|arrow|line|one|target|highlight)?\\b`,
-      'i'
-    );
-    if (regex.test(lower) && availableColors.includes(c)) {
+  for (const c of availableColors) {
+    const cfgName = MARK_COLORS[c]?.name?.toLowerCase() || '';
+    if (
+      lower.includes(c.toLowerCase()) ||
+      (cfgName && lower.includes(cfgName))
+    ) {
       return c;
     }
   }
-  for (const c of COLOR_PROGRESSION) {
+  for (const c of COLOR_PROGRESSION.slice(0, 16)) {
     if (new RegExp(`\\b${c}\\b`, 'i').test(lower)) {
       return c;
     }
-  }
-  if (availableColors.length === 1) {
-    return availableColors[0];
   }
   return availableColors[0] ?? 'all';
 }
