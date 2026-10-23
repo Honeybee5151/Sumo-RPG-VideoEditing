@@ -2697,13 +2697,13 @@ export default function VideoEditorStudio() {
                                 strokeWidth={2}
                               />
 
-                              {/* Dot Color Label Badge */}
+                              {/* Dot Color Label Badge (Circular Pill) */}
                               <rect
                                 x={dotLabelX}
                                 y={dotLabelY}
                                 width={dotBadgeW}
                                 height={18}
-                                rx={4}
+                                rx={9}
                                 fill={cfg.hex}
                               />
                               <text
@@ -2718,17 +2718,15 @@ export default function VideoEditorStudio() {
                               </text>
                             </g>
 
-                            {/* Delete Button (×) for Dot */}
+                            {/* Circular Delete Button (×) for Dot */}
                             <g
                               onPointerDown={removeSingleAnnotation}
                               className="cursor-pointer"
                             >
-                              <rect
-                                x={dotLabelX + dotBadgeW + 2}
-                                y={dotLabelY}
-                                width={18}
-                                height={18}
-                                rx={4}
+                              <circle
+                                cx={dotLabelX + dotBadgeW + 11}
+                                cy={dotLabelY + 9}
+                                r={9}
                                 fill="#26231f"
                               />
                               <text
@@ -3679,6 +3677,7 @@ export default function VideoEditorStudio() {
                   );
                   const hasDot = colorAnns.some((a) => a.tool === 'dot');
                   const hasBox = colorAnns.some((a) => a.tool !== 'dot');
+                  const isDotOnly = hasDot && !hasBox;
                   const shapeLabel =
                     hasDot && hasBox ? 'Box+Dot' : hasDot ? 'Dot' : 'Box';
                   const colorEdits = edits.filter(
@@ -3689,7 +3688,13 @@ export default function VideoEditorStudio() {
                     <div
                       key={cg.color}
                       onClick={() => selectColorForAi(cg.color)}
-                      className={`w-full p-2.5 rounded-xl border transition cursor-pointer space-y-2 shrink-0 overflow-hidden ${
+                      className={`w-full border transition cursor-pointer space-y-2 shrink-0 overflow-hidden ${
+                        isDotOnly
+                          ? colorEdits.length > 0
+                            ? 'p-2.5 rounded-3xl'
+                            : 'px-3.5 py-2.5 rounded-full'
+                          : 'p-2.5 rounded-md'
+                      } ${
                         isFocused
                           ? 'bg-[#f0ece1] border-[#26231f]'
                           : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
@@ -3697,16 +3702,48 @@ export default function VideoEditorStudio() {
                     >
                       <div className="h-6 flex items-center justify-between gap-1.5 overflow-hidden">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <span
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: cfg.hex }}
-                          />
+                          {isDotOnly ? (
+                            <span
+                              className="w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0"
+                              style={{
+                                borderColor: cfg.hex,
+                                backgroundColor: cfg.fillRgba,
+                              }}
+                              title="Dot marker"
+                            >
+                              <span
+                                className="w-1.5 h-1.5 rounded-full"
+                                style={{ backgroundColor: cfg.hex }}
+                              />
+                            </span>
+                          ) : (
+                            <span
+                              className="w-3.5 h-3.5 rounded-[2px] border-2 shrink-0"
+                              style={{
+                                borderColor: cfg.hex,
+                                backgroundColor: cfg.fillRgba,
+                              }}
+                              title="Box marker"
+                            />
+                          )}
                           <span className="text-[11px] font-semibold text-[#26231f] truncate">
                             {cfg.name}
                           </span>
-                          <span className="w-12 min-w-[3rem] max-w-[3rem] text-center py-0.5 rounded bg-[#faf8f4] border border-[#d6cfc2] text-[9px] font-medium text-[#6e655c] truncate shrink-0">
-                            {shapeLabel}
-                          </span>
+                          {isDotOnly ? (
+                            <span
+                              className="w-6 h-6 min-w-[1.5rem] max-w-[1.5rem] rounded-full bg-[#faf8f4] border border-[#d6cfc2] flex items-center justify-center text-[9px] font-semibold text-[#6e655c] shrink-0"
+                              title="Dot indicator (Circle)"
+                            >
+                              Dot
+                            </span>
+                          ) : (
+                            <span
+                              className="w-11 min-w-[2.75rem] max-w-[2.75rem] text-center py-0.5 rounded-[2px] bg-[#faf8f4] border border-[#d6cfc2] text-[9px] font-medium text-[#6e655c] truncate shrink-0"
+                              title="Box indicator (Rectangle)"
+                            >
+                              {shapeLabel}
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
