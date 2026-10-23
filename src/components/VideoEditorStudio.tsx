@@ -1228,11 +1228,14 @@ export default function VideoEditorStudio() {
     }
   };
 
-  // Highlights visible at the current playhead timestamp (`currentTime`) as you scrub or play the timeline
+  // Highlights visible at the current playhead timestamp (`currentTime`), plus the actively focused color while paused so the Red Playhead and color bar are 100% independent
   const timeframeAnnotations = annotations.filter((a) => {
     const s = a.startTime ?? 0;
     const e = a.endTime ?? duration;
-    return currentTime >= s - 0.05 && currentTime <= e + 0.05;
+    return (
+      (currentTime >= s - 0.05 && currentTime <= e + 0.05) ||
+      (!isPlaying && focusedColor !== 'all' && a.color === focusedColor)
+    );
   });
 
   // Automatically pick the next unused distinct color whenever the timeframe changes
@@ -1484,17 +1487,11 @@ export default function VideoEditorStudio() {
             setIntervalEnd(e);
             setDraftIntervalStart(s.toFixed(1));
             setDraftIntervalEnd(e.toFixed(1));
-            if (currentTime < s - 0.05 || currentTime > e + 0.05) {
-              setCurrentTime(s);
-              if (videoRef.current && videoUrl) {
-                videoRef.current.currentTime = s;
-              }
-            }
           }
         }
       }
     },
-    [annotations, currentTime, videoUrl]
+    [annotations]
   );
 
   const commitCustomInterval = useCallback(
@@ -1517,10 +1514,6 @@ export default function VideoEditorStudio() {
           setIntervalStart(clampedStart);
           setIntervalEnd(clampedEnd);
         }
-        setCurrentTime(clampedStart);
-        if (videoRef.current && videoUrl) {
-          videoRef.current.currentTime = clampedStart;
-        }
         if (closeEditor) {
           setDraftIntervalStart(clampedStart.toFixed(1));
           setDraftIntervalEnd(clampedEnd.toFixed(1));
@@ -1530,7 +1523,7 @@ export default function VideoEditorStudio() {
         setIsEditingIntervalBadge(false);
       }
     },
-    [duration, focusedColor, stretchColorInterval, videoUrl]
+    [duration, focusedColor, stretchColorInterval]
   );
 
   const handleCanvasPointerUp = () => {
@@ -1781,17 +1774,9 @@ export default function VideoEditorStudio() {
         if (edge === 'start') {
           const nextStart = Math.min(t, curEnd - 0.3);
           stretchColorInterval(color, nextStart, curEnd);
-          setCurrentTime(nextStart);
-          if (videoRef.current && videoUrl) {
-            videoRef.current.currentTime = nextStart;
-          }
         } else if (edge === 'end') {
           const nextEnd = Math.max(t, curStart + 0.3);
           stretchColorInterval(color, curStart, nextEnd);
-          setCurrentTime(nextEnd);
-          if (videoRef.current && videoUrl) {
-            videoRef.current.currentTime = nextEnd;
-          }
         } else if (
           edge === 'move' &&
           initialStart !== undefined &&
@@ -1806,12 +1791,6 @@ export default function VideoEditorStudio() {
           );
           const nextEnd = nextStart + span;
           stretchColorInterval(color, nextStart, nextEnd);
-          if (currentTime < nextStart || currentTime > nextEnd) {
-            setCurrentTime(nextStart);
-            if (videoRef.current && videoUrl) {
-              videoRef.current.currentTime = nextStart;
-            }
-          }
         }
         return;
       }
@@ -1825,7 +1804,6 @@ export default function VideoEditorStudio() {
         } else {
           setIntervalStart(nextStart);
         }
-        setCurrentTime(t);
       } else if (draggingHandleRef.current === 'end') {
         const nextEnd = Math.max(t, intervalStart + 0.3);
         if (focusedColor !== 'all') {
@@ -1833,7 +1811,6 @@ export default function VideoEditorStudio() {
         } else {
           setIntervalEnd(nextEnd);
         }
-        setCurrentTime(t);
       } else if (draggingHandleRef.current === 'playhead') {
         setCurrentTime(t);
         if (videoRef.current && videoUrl) {
@@ -3672,7 +3649,6 @@ export default function VideoEditorStudio() {
                           setFocusedColor('all');
                           setIntervalStart(edit.startTime);
                           setIntervalEnd(edit.endTime);
-                          setCurrentTime(edit.startTime);
                         }}
                         className={`p-2.5 rounded-xl border transition cursor-pointer ${
                           isSelected
