@@ -2463,9 +2463,18 @@ export default function VideoEditorStudio() {
             </div>
           </div>
 
-          {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY (Locked Stage Geometry — Never Shifts on Resolution Switch) */}
-          <div className="flex-1 relative p-3 min-h-0 overflow-hidden bg-[#ebe6dc]">
-            <div className="relative w-full h-full rounded-xl border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden">
+          {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY (Strict 16:9 Fit Inside Locked Container — Never Stretched & Never Shifts) */}
+          <div
+            style={{ containerType: 'size' }}
+            className="flex-1 relative flex items-center justify-center p-3 min-h-0 overflow-hidden bg-[#ebe6dc]"
+          >
+            <div
+              style={{
+                width: 'min(100cqw, calc(100cqh * 16 / 9))',
+                height: 'min(100cqh, calc(100cqw * 9 / 16))',
+              }}
+              className="relative rounded-xl border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden shrink-0"
+            >
               <canvas
                 ref={displayCanvasRef}
                 width={1280}
