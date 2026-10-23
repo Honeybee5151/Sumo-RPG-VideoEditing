@@ -14,11 +14,95 @@ import {
 
 const svgImageCache = new Map<string, HTMLImageElement>();
 
+// Temporal frame history ring buffer & per-edit runtime state for AI Studio Control Engine
+interface FrameHistoryEntry {
+  t: number;
+  canvas: HTMLCanvasElement;
+}
+const MAX_HISTORY_FRAMES = 32;
+const frameHistoryBuffer: FrameHistoryEntry[] = [];
+let lastHistoryCaptureTime = -999;
+const editRuntimeStateMap = new Map<string, Record<string, unknown>>();
+let dynamicPlaybackRateOverride: { rate: number; expiresAtWallMs: number } | null = null;
+
+export function getDynamicAiPlaybackRate(): number | null {
+  if (!dynamicPlaybackRateOverride) return null;
+  if (
+    typeof performance !== 'undefined' &&
+    performance.now() > dynamicPlaybackRateOverride.expiresAtWallMs
+  ) {
+    dynamicPlaybackRateOverride = null;
+    return null;
+  }
+  return dynamicPlaybackRateOverride.rate;
+}
+
+function captureFrameIntoHistory(
+  sourceCanvas: HTMLCanvasElement,
+  currentTime: number,
+  width: number,
+  height: number
+) {
+  if (typeof document === 'undefined' || width <= 0 || height <= 0) return;
+  // Reset history if user seeked backward significantly
+  if (
+    frameHistoryBuffer.length > 0 &&
+    currentTime < frameHistoryBuffer[frameHistoryBuffer.length - 1].t - 0.5
+  ) {
+    frameHistoryBuffer.length = 0;
+    lastHistoryCaptureTime = -999;
+  }
+  if (Math.abs(currentTime - lastHistoryCaptureTime) < 0.045 && frameHistoryBuffer.length > 0) {
+    return;
+  }
+  lastHistoryCaptureTime = currentTime;
+
+  let entry: FrameHistoryEntry;
+  if (frameHistoryBuffer.length >= MAX_HISTORY_FRAMES) {
+    entry = frameHistoryBuffer.shift()!;
+    entry.t = currentTime;
+  } else {
+    const c = document.createElement('canvas');
+    c.width = width;
+    c.height = height;
+    entry = { t: currentTime, canvas: c };
+  }
+  if (entry.canvas.width !== width) entry.canvas.width = width;
+  if (entry.canvas.height !== height) entry.canvas.height = height;
+  const hCtx = entry.canvas.getContext('2d');
+  if (hCtx) {
+    hCtx.clearRect(0, 0, width, height);
+    hCtx.drawImage(sourceCanvas, 0, 0, width, height);
+  }
+  frameHistoryBuffer.push(entry);
+}
+
+function getHistoricalFrameCanvas(
+  secondsAgo: number,
+  currentTime: number,
+  fallbackCanvas: HTMLCanvasElement
+): HTMLCanvasElement {
+  if (frameHistoryBuffer.length === 0 || secondsAgo <= 0) return fallbackCanvas;
+  const targetT = currentTime - secondsAgo;
+  let best = frameHistoryBuffer[0];
+  let bestDiff = Math.abs(best.t - targetT);
+  for (let i = 1; i < frameHistoryBuffer.length; i++) {
+    const cand = frameHistoryBuffer[i];
+    const diff = Math.abs(cand.t - targetT);
+    if (diff < bestDiff) {
+      best = cand;
+      bestDiff = diff;
+    }
+  }
+  return best.canvas;
+}
+
 type AiCompiledRenderFn = (
   ctx: CanvasRenderingContext2D,
   env: {
     ctx: CanvasRenderingContext2D;
     sourceCanvas: HTMLCanvasElement;
+    state: Record<string, unknown>;
     cx: number;
     cy: number;
     x: number;
@@ -42,6 +126,14 @@ type AiCompiledRenderFn = (
       dw?: number,
       dh?: number
     ) => void;
+    holdFrame: (stepSeconds?: number) => HTMLCanvasElement;
+    getPastFrame: (secondsAgo?: number) => HTMLCanvasElement;
+    lagEffect: (intensity?: number) => void;
+    glitchSlices: (intensity?: number, sliceCount?: number) => void;
+    shakeScreen: (intensityPx?: number) => void;
+    zoomFrame: (scaleFactor?: number, focusX?: number, focusY?: number) => void;
+    clearFrame: (color?: string) => void;
+    setPlaybackRate: (rate: number) => void;
   }
 ) => void;
 
@@ -65,7 +157,7 @@ function getOrCompileRenderCode(rawCode: string): AiCompiledRenderFn | null {
     const fn = new Function(
       'ctx',
       'env',
-      `const { sourceCanvas, cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, drawSvg } = env;\n${body}`
+      `const { sourceCanvas, state, cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, drawSvg, holdFrame, getPastFrame, lagEffect, glitchSlices, shakeScreen, zoomFrame, clearFrame, setPlaybackRate } = env;\n${body}`
     ) as AiCompiledRenderFn;
     renderCodeCache.set(trimmed, fn);
     return fn;
@@ -818,6 +910,7 @@ export function renderCompositedFrame(
   mainCtx.scale(scale, scale);
   mainCtx.translate(-focusX * width, -focusY * height);
 
+  captureFrameIntoHistory(sourceCanvas, currentTime, width, height);
   mainCtx.drawImage(sourceCanvas, 0, 0, width, height);
 
   for (const edit of activeEdits) {
@@ -952,10 +1045,19 @@ export function renderCompositedFrame(
 
     // 6. OPEN-ENDED AI CUSTOM SHADER, PARTICLES, VECTOR SVG & PROCEDURAL CANVAS ENGINE
     const editCombinedText = `${edit.prompt || ''} ${edit.summary || ''}`.toLowerCase();
+    const isLagEdit =
+      /\b(lag|lagging|laggy|stutter|stuttering|choppy|frame\s*drop|low\s*fps|rubberband|buffering)\b/i.test(
+        editCombinedText
+      );
     const effectiveRenderCode =
-      /\b(bounce|bouncing)\b/i.test(editCombinedText) &&
+      isLagEdit &&
       (!params.renderCode ||
-        /\bprogress\s*\*\s*bounces\b/.test(params.renderCode))
+        /\b__lagEchoBuf\b/.test(params.renderCode) ||
+        !/\b(lagEffect|holdFrame|getPastFrame)\b/.test(params.renderCode))
+        ? `lagEffect(1.0);`
+        : /\b(bounce|bouncing)\b/i.test(editCombinedText) &&
+          (!params.renderCode ||
+            /\bprogress\s*\*\s*bounces\b/.test(params.renderCode))
         ? `const phase = elapsed * 8.5;\nconst bounce = Math.abs(Math.sin(phase));\nconst offsetY = -bounce * 64 * scale;\nconst squash = 1 + Math.cos(phase * 2) * 0.045;\nctx.fillStyle = '#000000';\nctx.fillRect(0, 0, width, height);\nctx.save();\nctx.translate(width / 2, height / 2 + offsetY);\nctx.scale(1 / squash, squash);\nctx.translate(-width / 2, -height / 2);\nctx.drawImage(sourceCanvas, 0, 0, width, height);\nctx.restore();`
         : params.renderCode;
 
@@ -1204,9 +1306,208 @@ export function renderCompositedFrame(
               )
             : trackedCyPx;
 
+          let editState = editRuntimeStateMap.get(edit.id);
+          if (!editState) {
+            editState = {};
+            editRuntimeStateMap.set(edit.id, editState);
+          }
+
+          const setPlaybackRateFn = (rate: number) => {
+            const clamped = Math.max(0.0625, Math.min(4.0, Number(rate) || 1.0));
+            dynamicPlaybackRateOverride = {
+              rate: clamped,
+              expiresAtWallMs:
+                (typeof performance !== 'undefined' ? performance.now() : Date.now()) +
+                160,
+            };
+          };
+
+          const holdFrameFn = (stepSeconds = 0.3): HTMLCanvasElement => {
+            if (typeof document === 'undefined') return sourceCanvas;
+            const step = Math.max(0.05, stepSeconds);
+            const bucket = Math.floor(elapsed / step);
+            let heldCanvas = editState!.__heldCanvas as HTMLCanvasElement | undefined;
+            if (
+              !heldCanvas ||
+              heldCanvas.width !== width ||
+              heldCanvas.height !== height
+            ) {
+              heldCanvas = document.createElement('canvas');
+              heldCanvas.width = width;
+              heldCanvas.height = height;
+              editState!.__heldCanvas = heldCanvas;
+              editState!.__heldBucket = -1;
+            }
+            if (editState!.__heldBucket !== bucket) {
+              editState!.__heldBucket = bucket;
+              const hCtx = heldCanvas.getContext('2d');
+              if (hCtx) {
+                hCtx.clearRect(0, 0, width, height);
+                // Every 3rd bucket, snap to a slightly older frame from history for authentic rubberband lag
+                const srcToHold =
+                  bucket % 3 === 2
+                    ? getHistoricalFrameCanvas(0.42, currentTime, sourceCanvas)
+                    : sourceCanvas;
+                hCtx.drawImage(srcToHold, 0, 0, width, height);
+              }
+            }
+            return heldCanvas;
+          };
+
+          const getPastFrameFn = (secondsAgo = 0.35): HTMLCanvasElement =>
+            getHistoricalFrameCanvas(secondsAgo, currentTime, sourceCanvas);
+
+          const clearFrameFn = (color = '#000000') => {
+            mainCtx.save();
+            mainCtx.fillStyle = color;
+            mainCtx.fillRect(0, 0, width, height);
+            mainCtx.restore();
+          };
+
+          const glitchSlicesFn = (intensity = 1.0, sliceCount = 9) => {
+            const count = Math.max(2, Math.min(24, Math.round(sliceCount)));
+            const hash = (n: number) => {
+              const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+              return s - Math.floor(s);
+            };
+            const timeSeed = Math.floor(elapsed * 14);
+            mainCtx.save();
+            for (let i = 0; i < count; i++) {
+              const r1 = hash(timeSeed * 13 + i * 7.3);
+              if (r1 < 0.32) continue;
+              const sy = Math.floor(hash(timeSeed * 5 + i * 3.1) * height);
+              const sh = Math.max(
+                6,
+                Math.floor((0.02 + hash(timeSeed * 11 + i) * 0.09) * height)
+              );
+              const shiftX =
+                (hash(timeSeed * 19 + i * 2.7) - 0.5) * 68 * intensity * resScale;
+              mainCtx.drawImage(
+                sourceCanvas,
+                0,
+                sy,
+                width,
+                sh,
+                shiftX,
+                sy,
+                width,
+                sh
+              );
+              if (r1 > 0.65) {
+                mainCtx.globalCompositeOperation = 'screen';
+                mainCtx.fillStyle =
+                  i % 2 === 0
+                    ? `rgba(255, 40, 70, ${0.22 * intensity})`
+                    : `rgba(0, 220, 255, ${0.22 * intensity})`;
+                mainCtx.fillRect(shiftX, sy, width, Math.max(3, sh * 0.35));
+                mainCtx.globalCompositeOperation = 'source-over';
+              }
+            }
+            mainCtx.restore();
+          };
+
+          const shakeScreenFn = (intensityPx = 22) => {
+            const amp = intensityPx * resScale;
+            const dx =
+              (Math.sin(elapsed * 52) + Math.cos(elapsed * 83) * 0.6) * amp;
+            const dy =
+              (Math.cos(elapsed * 61) + Math.sin(elapsed * 97) * 0.6) * amp;
+            clearFrameFn('#000000');
+            mainCtx.save();
+            mainCtx.translate(dx, dy);
+            mainCtx.drawImage(sourceCanvas, 0, 0, width, height);
+            mainCtx.restore();
+          };
+
+          const zoomFrameFn = (
+            scaleFactor = 1.6,
+            fx = effectiveCx,
+            fy = effectiveCy
+          ) => {
+            clearFrameFn('#000000');
+            mainCtx.save();
+            mainCtx.translate(fx, fy);
+            mainCtx.scale(scaleFactor, scaleFactor);
+            mainCtx.translate(-fx, -fy);
+            mainCtx.drawImage(sourceCanvas, 0, 0, width, height);
+            mainCtx.restore();
+          };
+
+          const lagEffectFn = (intensity = 1.0) => {
+            // Choppy 3.2 FPS frame-freeze + periodic rubberband jump + packet-loss horizontal slice tears + hitching playback speed
+            const stepSec = Math.max(0.18, 0.32 / Math.max(0.4, intensity));
+            const held = holdFrameFn(stepSec);
+            const bucket = Math.floor(elapsed / stepSec);
+            const subPhase = (elapsed % stepSec) / stepSec;
+            const isJumpMoment = subPhase < 0.24;
+            const isSevereSpike = bucket % 3 === 1;
+
+            // Hitch underlying video playback rate between freeze-stall (0.12x) and catch-up snap (1.65x)
+            setPlaybackRateFn(isSevereSpike ? 0.12 : isJumpMoment ? 1.65 : 0.35);
+
+            const hash = (n: number) => {
+              const s = Math.sin(n * 91.7 + 17.3) * 43758.5453;
+              return s - Math.floor(s);
+            };
+            const jitterX =
+              isJumpMoment || isSevereSpike
+                ? (hash(bucket * 7.1) - 0.5) * 42 * intensity * resScale
+                : 0;
+            const jitterY =
+              isJumpMoment || isSevereSpike
+                ? (hash(bucket * 13.3) - 0.5) * 18 * intensity * resScale
+                : 0;
+
+            clearFrameFn('#000000');
+            mainCtx.save();
+            // Draw the frozen held frame (so motion visibly stops for 0.32s at a time then snaps!)
+            mainCtx.drawImage(held, jitterX, jitterY, width, height);
+
+            // On rubberband / frame-jump moments, blend an older past frame ghost + horizontal packet-loss tears
+            if (isJumpMoment || isSevereSpike) {
+              const past = getPastFrameFn(0.45);
+              mainCtx.globalAlpha = 0.42;
+              mainCtx.drawImage(
+                past,
+                -jitterX * 0.8 + 14 * resScale,
+                -jitterY * 0.5,
+                width,
+                height
+              );
+              mainCtx.globalAlpha = 1;
+
+              // Horizontal packet-loss slice displacement
+              for (let i = 0; i < 8; i++) {
+                const sy = Math.floor(hash(bucket * 19 + i * 5.3) * height);
+                const sh = Math.max(
+                  8,
+                  Math.floor((0.03 + hash(bucket * 3 + i) * 0.08) * height)
+                );
+                const sxShift =
+                  (hash(bucket * 29 + i * 4.1) - 0.5) *
+                  75 *
+                  intensity *
+                  resScale;
+                mainCtx.drawImage(
+                  held,
+                  0,
+                  sy,
+                  width,
+                  sh,
+                  sxShift,
+                  sy,
+                  width,
+                  sh
+                );
+              }
+            }
+            mainCtx.restore();
+          };
+
           compiledFn(mainCtx, {
             ctx: mainCtx,
             sourceCanvas,
+            state: editState,
             cx: effectiveCx,
             cy: effectiveCy,
             x: boxX,
@@ -1239,6 +1540,14 @@ export function renderCompositedFrame(
                 mainCtx.drawImage(img, xDraw, yDraw, wDraw, hDraw);
               }
             },
+            holdFrame: holdFrameFn,
+            getPastFrame: getPastFrameFn,
+            lagEffect: lagEffectFn,
+            glitchSlices: glitchSlicesFn,
+            shakeScreen: shakeScreenFn,
+            zoomFrame: zoomFrameFn,
+            clearFrame: clearFrameFn,
+            setPlaybackRate: setPlaybackRateFn,
           });
           executedRenderCode = true;
         } catch (err) {

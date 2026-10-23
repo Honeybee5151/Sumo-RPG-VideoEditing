@@ -129,10 +129,23 @@ Do whatever the user asks at the target position and timeframe by returning a JS
 - \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count, or \`startTime + soundDuration\` if the user asks to lengthen the dot/color interval to fit a sound).
 - \`"audioAssetName"\` (string, optional): If the user asks to use or play a sound from Available Project Sounds (e.g. "use the sound Recorded Sound 1 here"), set this to the exact sound name (e.g. \`"Recorded Sound 1.webm"\`). IMPORTANT: When the user asks ONLY to play a sound on the video without any visual effect, keep the video visible and do NOT provide \`renderCode\` or \`svg\`; when the user asks for BOTH a visual/screen effect (e.g. bounce, zoom, fire, text) AND a sound, provide BOTH \`renderCode\` AND \`audioAssetName\`.
 - \`"duration"\` (number, optional): ONLY use when \`Active Media Type\` is \`image\` and the user asks to change the total timeline duration of the static image. Never set \`duration\` when editing a video (to change the length of a color/dot interval on a video, set \`"endTime"\` instead!).
+- \`"playbackRate"\` (number, optional): Set video playback speed during \`[startTime, endTime]\` (e.g. \`0.25\` to \`4.0\`; works simultaneously with \`renderCode\`).
+- \`"freezeFrame"\` (boolean, optional): Freeze video playback during \`[startTime, endTime]\`.
+- \`"customCssFilter"\` (string, optional): CSS filter applied to the region/frame (e.g. \`"contrast(160%) saturate(180%) hue-rotate(45deg)"\`).
 - \`"renderCode"\` (string, optional): JavaScript code body executed every frame on the HTML5 2D Canvas during \`[startTime, endTime]\`.
-  Your \`renderCode\` runs inside \`function(ctx, env) { ... }\` where both \`ctx\` and all properties of \`env\` are directly in scope:
+  Your \`renderCode\` runs inside \`function(ctx, env) { ... }\` where both \`ctx\` and all properties & studio engine functions of \`env\` are directly in scope:
   - \`ctx\`: \`CanvasRenderingContext2D\` of the output video canvas
-  - \`sourceCanvas\`: \`HTMLCanvasElement\` containing the unedited video frame (use \`ctx.drawImage(sourceCanvas, ...)\` if you want to manipulate, bounce, spin, rotate, zoom, filter, blur, or sample pixels from the video itself; when bouncing/spinning/rotating/scaling the frame or region, fill the background with pure black \`#000000\` before drawing \`sourceCanvas\` so the old un-transformed frame is not visible behind it. For rhythmic/physics motion like bounce, shake, wobble, or wave, always drive the frequency using \`elapsed\` in seconds—e.g. \`const phase = elapsed * 8.5; const bounceY = -Math.abs(Math.sin(phase)) * 65 * scale;\`—rather than stretching a few cycles across \`progress\`, so the motion is lively and clearly visible even on 10–20s intervals!)
+  - \`sourceCanvas\`: \`HTMLCanvasElement\` containing the unedited video frame (use \`ctx.drawImage(sourceCanvas, ...)\` if you want to manipulate, bounce, spin, rotate, zoom, filter, blur, or sample pixels from the video itself; when bouncing/spinning/rotating/scaling the frame or region, call \`clearFrame('#000000')\` first so the old un-transformed frame is not visible behind it. For rhythmic/physics motion like bounce, shake, wobble, or wave, always drive the frequency using \`elapsed\` in seconds—e.g. \`const phase = elapsed * 8.5; const bounceY = -Math.abs(Math.sin(phase)) * 65 * scale;\`—rather than stretching a few cycles across \`progress\`, so the motion is lively and clearly visible even on 10–20s intervals!)
+  - \`state\`: Persistent object (\`Record<string, any>\`) preserved across frames for this edit (store particles, counters, timers, or state here!)
+  - **Built-in Temporal & Studio Control Functions (directly callable in \`renderCode\`)**:
+    - \`lagEffect(intensity = 1.0)\`: Full choppy frame-freeze (~3 FPS stutter), rubberband frame jump, packet-loss horizontal slice tears, and video playback hitching. ALWAYS call \`lagEffect(1.0);\` when the user asks for a lag, stutter, choppy, low-FPS, rubberband, or frame-drop effect!
+    - \`holdFrame(stepSeconds = 0.28)\`: Freezes and holds a captured video frame for \`stepSeconds\` at a time and returns that frozen \`HTMLCanvasElement\` (draw it with \`ctx.drawImage(holdFrame(0.3), 0, 0, width, height)\` to replace smooth 60fps video with choppy stop-motion/freeze-frames).
+    - \`getPastFrame(secondsAgo = 0.35)\`: Returns a real historical \`HTMLCanvasElement\` snapshot from \`secondsAgo\` (up to 1.8s ago) for time-echo, rewind, or ghost trails.
+    - \`setPlaybackRate(rate)\`: Dynamically changes the video player speed (\`0.0625\` to \`4.0\`) on the fly every frame (great for speed ramps, stutter hitches, or time-warps).
+    - \`glitchSlices(intensity = 1.0, sliceCount = 9)\`: Slices the frame horizontally with RGB chromatic split and displacement.
+    - \`shakeScreen(intensityPx = 22)\`: Applies an energetic camera shake to the video frame.
+    - \`zoomFrame(scaleFactor = 1.6, focusX = cx, focusY = cy)\`: Zooms the video frame centered around \`(focusX, focusY)\`.
+    - \`clearFrame(color = '#000000')\`: Fills the canvas background before drawing a transformed \`sourceCanvas\`.
   - \`cx\`, \`cy\`: Target position center in pixels on the canvas (automatically updated every frame by the engine's real-time optical pixel tracker to follow the marked object as it moves!)
   - \`x\`, \`y\`, \`w\`, \`h\`: Target region top-left and width/height in pixels (also automatically tracked per-frame when following a moving object)
   - \`r\`: Target radius in pixels at that position
@@ -317,6 +330,12 @@ export function parseAiEditResponse(
     if (typeof item.customCssFilter === 'string' && !rawParams.customCssFilter) {
       rawParams.customCssFilter = item.customCssFilter;
     }
+    if (typeof item.playbackRate === 'number' && !rawParams.playbackRate) {
+      rawParams.playbackRate = item.playbackRate;
+    }
+    if (typeof item.freezeFrame === 'boolean' && rawParams.freezeFrame === undefined) {
+      rawParams.freezeFrame = item.freezeFrame;
+    }
 
     // Handle attached sound asset (audioAssetName / audioAssetId)
     const rawSoundName =
@@ -371,11 +390,13 @@ export function parseAiEditResponse(
       rawParams.audioAssetName = matchedProjectSound.name;
       // If user asked ONLY to play/use a sound without asking for a visual effect, keep video clean (no visual overlay)
       const askedForVisualToo =
-        /\b(bounce|bouncing|jump|hop|wobble|wave|pulse|vibrate|effect|animate|animation|move|moving|slide|flip|scale|stretch|squash|draw|zoom|blur|glow|text|spin|rotate|color|pixelate|spotlight|shake|flash|fire|flame|water|rain|snow|spark|particle|screen|frame|box|circle|arrow)\b/i.test(
+        /\b(bounce|bouncing|jump|hop|lag|lagging|stutter|choppy|rubberband|wobble|wave|pulse|vibrate|effect|animate|animation|move|moving|slide|flip|scale|stretch|squash|draw|zoom|blur|glow|text|spin|rotate|color|pixelate|spotlight|shake|flash|fire|flame|water|rain|snow|spark|particle|screen|frame|box|circle|arrow)\b/i.test(
           ctx.prompt
         ) ||
         (typeof rawParams.renderCode === 'string' &&
-          /\bdrawImage\s*\(\s*sourceCanvas\b/.test(rawParams.renderCode));
+          /\b(drawImage\s*\(\s*sourceCanvas|lagEffect|holdFrame|shakeScreen|glitchSlices|zoomFrame)\b/.test(
+            rawParams.renderCode
+          ));
       if (!askedForVisualToo) {
         delete rawParams.renderCode;
         delete rawParams.customSvg;
@@ -383,6 +404,19 @@ export function parseAiEditResponse(
       }
     } else if (rawSoundName) {
       rawParams.audioAssetName = rawSoundName;
+    }
+
+    // Ensure lag/stutter/choppy/frame-drop prompts always use the real frame-hold + rubberband + slice-tear lagEffect
+    if (
+      /\b(lag|lagging|laggy|stutter|stuttering|choppy|frame\s*drop|low\s*fps|rubberband|buffering)\b/i.test(
+        ctx.prompt
+      ) &&
+      (!rawParams.renderCode ||
+        (typeof rawParams.renderCode === 'string' &&
+          (/\b__lagEchoBuf\b/.test(rawParams.renderCode) ||
+            !/\b(lagEffect|holdFrame)\b/.test(rawParams.renderCode))))
+    ) {
+      rawParams.renderCode = `lagEffect(1.0);`;
     }
 
     // Ensure screen/region bounce prompts always have an energetic, real-time `elapsed`-driven bounce renderCode (never slow `progress * 3` drift across a 15s interval)

@@ -747,6 +747,30 @@ export function compilePromptLocally(
       return;
     }
 
+    // 11.6. LAG / STUTTER / CHOPPY / FRAME DROP / RUBBERBAND EFFECT
+    if (
+      /\b(lag|lagging|laggy|stutter|stuttering|choppy|frame\s*drop|low\s*fps|rubberband|buffering)\b/i.test(
+        lower
+      )
+    ) {
+      results.push({
+        id,
+        prompt: clause,
+        summary: 'Lag Effect',
+        startTime: clauseStart,
+        endTime: clauseEnd,
+        effectType: 'custom_ai',
+        targetColor,
+        annotations: matchingAnnotations,
+        params: {
+          renderCode: `lagEffect(1.0);`,
+        },
+        enabled: true,
+        aiProvider: aiProviderLabel,
+      });
+      return;
+    }
+
     // 12. CAMERA FX (SHAKE / GLITCH / VHS / CINEMA BARS / VIGNETTE / FLASH)
     if (/\b(shake|earthquake|vibrate|glitch|vhs|retro|cinema|letterbox|bars|vignette|flash|strobe)\b/i.test(lower)) {
       const cameraEffect = /\b(shake|earthquake|vibrate)\b/i.test(lower)
@@ -852,6 +876,13 @@ export function formatShortEditSummary(
 
   if (/\b(bounce|bouncing|jump|jumping|hop|hopping|boing)\b/i.test(combined)) {
     return 'Bounce Effect';
+  }
+  if (
+    /\b(lag|lagging|laggy|stutter|stuttering|choppy|frame\s*drop|low\s*fps|rubberband|buffering)\b/i.test(
+      combined
+    )
+  ) {
+    return 'Lag Effect';
   }
   if (/\b(fire|flames?|burning|burn|inferno|blaze)\b/i.test(combined)) {
     return 'Fire Effect';

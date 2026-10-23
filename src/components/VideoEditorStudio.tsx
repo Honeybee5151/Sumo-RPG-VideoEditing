@@ -70,6 +70,7 @@ import {
   summarizeColorGroups,
 } from '@/lib/editCompiler';
 import {
+  getDynamicAiPlaybackRate,
   renderCompositedFrame,
   renderProceduralDemoScene,
 } from '@/lib/canvasCompositor';
@@ -1105,10 +1106,16 @@ export default function VideoEditorStudio() {
 
   const getActivePlaybackRate = useCallback(
     (t: number) => {
+      const dynRate = getDynamicAiPlaybackRate();
+      if (typeof dynRate === 'number') {
+        return { rate: dynRate, freeze: false, freezeTime: t };
+      }
       const speedEdit = edits.find(
         (e) =>
           e.enabled &&
-          e.effectType === 'speed' &&
+          (e.effectType === 'speed' ||
+            typeof e.params.playbackRate === 'number' ||
+            Boolean(e.params.freezeFrame)) &&
           t >= e.startTime &&
           t <= e.endTime
       );
@@ -1175,6 +1182,11 @@ export default function VideoEditorStudio() {
       if (isPlaying && !isExporting) {
         if (videoUrl && videoRef.current) {
           const vid = videoRef.current;
+          const { rate, freeze } = getActivePlaybackRate(vid.currentTime);
+          const targetRate = freeze ? 0.0625 : rate;
+          if (Math.abs(vid.playbackRate - targetRate) > 0.02) {
+            vid.playbackRate = targetRate;
+          }
           let next = skipCutSegments(vid.currentTime);
           if (Math.abs(next - vid.currentTime) > 0.05) {
             vid.currentTime = next;
