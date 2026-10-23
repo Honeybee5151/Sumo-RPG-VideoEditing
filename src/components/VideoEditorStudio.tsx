@@ -2768,9 +2768,13 @@ export default function VideoEditorStudio() {
             setIntervalEnd(e);
           }
         }
+        const firstColorEdit = edits.find((ed) => ed.targetColor === color);
+        if (firstColorEdit) {
+          setSelectedEditId(firstColorEdit.id);
+        }
       }
     },
-    [annotations]
+    [annotations, edits]
   );
 
   const handleCanvasPointerUp = () => {
@@ -5928,74 +5932,122 @@ export default function VideoEditorStudio() {
                   })}
           </div>
 
-          {/* Fine-Tune Selected Edit Inspector */}
-          {selectedEdit && (
-            <div className="p-3.5 border-t border-[#ded7c8] bg-[#f4f1ea] space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-[#26231f] flex items-center gap-1.5">
-                  <Sliders className="w-3.5 h-3.5 text-[#b82d23]" />
-                  {selectedEdit.summary}
-                </span>
-              </div>
+          {/* Fine-Tune Selected Edit or Color Interval Inspector */}
+          {(selectedEdit || focusedColor !== 'all') &&
+            (() => {
+              const targetColorForSlider: MarkColor | null =
+                selectedEdit?.targetColor && selectedEdit.targetColor !== 'all'
+                  ? selectedEdit.targetColor
+                  : focusedColor !== 'all'
+                  ? focusedColor
+                  : null;
+              const matchedGroup = targetColorForSlider
+                ? allColorGroups.find((cg) => cg.color === targetColorForSlider)
+                : null;
+              const sliderStart = matchedGroup
+                ? matchedGroup.startTime
+                : selectedEdit
+                ? selectedEdit.startTime
+                : intervalStart;
+              const sliderEnd = matchedGroup
+                ? matchedGroup.endTime
+                : selectedEdit
+                ? selectedEdit.endTime
+                : intervalEnd;
+              const inspectorTitle = selectedEdit
+                ? selectedEdit.summary
+                : targetColorForSlider
+                ? `${MARK_COLORS[targetColorForSlider].name} Interval`
+                : 'Timeframe Interval';
 
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="text-[10px] text-[#6e655c] block">
-                    Start ({selectedEdit.startTime.toFixed(1)}s)
-                  </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={duration}
-                    step={0.1}
-                    value={selectedEdit.startTime}
-                    onPointerDown={() => recordHistorySnapshot()}
-                    onChange={(e) => {
-                      const val = Math.min(
-                        parseFloat(e.target.value),
-                        selectedEdit.endTime - 0.2
-                      );
-                      setEdits((prev) =>
-                        prev.map((it) =>
-                          it.id === selectedEdit.id
-                            ? { ...it, startTime: val }
-                            : it
-                        )
-                      );
-                    }}
-                    className="w-full accent-[#b82d23]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-[#6e655c] block">
-                    End ({selectedEdit.endTime.toFixed(1)}s)
-                  </label>
-                  <input
-                    type="range"
-                    min={0}
-                    max={duration}
-                    step={0.1}
-                    value={selectedEdit.endTime}
-                    onPointerDown={() => recordHistorySnapshot()}
-                    onChange={(e) => {
-                      const val = Math.max(
-                        parseFloat(e.target.value),
-                        selectedEdit.startTime + 0.2
-                      );
-                      setEdits((prev) =>
-                        prev.map((it) =>
-                          it.id === selectedEdit.id
-                            ? { ...it, endTime: val }
-                            : it
-                        )
-                      );
-                    }}
-                    className="w-full accent-[#b82d23]"
-                  />
-                </div>
-              </div>
+              const applyInspectorInterval = (nextStart: number, nextEnd: number) => {
+                const clampedS = Math.max(0, Math.min(nextStart, nextEnd - 0.2));
+                const clampedE = Math.min(
+                  duration,
+                  Math.max(nextEnd, clampedS + 0.2)
+                );
+                if (targetColorForSlider) {
+                  stretchColorInterval(targetColorForSlider, clampedS, clampedE);
+                  setFocusedColor(targetColorForSlider);
+                } else {
+                  setIntervalStart(clampedS);
+                  setIntervalEnd(clampedE);
+                }
+                if (selectedEdit) {
+                  setEdits((prev) =>
+                    prev.map((it) =>
+                      it.id === selectedEdit.id
+                        ? {
+                            ...it,
+                            startTime: clampedS,
+                            endTime: clampedE,
+                            annotations: it.annotations.map((a) => ({
+                              ...a,
+                              startTime: clampedS,
+                              endTime: clampedE,
+                            })),
+                          }
+                        : it
+                    )
+                  );
+                }
+              };
 
-              {selectedEdit.effectType === 'zoom' && (
+              return (
+                <div className="p-3.5 border-t border-[#ded7c8] bg-[#f4f1ea] space-y-3 shrink-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-[#26231f] flex items-center gap-1.5 truncate">
+                      <Sliders className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
+                      <span className="truncate">{inspectorTitle}</span>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <label className="text-[10px] text-[#6e655c] block">
+                        Start ({sliderStart.toFixed(1)}s)
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={duration}
+                        step={0.1}
+                        value={sliderStart}
+                        onPointerDown={() => recordHistorySnapshot()}
+                        onChange={(e) => {
+                          const val = Math.min(
+                            parseFloat(e.target.value),
+                            sliderEnd - 0.2
+                          );
+                          applyInspectorInterval(val, sliderEnd);
+                        }}
+                        className="w-full accent-[#b82d23]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-[#6e655c] block">
+                        End ({sliderEnd.toFixed(1)}s)
+                      </label>
+                      <input
+                        type="range"
+                        min={0}
+                        max={duration}
+                        step={0.1}
+                        value={sliderEnd}
+                        onPointerDown={() => recordHistorySnapshot()}
+                        onChange={(e) => {
+                          const val = Math.max(
+                            parseFloat(e.target.value),
+                            sliderStart + 0.2
+                          );
+                          applyInspectorInterval(sliderStart, val);
+                        }}
+                        className="w-full accent-[#b82d23]"
+                      />
+                    </div>
+                  </div>
+
+                  {selectedEdit && selectedEdit.effectType === 'zoom' && (
                 <div>
                   <label className="text-[10px] text-[#6e655c] block">
                     Zoom Scale ({(selectedEdit.params.zoomScale ?? 1.8).toFixed(1)}x)
@@ -6025,10 +6077,11 @@ export default function VideoEditorStudio() {
                 </div>
               )}
 
-              {(selectedEdit.effectType === 'blur' ||
-                selectedEdit.effectType === 'pixelate' ||
-                selectedEdit.effectType === 'color_grade' ||
-                selectedEdit.effectType === 'halftone_ink') && (
+              {selectedEdit &&
+                (selectedEdit.effectType === 'blur' ||
+                  selectedEdit.effectType === 'pixelate' ||
+                  selectedEdit.effectType === 'color_grade' ||
+                  selectedEdit.effectType === 'halftone_ink') && (
                 <div className="space-y-2">
                   {selectedEdit.effectType === 'blur' && (
                     <div>
@@ -6083,7 +6136,7 @@ export default function VideoEditorStudio() {
                 </div>
               )}
 
-              {selectedEdit.effectType === 'text_overlay' && (
+              {selectedEdit && selectedEdit.effectType === 'text_overlay' && (
                 <div>
                   <label className="text-[10px] text-[#6e655c] block mb-1">
                     Text
@@ -6111,7 +6164,7 @@ export default function VideoEditorStudio() {
                 </div>
               )}
 
-              {selectedEdit.effectType === 'generative_replace' && (
+              {selectedEdit && selectedEdit.effectType === 'generative_replace' && (
                 <div>
                   <label className="text-[10px] text-[#6e655c] block mb-1">
                     Style
@@ -6149,7 +6202,7 @@ export default function VideoEditorStudio() {
                 </div>
               )}
 
-              {selectedEdit.effectType === 'speed' && (
+              {selectedEdit && selectedEdit.effectType === 'speed' && (
                 <div>
                   <label className="text-[10px] text-[#6e655c] block">
                     Speed ({(selectedEdit.params.playbackRate ?? 1.0).toFixed(2)}x)
@@ -6179,7 +6232,8 @@ export default function VideoEditorStudio() {
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
         </aside>
       </div>
 
