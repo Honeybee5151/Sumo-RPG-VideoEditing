@@ -14,6 +14,7 @@ export interface MediaAssetItem {
   category: MediaCategory;
   url: string;
   blob?: Blob;
+  durationSec?: number;
   isFavorite: boolean;
   inCurrentProject: boolean;
   createdAt: number;
@@ -62,6 +63,7 @@ interface StoredFavoriteRecord {
   name: string;
   category: MediaCategory;
   blob: Blob;
+  durationSec?: number;
   isFavorite?: boolean;
   inCurrentProject?: boolean;
   createdAt: number;
@@ -164,6 +166,7 @@ export async function loadAllPersistedMediaAssets(): Promise<MediaAssetItem[]> {
         category: rec.category,
         url: URL.createObjectURL(rec.blob),
         blob: rec.blob,
+        durationSec: rec.durationSec,
         isFavorite: Boolean(rec.isFavorite),
         inCurrentProject: Boolean(rec.inCurrentProject),
         createdAt: rec.createdAt,
@@ -186,6 +189,7 @@ export async function saveMediaAssetToDb(item: MediaAssetItem): Promise<void> {
         name: item.name,
         category: item.category,
         blob: item.blob!,
+        durationSec: item.durationSec,
         isFavorite: item.isFavorite,
         inCurrentProject: item.inCurrentProject,
         createdAt: item.createdAt,

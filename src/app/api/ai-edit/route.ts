@@ -93,6 +93,11 @@ interface AiEditRequestBody {
   mediaFileName?: string;
   mediaCategory?: 'video' | 'image' | 'audio';
   compositeFrameDataUrl?: string;
+  projectSounds?: Array<{
+    id: string;
+    name: string;
+    durationSec?: number;
+  }>;
   // AI Provider configuration
   provider?: AiProviderId;
   model?: string;
@@ -676,6 +681,7 @@ export async function POST(req: NextRequest) {
       mediaCategory = 'video',
       compositeFrameDataUrl,
       customContextPrompt = '',
+      projectSounds = [],
     } = body;
 
     // 1. CONNECTION TEST MODE (from AI Settings modal)
@@ -819,6 +825,7 @@ export async function POST(req: NextRequest) {
       mediaFileName,
       mediaCategory,
       customContextPrompt,
+      projectSounds,
     };
 
     const candidates = resolveActiveProviderAndKey(body);
@@ -918,7 +925,51 @@ export async function POST(req: NextRequest) {
       effectiveAnnotations,
       'Built-in Semantic Compiler',
       focusedColor
-    ).map((ed) => ({ ...ed, tokensUsed: localUsage.totalTokens }));
+    ).map((ed) => {
+      let nextEnd = ed.endTime;
+      const nextParams = { ...ed.params };
+
+      if (
+        projectSounds.length > 0 &&
+        /\b(sound|audio|play|recorded)\b/i.test(lowerPrompt)
+      ) {
+        let matched = projectSounds.find((s) => {
+          const baseName = s.name.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim();
+          return baseName.length > 0 && lowerPrompt.includes(baseName);
+        });
+        if (!matched && projectSounds.length === 1) {
+          matched = projectSounds[0];
+        }
+        if (matched) {
+          nextParams.audioAssetId = matched.id;
+          nextParams.audioAssetName = matched.name;
+          delete nextParams.renderCode;
+          delete nextParams.customSvg;
+          delete nextParams.svg;
+          if (typeof matched.durationSec === 'number' && matched.durationSec > 0) {
+            const soundEnd = Number((ed.startTime + matched.durationSec).toFixed(2));
+            if (
+              soundEnd > nextEnd ||
+              /\b(increase|extend|lengthen|length|longer|fit|full\s+sound|if\s+needed)\b/i.test(
+                lowerPrompt
+              )
+            ) {
+              nextEnd = Math.max(nextEnd, soundEnd);
+            }
+          }
+        }
+      }
+
+      return {
+        ...ed,
+        endTime: nextEnd,
+        params: nextParams,
+        summary: nextParams.audioAssetName
+          ? `Play "${nextParams.audioAssetName}"`
+          : ed.summary,
+        tokensUsed: localUsage.totalTokens,
+      };
+    });
 
     return NextResponse.json({
       edits,

@@ -404,6 +404,11 @@ export interface EffectParams {
   // Camera FX
   cameraEffect?: 'shake' | 'vignette' | 'cinema_bars' | 'vhs_glitch' | 'flash';
   intensity?: number;
+
+  // Attached Sound Asset (plays during [startTime, endTime] alongside video)
+  audioAssetId?: string;
+  audioAssetName?: string;
+  audioVolume?: number;
 }
 
 export interface TimelineEditItem {

@@ -932,6 +932,20 @@ export function renderCompositedFrame(
     }
 
     // 6. OPEN-ENDED AI CUSTOM SHADER, PARTICLES, VECTOR SVG & PROCEDURAL CANVAS ENGINE
+    if (
+      (params.audioAssetId || params.audioAssetName) &&
+      !params.renderCode &&
+      !params.customSvg &&
+      !params.svg &&
+      !params.customDrawCommands?.length &&
+      !params.customParticles &&
+      !params.customCssFilter &&
+      !params.customOverlayGradient &&
+      effectType === 'custom_ai'
+    ) {
+      return;
+    }
+
     const baseTargetBbox =
       annotations.length > 0
         ? mergeBoundingBoxes(annotations.map((a) => a.bbox))

@@ -313,6 +313,25 @@ export default function VideoEditorStudio() {
 
         if (assets.length > 0) {
           setMediaLibrary(assets);
+          assets.forEach((item) => {
+            if (item.category === 'audio' && !item.durationSec) {
+              const probe = new Audio(item.url);
+              probe.onloadedmetadata = () => {
+                if (
+                  probe.duration &&
+                  Number.isFinite(probe.duration) &&
+                  probe.duration > 0
+                ) {
+                  const dur = Number(probe.duration.toFixed(2));
+                  setMediaLibrary((prev) =>
+                    prev.map((m) =>
+                      m.id === item.id ? { ...m, durationSec: dur } : m
+                    )
+                  );
+                }
+              };
+            }
+          });
         }
 
         const diskSession = diskRes?.session as PersistedProjectSession | null;
@@ -428,7 +447,11 @@ export default function VideoEditorStudio() {
               setVideoFileName(imgAsset.name);
             }
           }
-          if (session.activeAudioAssetId) {
+          if (
+            session.activeAudioAssetId &&
+            !session.activeVideoAssetId &&
+            !session.activeImageAssetId
+          ) {
             const audAsset = assets.find((a) => a.id === session.activeAudioAssetId);
             if (audAsset) {
               setActiveAudioUrl(audAsset.url);
@@ -1196,7 +1219,7 @@ export default function VideoEditorStudio() {
     }
 
     const aud = audioRef.current;
-    if (aud && activeAudioUrl) {
+    if (aud && activeAudioUrl && !videoUrl && !activeImageUrl) {
       aud.muted = isMuted;
       if (isPlaying) {
         if (aud.paused) {
@@ -1210,15 +1233,96 @@ export default function VideoEditorStudio() {
           aud.currentTime = Math.min(aud.duration || duration, currentTime);
         }
       }
+    } else if (aud && !aud.paused) {
+      aud.pause();
+    }
+
+    // Sync any sound assets attached to specific color/dot edits ([ed.startTime, ed.endTime]) alongside the video!
+    const activeEditIdsWithAudio = new Set<string>();
+    for (const ed of edits) {
+      if (!ed.enabled) continue;
+      const targetId = ed.params.audioAssetId;
+      const targetName = ed.params.audioAssetName;
+      if (!targetId && !targetName) continue;
+
+      const normTarget = (targetName || '')
+        .toLowerCase()
+        .replace(/\.[a-z0-9]+$/i, '')
+        .trim();
+      const matchedAsset = mediaLibrary.find((m) => {
+        if (m.category !== 'audio') return false;
+        if (targetId && m.id === targetId) return true;
+        if (!normTarget) return false;
+        const normM = m.name.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim();
+        return (
+          m.name.toLowerCase() === (targetName || '').toLowerCase().trim() ||
+          normM === normTarget ||
+          normM.includes(normTarget) ||
+          normTarget.includes(normM)
+        );
+      });
+      if (!matchedAsset) continue;
+
+      activeEditIdsWithAudio.add(ed.id);
+      let clipAud = editAudioMapRef.current.get(ed.id);
+      if (!clipAud || clipAud.dataset.assetUrl !== matchedAsset.url) {
+        if (clipAud) {
+          clipAud.pause();
+        }
+        clipAud = new Audio(matchedAsset.url);
+        clipAud.preload = 'auto';
+        clipAud.dataset.assetUrl = matchedAsset.url;
+        editAudioMapRef.current.set(ed.id, clipAud);
+      }
+
+      clipAud.muted = isMuted;
+      clipAud.volume = Math.min(1, Math.max(0, ed.params.audioVolume ?? 1));
+
+      const inEditWindow =
+        currentTime >= ed.startTime && currentTime <= ed.endTime;
+      const clipOffset = Math.max(0, currentTime - ed.startTime);
+      const clipDur =
+        clipAud.duration && Number.isFinite(clipAud.duration)
+          ? clipAud.duration
+          : matchedAsset.durationSec || ed.endTime - ed.startTime;
+
+      if (isPlaying && inEditWindow && clipOffset < clipDur) {
+        if (Math.abs(clipAud.currentTime - clipOffset) > 0.22) {
+          clipAud.currentTime = clipOffset;
+        }
+        if (clipAud.paused) {
+          clipAud.play().catch(() => {});
+        }
+      } else {
+        if (!clipAud.paused) {
+          clipAud.pause();
+        }
+        if (!inEditWindow && clipAud.currentTime !== 0) {
+          clipAud.currentTime = 0;
+        } else if (inEditWindow && Math.abs(clipAud.currentTime - clipOffset) > 0.1) {
+          clipAud.currentTime = Math.min(clipDur, clipOffset);
+        }
+      }
+    }
+
+    // Pause and clean up removed/disabled edit audio players
+    for (const [edId, player] of editAudioMapRef.current.entries()) {
+      if (!activeEditIdsWithAudio.has(edId)) {
+        player.pause();
+        editAudioMapRef.current.delete(edId);
+      }
     }
   }, [
     isPlaying,
     isExporting,
     videoUrl,
+    activeImageUrl,
     activeAudioUrl,
     currentTime,
     isMuted,
     duration,
+    edits,
+    mediaLibrary,
     getActivePlaybackRate,
   ]);
 
@@ -1229,6 +1333,7 @@ export default function VideoEditorStudio() {
       }
       if (asset.category === 'video') {
         setActiveImageUrl(null);
+        setActiveAudioUrl(null);
         setVideoUrl(asset.url);
         setVideoFileName(asset.name);
         setIsMuted(false);
@@ -1249,6 +1354,7 @@ export default function VideoEditorStudio() {
         }
       } else if (asset.category === 'image') {
         setVideoUrl(null);
+        setActiveAudioUrl(null);
         setActiveImageUrl(asset.url);
         setImageHasAiTime(false);
         setVideoFileName(asset.name);
@@ -1266,8 +1372,29 @@ export default function VideoEditorStudio() {
         setSelectedEditId(null);
         setFocusedColor('all');
       } else if (asset.category === 'audio') {
+        // If a video or image is already on the stage, keep the video/image on stage and preview the sound!
+        if (videoUrl || activeImageUrl) {
+          if (previewAudioRef.current) {
+            previewAudioRef.current.pause();
+          }
+          const preview = new Audio(asset.url);
+          previewAudioRef.current = preview;
+          preview.play().catch(() => {});
+          setStatusMessage(
+            `Previewing "${asset.name}"${
+              asset.durationSec ? ` (${asset.durationSec.toFixed(1)}s)` : ''
+            }. Ask AI e.g. "use ${asset.name.replace(/\.[a-z0-9]+$/i, '')} here" on any color/dot!`
+          );
+          return;
+        }
         setActiveAudioUrl(asset.url);
         setIsMuted(false);
+        if (asset.durationSec && asset.durationSec > 0) {
+          setDuration(asset.durationSec);
+          setCurrentTime(0);
+          setIntervalStart(0);
+          setIntervalEnd(asset.durationSec);
+        }
         if (asset.blob instanceof File) {
           extractAudioPeaksFromFile(asset.blob, 96).then((peaks) =>
             setWaveformPeaks(peaks)
@@ -1275,7 +1402,7 @@ export default function VideoEditorStudio() {
         }
       }
     },
-    [recordHistorySnapshot]
+    [recordHistorySnapshot, videoUrl, activeImageUrl]
   );
 
   const toggleFavoriteAsset = useCallback(
@@ -1306,7 +1433,7 @@ export default function VideoEditorStudio() {
   );
 
   // Universal File Import Handler (Videos, Images, Sound, or .chromacut.json Project Files)
-  const processImportedFile = (file: File) => {
+  const processImportedFile = (file: File, knownDurationSec?: number) => {
     if (file.name.endsWith('.json')) {
       const reader = new FileReader();
       reader.onload = () => {
@@ -1338,6 +1465,7 @@ export default function VideoEditorStudio() {
       category,
       url,
       blob: file,
+      durationSec: knownDurationSec,
       isFavorite: addingDirectlyToFavorites,
       inCurrentProject: !addingDirectlyToFavorites,
       createdAt: Date.now(),
@@ -1350,6 +1478,32 @@ export default function VideoEditorStudio() {
 
     setMediaLibrary((prev) => [newItem, ...prev]);
     setLibraryCategory(category);
+
+    if (category === 'audio') {
+      const probe = new Audio(url);
+      probe.onloadedmetadata = () => {
+        if (
+          probe.duration &&
+          Number.isFinite(probe.duration) &&
+          probe.duration > 0
+        ) {
+          const exactDur = Number(probe.duration.toFixed(2));
+          setMediaLibrary((prev) =>
+            prev.map((m) => {
+              if (m.id !== newItem.id) return m;
+              const updated = { ...m, durationSec: exactDur };
+              saveMediaAssetToDb(updated);
+              return updated;
+            })
+          );
+        }
+      };
+    }
+
+    // If importing/recording a sound while a video or image is already on stage, keep the video/image active!
+    if (category === 'audio' && (videoUrl || activeImageUrl)) {
+      return;
+    }
     activateMediaAsset(newItem, false);
   };
 
@@ -1361,15 +1515,66 @@ export default function VideoEditorStudio() {
     }
   };
 
-  // Microphone Audio Recording State & Handler for "Record Sound"
+  // Microphone Audio Recording State, Device Selection & OBS Studio Clean Audio Mode
   const [isRecordingAudio, setIsRecordingAudio] = useState<boolean>(false);
   const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
+  const [availableMics, setAvailableMics] = useState<
+    Array<{ deviceId: string; label: string }>
+  >([]);
+  const [selectedMicId, setSelectedMicId] = useState<string>('default');
+  const [obsCleanMicMode, setObsCleanMicMode] = useState<boolean>(true);
   const audioRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const recordingStartWallRef = useRef<number>(0);
+  const editAudioMapRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const refreshMicrophoneDevices = useCallback(async (requestPermission = false) => {
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.enumerateDevices
+    ) {
+      return;
+    }
+    try {
+      if (requestPermission && navigator.mediaDevices.getUserMedia) {
+        const tempStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        tempStream.getTracks().forEach((t) => t.stop());
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices
+        .filter((d) => d.kind === 'audioinput')
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Microphone ${idx + 1}`,
+        }));
+      setAvailableMics(mics);
+    } catch {
+      // ignore enumeration errors
+    }
+  }, []);
 
   useEffect(() => {
+    try {
+      const savedMic = window.localStorage.getItem('chromacut_mic_settings_v1');
+      if (savedMic) {
+        const parsed = JSON.parse(savedMic) as {
+          selectedMicId?: string;
+          obsCleanMicMode?: boolean;
+        };
+        if (parsed.selectedMicId) setSelectedMicId(parsed.selectedMicId);
+        if (typeof parsed.obsCleanMicMode === 'boolean') {
+          setObsCleanMicMode(parsed.obsCleanMicMode);
+        }
+      }
+    } catch {
+      // ignore
+    }
+    refreshMicrophoneDevices(false);
     return () => {
       if (recordingTimerRef.current !== null) {
         window.clearInterval(recordingTimerRef.current);
@@ -1377,8 +1582,12 @@ export default function VideoEditorStudio() {
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach((t) => t.stop());
       }
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+      }
+      editAudioMapRef.current.forEach((p) => p.pause());
     };
-  }, []);
+  }, [refreshMicrophoneDevices]);
 
   const handleToggleRecordSound = async () => {
     if (isRecordingAudio) {
@@ -1410,8 +1619,37 @@ export default function VideoEditorStudio() {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // High-fidelity 48kHz stereo/mono capture with optional OBS-style clean raw signal (disables robotic WebRTC voice-call DSP)
+      const audioConstraints: MediaTrackConstraints = {
+        ...(selectedMicId && selectedMicId !== 'default'
+          ? { deviceId: { exact: selectedMicId } }
+          : {}),
+        sampleRate: 48000,
+        sampleSize: 16,
+        channelCount: 2,
+        echoCancellation: !obsCleanMicMode,
+        noiseSuppression: !obsCleanMicMode,
+        autoGainControl: !obsCleanMicMode,
+      };
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: audioConstraints,
+        });
+      } catch {
+        // Fallback if specific deviceId was unplugged
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            sampleRate: 48000,
+            echoCancellation: !obsCleanMicMode,
+            noiseSuppression: !obsCleanMicMode,
+            autoGainControl: !obsCleanMicMode,
+          },
+        });
+      }
       audioStreamRef.current = stream;
+      refreshMicrophoneDevices(false);
 
       const mimeCandidates = [
         'audio/webm;codecs=opus',
@@ -1429,9 +1667,19 @@ export default function VideoEditorStudio() {
         }
       }
 
-      const recorder = chosenMime
-        ? new MediaRecorder(stream, { mimeType: chosenMime })
-        : new MediaRecorder(stream);
+      let recorder: MediaRecorder;
+      try {
+        recorder = chosenMime
+          ? new MediaRecorder(stream, {
+              mimeType: chosenMime,
+              audioBitsPerSecond: 256000,
+            })
+          : new MediaRecorder(stream, { audioBitsPerSecond: 256000 });
+      } catch {
+        recorder = chosenMime
+          ? new MediaRecorder(stream, { mimeType: chosenMime })
+          : new MediaRecorder(stream);
+      }
       audioRecorderRef.current = recorder;
 
       const chunks: BlobPart[] = [];
@@ -1469,15 +1717,15 @@ export default function VideoEditorStudio() {
           type: (chosenMime || 'audio/webm').split(';')[0],
         });
 
-        processImportedFile(file);
-        if (!videoUrl) {
+        processImportedFile(file, recordedSec);
+        if (!videoRef.current && !videoUrl && !activeImageUrl) {
           setDuration(recordedSec);
           setCurrentTime(0);
           setIntervalStart(0);
           setIntervalEnd(recordedSec);
         }
         setStatusMessage(
-          `Saved "${fileName}" (${recordedSec.toFixed(1)}s) to Sound library!`
+          `Saved "${fileName}" (${recordedSec.toFixed(1)}s, 48kHz Studio) to Sound library!`
         );
       };
 
@@ -2322,6 +2570,13 @@ export default function VideoEditorStudio() {
           geminiApiKey,
           customBaseUrl: aiSettings.customBaseUrl,
           customContextPrompt: objectIdentificationContext,
+          projectSounds: mediaLibrary
+            .filter((m) => m.category === 'audio')
+            .map((m) => ({
+              id: m.id,
+              name: m.name,
+              durationSec: m.durationSec,
+            })),
         }),
       });
 
@@ -2331,7 +2586,9 @@ export default function VideoEditorStudio() {
       const hasSplits =
         Array.isArray(data.splitsToAdd) && data.splitsToAdd.length > 0;
       const hasNewDuration =
-        typeof data.newDuration === 'number' && data.newDuration > 0;
+        typeof data.newDuration === 'number' &&
+        data.newDuration > 0 &&
+        !videoUrl;
 
       if (hasEdits || hasCuts || hasSplits || hasNewDuration) {
         recordHistorySnapshot();
@@ -2348,9 +2605,48 @@ export default function VideoEditorStudio() {
           setImageHasAiTime(true);
         }
         if (hasEdits) {
+          // Clamp or extend interval and update targetColor annotation lengths if AI lengthened the dot/color interval (e.g. to fit a sound)
+          const normalizedEdits: TimelineEditItem[] = (
+            data.edits as TimelineEditItem[]
+          ).map((ne) => {
+            const clampedEnd = videoUrl
+              ? Math.min(duration, ne.endTime)
+              : ne.endTime;
+            return {
+              ...ne,
+              endTime: Math.max(ne.startTime + 0.1, clampedEnd),
+            };
+          });
+
+          const firstEdit = normalizedEdits[0];
+          if (firstEdit) {
+            if (!videoUrl && activeImageUrl && firstEdit.endTime > duration) {
+              setDuration(firstEdit.endTime);
+              setImageHasAiTime(true);
+            }
+            if (Math.abs(firstEdit.endTime - intervalEnd) > 0.05) {
+              setIntervalEnd(firstEdit.endTime);
+              setDraftIntervalEnd(firstEdit.endTime.toFixed(1));
+            }
+          }
+
+          setAnnotations((prev) =>
+            prev.map((ann) => {
+              const matchingEdit = normalizedEdits.find(
+                (ne) => ne.targetColor && ne.targetColor === ann.color
+              );
+              if (!matchingEdit) return ann;
+              return {
+                ...ann,
+                startTime: matchingEdit.startTime,
+                endTime: matchingEdit.endTime,
+              };
+            })
+          );
+
           setEdits((prev) => {
             const incomingColors = new Set(
-              data.edits
+              normalizedEdits
                 .map((ne: TimelineEditItem) => ne.targetColor)
                 .filter((c: string | undefined) => c && c !== 'all')
             );
@@ -2361,10 +2657,10 @@ export default function VideoEditorStudio() {
                   incomingColors.has(existing.targetColor)
                 )
             );
-            return [...filteredPrev, ...data.edits];
+            return [...filteredPrev, ...normalizedEdits];
           });
-          setSelectedEditId(data.edits[0].id);
-          if (sfxEnabled) {
+          setSelectedEditId(normalizedEdits[0].id);
+          if (sfxEnabled && !normalizedEdits[0].params.audioAssetId && !normalizedEdits[0].params.audioAssetName) {
             playAiEffectSoundCue(data.edits[0].effectType);
           }
         }
@@ -2823,6 +3119,26 @@ export default function VideoEditorStudio() {
 
       renderCompositedFrame(outCtx, hdSourceCanvas, width, height, simTime, edits);
 
+      // Sync any attached edit sounds during export
+      for (const ed of edits) {
+        if (!ed.enabled) continue;
+        const clipAud = editAudioMapRef.current.get(ed.id);
+        if (!clipAud) continue;
+        const inWin = simTime >= ed.startTime && simTime <= ed.endTime;
+        const offset = Math.max(0, simTime - ed.startTime);
+        if (inWin && isExportingRef.current) {
+          clipAud.muted = false;
+          if (Math.abs(clipAud.currentTime - offset) > 0.25) {
+            clipAud.currentTime = offset;
+          }
+          if (clipAud.paused) {
+            clipAud.play().catch(() => {});
+          }
+        } else if (!clipAud.paused) {
+          clipAud.pause();
+        }
+      }
+
       const disp = displayCanvasRef.current;
       if (disp) {
         const dCtx = disp.getContext('2d');
@@ -2837,9 +3153,11 @@ export default function VideoEditorStudio() {
       | (MediaStreamTrack & { requestFrame?: () => void })
       | undefined;
 
-    // Attach live audio track if enabled and available
+    // Attach live audio track if enabled and available (mixing video audio + attached sound edits)
+    let exportMixCtx: AudioContext | null = null;
     if (exportConfig.includeAudio) {
       try {
+        const rawAudioStreams: MediaStream[] = [];
         if (videoRef.current && videoUrl) {
           const vidWithCapture = videoRef.current as HTMLVideoElement & {
             captureStream?: () => MediaStream;
@@ -2848,12 +3166,8 @@ export default function VideoEditorStudio() {
           const vidStream =
             vidWithCapture.captureStream?.() ||
             vidWithCapture.mozCaptureStream?.();
-          const audioTracks =
-            vidStream
-              ?.getAudioTracks()
-              .filter((t) => t.readyState === 'live') || [];
-          if (audioTracks.length > 0) {
-            stream.addTrack(audioTracks[0]);
+          if (vidStream && vidStream.getAudioTracks().some((t) => t.readyState === 'live')) {
+            rawAudioStreams.push(vidStream);
           }
         } else if (audioRef.current && activeAudioUrl) {
           const audWithCapture = audioRef.current as HTMLAudioElement & {
@@ -2863,12 +3177,44 @@ export default function VideoEditorStudio() {
           const audStream =
             audWithCapture.captureStream?.() ||
             audWithCapture.mozCaptureStream?.();
-          const audioTracks =
-            audStream
-              ?.getAudioTracks()
-              .filter((t) => t.readyState === 'live') || [];
-          if (audioTracks.length > 0) {
-            stream.addTrack(audioTracks[0]);
+          if (audStream && audStream.getAudioTracks().some((t) => t.readyState === 'live')) {
+            rawAudioStreams.push(audStream);
+          }
+        }
+
+        for (const ed of edits) {
+          if (!ed.enabled) continue;
+          const clipAud = editAudioMapRef.current.get(ed.id) as
+            | (HTMLAudioElement & {
+                captureStream?: () => MediaStream;
+                mozCaptureStream?: () => MediaStream;
+              })
+            | undefined;
+          if (!clipAud) continue;
+          const clipStream =
+            clipAud.captureStream?.() || clipAud.mozCaptureStream?.();
+          if (clipStream && clipStream.getAudioTracks().length > 0) {
+            rawAudioStreams.push(clipStream);
+          }
+        }
+
+        if (rawAudioStreams.length === 1) {
+          const track = rawAudioStreams[0]
+            .getAudioTracks()
+            .find((t) => t.readyState === 'live');
+          if (track) stream.addTrack(track);
+        } else if (rawAudioStreams.length > 1) {
+          exportMixCtx = new AudioContext();
+          const dest = exportMixCtx.createMediaStreamDestination();
+          for (const s of rawAudioStreams) {
+            if (s.getAudioTracks().length > 0) {
+              const srcNode = exportMixCtx.createMediaStreamSource(s);
+              srcNode.connect(dest);
+            }
+          }
+          const mixedTrack = dest.stream.getAudioTracks()[0];
+          if (mixedTrack) {
+            stream.addTrack(mixedTrack);
           }
         }
       } catch {
@@ -2913,6 +3259,13 @@ export default function VideoEditorStudio() {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.muted = isMuted;
+      }
+      editAudioMapRef.current.forEach((p) => {
+        p.pause();
+        p.muted = isMuted;
+      });
+      if (exportMixCtx) {
+        exportMixCtx.close().catch(() => {});
       }
       const blob = new Blob(chunks, { type: mimeType.split(';')[0] });
       const dlUrl = URL.createObjectURL(blob);
@@ -3608,8 +3961,11 @@ export default function VideoEditorStudio() {
             {/* Right Actions: Settings & Video Export + ⋯ (Rigid fixed sizes) */}
             <div className="flex items-center gap-1.5 shrink-0">
               <button
-                onClick={() => setShowSettingsModal(true)}
-                title="AI Settings"
+                onClick={() => {
+                  setShowSettingsModal(true);
+                  refreshMicrophoneDevices(true);
+                }}
+                title="Settings (API Key & Microphone)"
                 className="w-7 h-7 flex items-center justify-center bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-[#26231f] transition cursor-pointer shrink-0"
               >
                 <Settings className="w-3.5 h-3.5 text-[#6e655c]" />
@@ -5548,8 +5904,8 @@ export default function VideoEditorStudio() {
               <div className="w-full max-w-md bg-[#faf8f4] border border-[#ded7c8] rounded-2xl p-5 space-y-4 shadow-xl">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-[#26231f] flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-[#b82d23]" />
-                    API Key
+                    <Settings className="w-4 h-4 text-[#b82d23]" />
+                    Settings
                   </h3>
                   <button
                     onClick={() => setShowSettingsModal(false)}
@@ -5594,6 +5950,78 @@ export default function VideoEditorStudio() {
                       {aiTestStatus.message}
                     </div>
                   )}
+                </div>
+
+                {/* Microphone Selection & Studio Quality (OBS Mode) */}
+                <div className="space-y-2 pt-3 border-t border-[#ded7c8]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-[#26231f] flex items-center gap-1.5">
+                      <Mic className="w-3.5 h-3.5 text-[#b82d23]" />
+                      Microphone (Record Sound)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => refreshMicrophoneDevices(true)}
+                      className="text-[11px] text-[#6e655c] hover:text-[#26231f] underline cursor-pointer"
+                    >
+                      Refresh Mics
+                    </button>
+                  </div>
+
+                  <select
+                    value={selectedMicId}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setSelectedMicId(nextId);
+                      try {
+                        window.localStorage.setItem(
+                          'chromacut_mic_settings_v1',
+                          JSON.stringify({
+                            selectedMicId: nextId,
+                            obsCleanMicMode,
+                          })
+                        );
+                      } catch {
+                        // ignore
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
+                  >
+                    <option value="default">System Default Microphone</option>
+                    {availableMics
+                      .filter((m) => m.deviceId !== 'default')
+                      .map((mic) => (
+                        <option key={mic.deviceId} value={mic.deviceId}>
+                          {mic.label}
+                        </option>
+                      ))}
+                  </select>
+
+                  <label className="flex items-center gap-2 text-xs text-[#544b43] cursor-pointer select-none pt-0.5">
+                    <input
+                      type="checkbox"
+                      checked={obsCleanMicMode}
+                      onChange={(e) => {
+                        const nextClean = e.target.checked;
+                        setObsCleanMicMode(nextClean);
+                        try {
+                          window.localStorage.setItem(
+                            'chromacut_mic_settings_v1',
+                            JSON.stringify({
+                              selectedMicId,
+                              obsCleanMicMode: nextClean,
+                            })
+                          );
+                        } catch {
+                          // ignore
+                        }
+                      }}
+                      className="rounded border-[#d6cfc2] accent-[#b82d23]"
+                    />
+                    <span>
+                      OBS Studio Clean Audio (48kHz / 256kbps raw mic — disables muffled browser voice filter)
+                    </span>
+                  </label>
                 </div>
 
                 <div className="flex items-center justify-between gap-2 pt-1">

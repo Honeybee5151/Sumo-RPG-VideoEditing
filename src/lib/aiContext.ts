@@ -30,6 +30,11 @@ export interface AiEditorContextInput {
   mediaFileName?: string;
   mediaCategory?: 'video' | 'image' | 'audio';
   customContextPrompt?: string;
+  projectSounds?: Array<{
+    id: string;
+    name: string;
+    durationSec?: number;
+  }>;
 }
 
 const VALID_EFFECT_TYPES: EffectType[] = [
@@ -85,6 +90,18 @@ export function buildAiEditorSystemPrompt(ctx: AiEditorContextInput): string {
           .join('\n')
       : `- targetColor: "all" (Full Frame) | Center: (cx: 0.500, cy: 0.500) | Box: [x: 0.000, y: 0.000, w: 1.000, h: 1.000] | Timeframe: ${ctx.startTime.toFixed(2)}s to ${ctx.endTime.toFixed(2)}s (${activeFrameCount} frames @ 30fps)`;
 
+  const soundLines =
+    ctx.projectSounds && ctx.projectSounds.length > 0
+      ? `\n3. **Available Project Sounds (Current Project -> Sound)**:\n` +
+        ctx.projectSounds
+          .map(
+            (s) =>
+              `   - Name: "${s.name}" | ID: "${s.id}" | Duration: ${(s.durationSec ?? 3.0).toFixed(2)}s`
+          )
+          .join('\n') +
+        '\n'
+      : '';
+
   return `You are an AI inside a video editor. You are given a spatial position on the video canvas and a timeframe, and the user asks you to do something at that position during that timeframe.
 
 ### CONTEXT
@@ -93,22 +110,24 @@ export function buildAiEditorSystemPrompt(ctx: AiEditorContextInput): string {
    - End: \`${ctx.endTime.toFixed(2)}s\`
    - Duration: \`${activeDurationSec.toFixed(2)}s\` (**${activeFrameCount} frames** at 30 fps; 1 frame = 1/30s)
    - Current Playhead: \`${(ctx.currentTime ?? ctx.startTime).toFixed(2)}s\`, Total Video Duration: \`${(ctx.duration ?? 12).toFixed(2)}s\`
+   - Active Media Type: \`${ctx.mediaCategory ?? 'video'}\`
    - Focused Target: **${focusedColorName}** (\`"${focusedColorId || (colorSummary[0]?.color ?? 'all')}"\`)
 
 2. **Marked Position(s) on the Video Canvas** (normalized \`0.0\` to \`1.0\`, where \`(0,0)\` is top-left and \`(1,1)\` is bottom-right):
 ${positionLines}
-${
-  ctx.customContextPrompt && ctx.customContextPrompt.trim()
-    ? `\n3. **Additional Context**:\n${ctx.customContextPrompt.trim()}\n`
-    : ''
-}
+${soundLines}${
+    ctx.customContextPrompt && ctx.customContextPrompt.trim()
+      ? `\n4. **Additional Context**:\n${ctx.customContextPrompt.trim()}\n`
+      : ''
+  }
 ### HOW TO DO WHAT THE USER ASKS
 Do whatever the user asks at the target position and timeframe by returning a JSON array with an object containing:
 - \`"summary"\`: Brief label describing what you did.
 - \`"targetColor"\`: The target position's \`targetColor\` ID (e.g. \`"${focusedColorId || (colorSummary[0]?.color ?? 'all')}"\`).
 - \`"startTime"\`: Start time in seconds (default \`${ctx.startTime.toFixed(2)}\`).
-- \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count).
-- \`"duration"\` (number, optional): If the loaded media is a static image (or if the user asks to add time / set duration on the timeline, e.g. "make this image 8 seconds long"), set the total timeline duration in seconds.
+- \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count, or \`startTime + soundDuration\` if the user asks to lengthen the dot/color interval to fit a sound).
+- \`"audioAssetName"\` (string, optional): If the user asks to use or play a sound from Available Project Sounds (e.g. "use the sound Recorded Sound 1 here"), set this to the exact sound name (e.g. \`"Recorded Sound 1.webm"\`). IMPORTANT: When the user asks to play a sound on the video, keep the video visible and do NOT provide \`renderCode\` or \`svg\` unless the user also explicitly asked for a visual graphic.
+- \`"duration"\` (number, optional): ONLY use when \`Active Media Type\` is \`image\` and the user asks to change the total timeline duration of the static image. Never set \`duration\` when editing a video (to change the length of a color/dot interval on a video, set \`"endTime"\` instead!).
 - \`"renderCode"\` (string, optional): JavaScript code body executed every frame on the HTML5 2D Canvas during \`[startTime, endTime]\`.
   Your \`renderCode\` runs inside \`function(ctx, env) { ... }\` where both \`ctx\` and all properties of \`env\` are directly in scope:
   - \`ctx\`: \`CanvasRenderingContext2D\` of the output video canvas
@@ -227,7 +246,11 @@ export function parseAiEditResponse(
   let newDuration: number | undefined;
 
   rawItems.forEach((item, idx) => {
-    if (typeof item.duration === 'number' && item.duration > 0) {
+    if (
+      typeof item.duration === 'number' &&
+      item.duration > 0 &&
+      ctx.mediaCategory === 'image'
+    ) {
       newDuration = item.duration;
     }
     const action = typeof item.action === 'string' ? item.action.toLowerCase() : '';
@@ -288,6 +311,71 @@ export function parseAiEditResponse(
       rawParams.customCssFilter = item.customCssFilter;
     }
 
+    // Handle attached sound asset (audioAssetName / audioAssetId)
+    const rawSoundName =
+      (typeof item.audioAssetName === 'string' && item.audioAssetName) ||
+      (typeof item.sound === 'string' && item.sound) ||
+      (typeof item.audio === 'string' && item.audio) ||
+      (typeof rawParams.audioAssetName === 'string' && rawParams.audioAssetName) ||
+      '';
+    const rawSoundId =
+      (typeof item.audioAssetId === 'string' && item.audioAssetId) ||
+      (typeof rawParams.audioAssetId === 'string' && rawParams.audioAssetId) ||
+      '';
+
+    let matchedProjectSound:
+      | { id: string; name: string; durationSec?: number }
+      | undefined;
+
+    if (ctx.projectSounds && ctx.projectSounds.length > 0) {
+      if (rawSoundId) {
+        matchedProjectSound = ctx.projectSounds.find((s) => s.id === rawSoundId);
+      }
+      if (!matchedProjectSound && rawSoundName) {
+        const normTarget = rawSoundName
+          .toLowerCase()
+          .replace(/\.[a-z0-9]+$/i, '')
+          .trim();
+        matchedProjectSound = ctx.projectSounds.find((s) => {
+          const normS = s.name.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim();
+          return (
+            s.name.toLowerCase() === rawSoundName.toLowerCase().trim() ||
+            normS === normTarget ||
+            normS.includes(normTarget) ||
+            normTarget.includes(normS)
+          );
+        });
+      }
+      // Also match directly from user prompt if user asked for a project sound
+      if (!matchedProjectSound && /\b(sound|audio|play|recorded)\b/i.test(ctx.prompt)) {
+        const lowerP = ctx.prompt.toLowerCase();
+        matchedProjectSound = ctx.projectSounds.find((s) => {
+          const baseName = s.name.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim();
+          return baseName.length > 0 && lowerP.includes(baseName);
+        });
+        if (!matchedProjectSound && ctx.projectSounds.length === 1) {
+          matchedProjectSound = ctx.projectSounds[0];
+        }
+      }
+    }
+
+    if (matchedProjectSound) {
+      rawParams.audioAssetId = matchedProjectSound.id;
+      rawParams.audioAssetName = matchedProjectSound.name;
+      // If user asked to play/use a sound without asking for a visual effect, keep video clean (no visual overlay)
+      const askedForVisualToo =
+        /\b(draw|zoom|blur|glow|text|spin|rotate|color|pixelate|spotlight|shake|flash|box|circle|arrow)\b/i.test(
+          ctx.prompt
+        );
+      if (!askedForVisualToo) {
+        delete rawParams.renderCode;
+        delete rawParams.customSvg;
+        delete rawParams.svg;
+      }
+    } else if (rawSoundName) {
+      rawParams.audioAssetName = rawSoundName;
+    }
+
     const hasOpenEndedAiPayload = Boolean(
       rawParams.customSvg ||
         rawParams.customParticles ||
@@ -328,7 +416,30 @@ export function parseAiEditResponse(
     let itemEnd =
       typeof item.endTime === 'number' && !Number.isNaN(item.endTime) && item.endTime > itemStart + 0.05
         ? item.endTime
+        : typeof item.duration === 'number' &&
+          item.duration > 0 &&
+          ctx.mediaCategory !== 'image'
+        ? Number((itemStart + item.duration).toFixed(2))
         : ctx.endTime;
+
+    // If a project sound is attached and the sound is longer than the current interval (or user asked to increase length if needed), extend itemEnd to fit the sound!
+    if (
+      matchedProjectSound &&
+      typeof matchedProjectSound.durationSec === 'number' &&
+      matchedProjectSound.durationSec > 0
+    ) {
+      const soundEnd = Number(
+        (itemStart + matchedProjectSound.durationSec).toFixed(2)
+      );
+      if (
+        soundEnd > itemEnd ||
+        /\b(increase|extend|lengthen|length|longer|fit|full\s+sound|if\s+needed)\b/i.test(
+          ctx.prompt
+        )
+      ) {
+        itemEnd = Math.max(itemEnd, soundEnd);
+      }
+    }
 
     // If the user explicitly specified a number of frames (e.g. "for 45 frames"), honor that exact frame count
     const explicitFramesMatch = ctx.prompt.match(/\bfor\s+(\d+)\s*frames?\b/i);
