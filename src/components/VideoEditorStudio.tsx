@@ -1400,7 +1400,18 @@ export default function VideoEditorStudio() {
           ref={videoRef}
           src={videoUrl}
           preload="auto"
-          className="fixed -left-[9999px] top-0 w-px h-px opacity-0 pointer-events-none"
+          width={1}
+          height={1}
+          style={{
+            position: 'fixed',
+            top: '-9999px',
+            left: '-9999px',
+            width: '1px',
+            height: '1px',
+            opacity: 0,
+            pointerEvents: 'none',
+            zIndex: -9999,
+          }}
           playsInline
           muted={isMuted}
           onLoadedMetadata={(e) => {
