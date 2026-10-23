@@ -72,6 +72,7 @@ import {
   resolveExportDimensions,
 } from '@/lib/hdExporter';
 import { computeTrackedKeyframe } from '@/lib/autoTracker';
+import { identifyObjectAtBbox } from '@/lib/realtimeObjectTracker';
 import {
   extractAudioPeaksFromFile,
   generateProceduralWaveform,
@@ -2010,6 +2011,19 @@ export default function VideoEditorStudio() {
         ? 'audio'
         : 'video';
 
+      let objectIdentificationContext = aiSettings.customContextPrompt || '';
+      if (sourceCanvasRef.current && scopedAnnotations.length > 0) {
+        const lastScoped = scopedAnnotations[scopedAnnotations.length - 1];
+        const profile = identifyObjectAtBbox(
+          sourceCanvasRef.current,
+          lastScoped.bbox
+        );
+        const objInfo = `Identified Object at (${lastScoped.bbox.cx.toFixed(3)}, ${lastScoped.bbox.cy.toFixed(3)}): Foreground Colors [${profile.dominantColorsHex.join(', ')}], Background Colors [${profile.backgroundColorsHex.join(', ')}], Segmented Bounds [w: ${profile.segmentedBbox.width.toFixed(3)}, h: ${profile.segmentedBbox.height.toFixed(3)}], Contrast ${profile.foregroundContrast}.`;
+        objectIdentificationContext = objectIdentificationContext
+          ? `${objectIdentificationContext}\n${objInfo}`
+          : objInfo;
+      }
+
       const response = await fetch('/api/ai-edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2042,7 +2056,7 @@ export default function VideoEditorStudio() {
           apiKeys: aiSettings.apiKeys,
           geminiApiKey,
           customBaseUrl: aiSettings.customBaseUrl,
-          customContextPrompt: aiSettings.customContextPrompt,
+          customContextPrompt: objectIdentificationContext,
         }),
       });
 
