@@ -287,26 +287,35 @@ export default function VideoEditorStudio() {
       lastFrameTimeRef.current = now;
 
       if (isPlaying && !isExporting) {
-        setCurrentTime((prev) => {
-          const { rate, freeze } = getActivePlaybackRate(prev);
-          const effectiveRate = freeze ? 1.0 : rate;
-          let next = prev + dt * effectiveRate;
-
+        if (videoUrl && videoRef.current) {
+          const vid = videoRef.current;
+          let next = vid.currentTime;
           if (loopIntervalOnly) {
-            if (next > intervalEnd || next < intervalStart) {
+            if (next >= intervalEnd || next < intervalStart) {
+              vid.currentTime = intervalStart;
               next = intervalStart;
-              if (videoRef.current && videoUrl) {
-                videoRef.current.currentTime = intervalStart;
-              }
             }
-          } else if (next >= duration) {
+          } else if (next >= duration - 0.05) {
+            vid.currentTime = 0;
             next = 0;
-            if (videoRef.current && videoUrl) {
-              videoRef.current.currentTime = 0;
-            }
           }
-          return next;
-        });
+          setCurrentTime(next);
+        } else {
+          setCurrentTime((prev) => {
+            const { rate, freeze } = getActivePlaybackRate(prev);
+            const effectiveRate = freeze ? 1.0 : rate;
+            let next = prev + dt * effectiveRate;
+
+            if (loopIntervalOnly) {
+              if (next > intervalEnd || next < intervalStart) {
+                next = intervalStart;
+              }
+            } else if (next >= duration) {
+              next = 0;
+            }
+            return next;
+          });
+        }
       }
 
       const displayCanvas = displayCanvasRef.current;
@@ -329,8 +338,11 @@ export default function VideoEditorStudio() {
           const { freeze, freezeTime } = getActivePlaybackRate(currentTime);
           const renderTime = freeze ? freezeTime : currentTime;
 
-          if (videoUrl && videoRef.current && videoRef.current.readyState >= 2) {
-            srcCtx.drawImage(videoRef.current, 0, 0, width, height);
+          if (videoUrl) {
+            // Imported video ALWAYS takes priority — never fall back to the procedural demo scene!
+            if (videoRef.current && videoRef.current.readyState >= 2) {
+              srcCtx.drawImage(videoRef.current, 0, 0, width, height);
+            }
           } else {
             renderProceduralDemoScene(srcCtx, width, height, renderTime, sceneId);
           }
@@ -375,10 +387,18 @@ export default function VideoEditorStudio() {
     vid.playbackRate = freeze ? 0.0625 : rate;
     vid.muted = isMuted;
 
-    if (isPlaying && vid.paused) {
-      vid.play().catch(() => {});
-    } else if (!isPlaying && !vid.paused) {
-      vid.pause();
+    if (isPlaying) {
+      if (vid.paused) {
+        vid.play().catch(() => {});
+      }
+    } else {
+      if (!vid.paused) {
+        vid.pause();
+      }
+      // When paused, keep the video element seeked to currentTime so scrubbing or clicking updates the frame immediately
+      if (Math.abs(vid.currentTime - currentTime) > 0.04 && !vid.seeking) {
+        vid.currentTime = currentTime;
+      }
     }
   }, [isPlaying, videoUrl, currentTime, isMuted, getActivePlaybackRate]);
 
@@ -395,28 +415,51 @@ export default function VideoEditorStudio() {
             setIntervalEnd(parsed.intervalEnd ?? 6.0);
             setAnnotations(parsed.annotations ?? []);
             setEdits(parsed.edits);
-            setStatusMessage(`Imported project file "${file.name}" (${parsed.edits.length} edits).`);
           }
         } catch {
-          setStatusMessage('Invalid project JSON file.');
+          // ignore invalid json
         }
       };
       reader.readAsText(file);
       return;
     }
 
+    // Clear the source canvas immediately so the procedural scene never shows through
+    if (sourceCanvasRef.current) {
+      const ctx = sourceCanvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(
+          0,
+          0,
+          sourceCanvasRef.current.width,
+          sourceCanvasRef.current.height
+        );
+      }
+    }
+
+    // Clear any annotations/edits from the old demo scene
+    setAnnotations([]);
+    setEdits([]);
+    setSelectedEditId(null);
+    setFocusedColor('all');
+    setActiveColor('red');
+
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
     setVideoFileName(file.name);
-    setIsPlaying(false);
+    setIsMuted(false);
+    setIsPlaying(true);
     setCurrentTime(0);
     extractAudioPeaksFromFile(file, 96).then((peaks) => setWaveformPeaks(peaks));
-    setStatusMessage(`Imported HD video "${file.name}". Select an interval and mark areas on screen!`);
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) processImportedFile(file);
+    if (file) {
+      processImportedFile(file);
+      e.target.value = '';
+    }
   };
 
   const handleStageDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -1209,8 +1252,10 @@ export default function VideoEditorStudio() {
       setExportProgress(pct);
       setCurrentTime(simTime);
 
-      if (videoUrl && videoRef.current && videoRef.current.readyState >= 2) {
-        srcCtx.drawImage(videoRef.current, 0, 0, width, height);
+      if (videoUrl) {
+        if (videoRef.current && videoRef.current.readyState >= 2) {
+          srcCtx.drawImage(videoRef.current, 0, 0, width, height);
+        }
       } else {
         renderProceduralDemoScene(srcCtx, width, height, simTime, sceneId);
       }
@@ -1318,7 +1363,8 @@ export default function VideoEditorStudio() {
         <video
           ref={videoRef}
           src={videoUrl}
-          className="hidden"
+          preload="auto"
+          className="fixed -left-[9999px] top-0 w-px h-px opacity-0 pointer-events-none"
           playsInline
           muted={isMuted}
           onLoadedMetadata={(e) => {
@@ -1330,6 +1376,7 @@ export default function VideoEditorStudio() {
               vw > vh ? '16:9 Widescreen' : vh > vw ? '9:16 Vertical' : '1:1 Square';
 
             setDuration(vidDuration);
+            setCurrentTime(0);
             setIntervalStart(0);
             setIntervalEnd(Math.min(5, vidDuration));
             setVideoMeta({
@@ -1340,6 +1387,19 @@ export default function VideoEditorStudio() {
               hasAudio: true,
               isCustomVideo: true,
             });
+          }}
+          onLoadedData={(e) => {
+            const v = e.currentTarget;
+            if (sourceCanvasRef.current) {
+              const ctx = sourceCanvasRef.current.getContext('2d');
+              ctx?.drawImage(
+                v,
+                0,
+                0,
+                sourceCanvasRef.current.width,
+                sourceCanvasRef.current.height
+              );
+            }
           }}
         />
       )}

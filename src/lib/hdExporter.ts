@@ -127,8 +127,10 @@ export function exportHighDefinitionSnapshotPng(options: {
   const outCtx = outCanvas.getContext('2d');
   if (!srcCtx || !outCtx) return;
 
-  if (videoUrl && videoElement && videoElement.readyState >= 2) {
-    srcCtx.drawImage(videoElement, 0, 0, width, height);
+  if (videoUrl) {
+    if (videoElement && videoElement.readyState >= 2) {
+      srcCtx.drawImage(videoElement, 0, 0, width, height);
+    }
   } else {
     renderProceduralDemoScene(srcCtx, width, height, currentTime, sceneId);
   }
