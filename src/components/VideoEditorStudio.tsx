@@ -6675,162 +6675,106 @@ export default function VideoEditorStudio() {
 
           return (
             <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-              <div className="w-full max-w-md bg-[#faf8f4] border border-[#ded7c8] rounded-2xl p-5 space-y-4 shadow-xl">
-                <div className="flex items-center justify-between">
+              <div className="w-full max-w-md bg-[#faf8f4] border border-[#ded7c8] rounded-2xl shadow-2xl overflow-hidden">
+                {/* Modal Header */}
+                <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#e8e2d5] bg-[#f4f0e6]">
                   <h3 className="text-sm font-semibold text-[#26231f] flex items-center gap-2">
                     <Settings className="w-4 h-4 text-[#b82d23]" />
                     Settings
                   </h3>
                   <button
                     onClick={() => setShowSettingsModal(false)}
-                    className="text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
+                    className="w-6 h-6 flex items-center justify-center rounded-md text-xs text-[#6e655c] hover:text-[#26231f] hover:bg-[#e8e2d5] transition cursor-pointer"
                   >
                     ✕
                   </button>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-[#6e655c] block">
-                    Main Video Editing API Key (Auto-detects DeepSeek, OpenAI, Gemini, Claude, OpenRouter, Groq, or xAI)
-                  </label>
-                  <input
-                    type="password"
-                    value={currentAutoKey}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setAiTestStatus({ loading: false });
-                      setGeminiApiKey(val);
-                      updateAiSettings((prev) => ({
-                        ...prev,
-                        provider: 'auto',
-                        model: 'auto',
-                        apiKeys: {
-                          ...prev.apiKeys,
-                          auto: val,
-                        },
-                      }));
-                    }}
-                    placeholder="sk-... / AIza... / sk-ant-... / sk-or-..."
-                    className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
-                  />
-                  {aiTestStatus.message && (
-                    <div
-                      className={`text-[11px] px-2.5 py-1.5 rounded-lg border ${
-                        aiTestStatus.ok
-                          ? 'bg-[#50793e]/10 border-[#50793e]/30 text-[#50793e]'
-                          : 'bg-[#b82d23]/10 border-[#b82d23]/30 text-[#b82d23]'
-                      }`}
-                    >
-                      {aiTestStatus.message}
-                    </div>
-                  )}
-
-                  {/* AI Model Reasoning Effort (Low / Medium / High) */}
-                  <div className="pt-2 space-y-1.5">
+                {/* Modal Body */}
+                <div className="p-5 space-y-4">
+                  {/* 1. AI API Key */}
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-[#26231f]">
-                        AI Model Effort
+                      <label className="text-xs font-semibold text-[#26231f]">
+                        AI API Key
                       </label>
-                      <span className="text-[10px] text-[#6e655c]">
-                        {(aiSettings.reasoningEffort || 'medium') === 'high'
-                          ? 'Deep Reasoning (R1 / Pro / GPT-4o + 8K tokens)'
-                          : (aiSettings.reasoningEffort || 'medium') === 'low'
-                          ? 'Fast & Lightweight'
-                          : 'Balanced Speed & Quality'}
+                      <span className="text-[10px] text-[#8a8275]">
+                        DeepSeek · OpenAI · Gemini · Claude · Grok
                       </span>
                     </div>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(
-                        [
-                          { id: 'low', label: 'Low Effort', sub: 'Fastest' },
-                          { id: 'medium', label: 'Medium', sub: 'Balanced' },
-                          { id: 'high', label: 'High Effort', sub: 'Best Quality' },
-                        ] as const
-                      ).map((opt) => {
-                        const isSelected =
-                          (aiSettings.reasoningEffort || 'medium') === opt.id;
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() =>
-                              updateAiSettings((prev) => ({
-                                ...prev,
-                                reasoningEffort: opt.id as AiReasoningEffort,
-                              }))
-                            }
-                            className={`py-1.5 px-2 rounded-lg border text-center transition cursor-pointer ${
-                              isSelected
-                                ? opt.id === 'high'
-                                  ? 'bg-[#b82d23] text-white border-[#b82d23]'
-                                  : 'bg-[#26231f] text-white border-[#26231f]'
-                                : 'bg-[#f0ece1] text-[#26231f] border-[#d6cfc2] hover:bg-[#e5dfd0]'
-                            }`}
-                          >
-                            <div className="text-xs font-semibold">{opt.label}</div>
-                            <div className="text-[10px] opacity-80">{opt.sub}</div>
-                          </button>
-                        );
-                      })}
+                    <input
+                      type="password"
+                      value={currentAutoKey}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAiTestStatus({ loading: false });
+                        setGeminiApiKey(val);
+                        updateAiSettings((prev) => ({
+                          ...prev,
+                          provider: 'auto',
+                          model: 'auto',
+                          apiKeys: {
+                            ...prev.apiKeys,
+                            auto: val,
+                          },
+                        }));
+                      }}
+                      placeholder="Paste API key (sk-..., AIza..., xai-...)"
+                      className="w-full h-9 px-3 bg-[#f0ece1] border border-[#d6cfc2] focus:border-[#26231f] focus:outline-none rounded-lg text-xs font-mono text-[#26231f]"
+                    />
+                    {aiTestStatus.message && (
+                      <div
+                        className={`text-[11px] px-2.5 py-1.5 rounded-lg border ${
+                          aiTestStatus.ok
+                            ? 'bg-[#50793e]/10 border-[#50793e]/30 text-[#50793e]'
+                            : 'bg-[#b82d23]/10 border-[#b82d23]/30 text-[#b82d23]'
+                        }`}
+                      >
+                        {aiTestStatus.message}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Image Generation */}
+                  <div className="space-y-2 pt-3.5 border-t border-[#e8e2d5]">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs font-semibold text-[#26231f] flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
+                        <span>Image Generation</span>
+                      </label>
+                      <span
+                        className={`text-[10px] font-medium px-2 py-0.5 rounded-md border whitespace-nowrap ${
+                          (aiSettings.imageApiKey || '').trim()
+                            ? 'bg-[#b82d23]/10 text-[#b82d23] border-[#b82d23]/25'
+                            : 'bg-[#50793e]/10 text-[#50793e] border-[#50793e]/25'
+                        }`}
+                      >
+                        {(aiSettings.imageApiKey || '').trim()
+                          ? 'Custom Key'
+                          : 'Uses Main Key'}
+                      </span>
                     </div>
-                  </div>
-                </div>
 
-                {/* Image Generation Model (Dual Mode or Separate Linked Key) */}
-                <div className="space-y-2 pt-3 border-t border-[#ded7c8]">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-[#26231f] flex items-center gap-1.5">
-                      <ImageIcon className="w-3.5 h-3.5 text-[#b82d23]" />
-                      Image Generation Model (Images → AI Draw)
-                    </label>
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                        (aiSettings.imageApiKey || '').trim()
-                          ? 'bg-[#b82d23]/10 text-[#b82d23] border-[#b82d23]/30'
-                          : 'bg-[#50793e]/10 text-[#50793e] border-[#50793e]/30'
-                      }`}
+                    <select
+                      value={aiSettings.imageGenMode || 'auto'}
+                      onChange={(e) => {
+                        const nextMode = e.target.value as ImageGenModeId;
+                        updateAiSettings((prev) => ({
+                          ...prev,
+                          imageGenMode: nextMode,
+                        }));
+                      }}
+                      className="w-full h-9 px-3 bg-[#f0ece1] border border-[#d6cfc2] focus:border-[#26231f] focus:outline-none rounded-lg text-xs text-[#26231f]"
                     >
-                      {(aiSettings.imageApiKey || '').trim()
-                        ? 'Separate Image Key'
-                        : 'Dual Mode (Uses Main Key)'}
-                    </span>
-                  </div>
+                      <option value="auto">Auto-Detect (Best Available)</option>
+                      <option value="openai">OpenAI DALL·E 3</option>
+                      <option value="gemini">Google Gemini / Imagen 3</option>
+                      <option value="xai">xAI Grok Image</option>
+                      <option value="huggingface">HuggingFace FLUX.1</option>
+                      <option value="stability">Stability AI SDXL</option>
+                      <option value="code_draw">AI Canvas Artist (Code Draw)</option>
+                    </select>
 
-                  <select
-                    value={aiSettings.imageGenMode || 'auto'}
-                    onChange={(e) => {
-                      const nextMode = e.target.value as ImageGenModeId;
-                      updateAiSettings((prev) => ({
-                        ...prev,
-                        imageGenMode: nextMode,
-                      }));
-                    }}
-                    className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
-                  >
-                    <option value="auto">
-                      Auto-Detect (Native Image if supported, or AI Code Draw)
-                    </option>
-                    <option value="openai">
-                      OpenAI DALL·E 3 (Native Raster Image)
-                    </option>
-                    <option value="gemini">
-                      Google Gemini / Imagen 3 (Native Raster Image)
-                    </option>
-                    <option value="xai">
-                      xAI Grok Image (Native Raster Image)
-                    </option>
-                    <option value="huggingface">
-                      HuggingFace FLUX.1-schnell (Native Raster Image)
-                    </option>
-                    <option value="stability">
-                      Stability AI SDXL (Native Raster Image)
-                    </option>
-                    <option value="code_draw">
-                      AI Code Draw (DeepSeek / Claude 1080p Canvas Artist)
-                    </option>
-                  </select>
-
-                  <div className="space-y-1">
                     <input
                       type="password"
                       value={aiSettings.imageApiKey || ''}
@@ -6841,100 +6785,103 @@ export default function VideoEditorStudio() {
                           imageApiKey: val,
                         }));
                       }}
-                      placeholder="Leave blank for Dual Mode (uses Main Key), or paste separate Image API Key..."
-                      className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
+                      placeholder="Optional separate Image API key (leave blank to use Main Key)"
+                      className="w-full h-9 px-3 bg-[#f0ece1] border border-[#d6cfc2] focus:border-[#26231f] focus:outline-none rounded-lg text-xs font-mono text-[#26231f]"
                     />
-                    <p className="text-[10px] text-[#6e655c] leading-snug">
-                      Leave blank if your main key does both (e.g. Gemini, OpenAI, Grok, or DeepSeek Code Draw), or paste a dedicated Image key (OpenAI, Gemini, HuggingFace <code className="font-mono">hf_...</code>, Stability, xAI) just for drawing images.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Microphone Selection & Studio Quality (OBS Mode) */}
-                <div className="space-y-2 pt-3 border-t border-[#ded7c8]">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-[#26231f] flex items-center gap-1.5">
-                      <Mic className="w-3.5 h-3.5 text-[#b82d23]" />
-                      Microphone (Record Sound)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => refreshMicrophoneDevices(true)}
-                      className="text-[11px] text-[#6e655c] hover:text-[#26231f] underline cursor-pointer"
-                    >
-                      Refresh Mics
-                    </button>
                   </div>
 
-                  <select
-                    value={selectedMicId}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
-                      setSelectedMicId(nextId);
-                      try {
-                        window.localStorage.setItem(
-                          'chromacut_mic_settings_v1',
-                          JSON.stringify({
-                            selectedMicId: nextId,
-                            obsCleanMicMode,
-                          })
-                        );
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                    className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
-                  >
-                    <option value="default">System Default Microphone</option>
-                    {availableMics
-                      .filter((m) => m.deviceId !== 'default')
-                      .map((mic) => (
-                        <option key={mic.deviceId} value={mic.deviceId}>
-                          {mic.label}
-                        </option>
-                      ))}
-                  </select>
+                  {/* 3. Microphone */}
+                  <div className="space-y-2 pt-3.5 border-t border-[#e8e2d5]">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-[#26231f] flex items-center gap-1.5">
+                        <Mic className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
+                        <span>Microphone</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => refreshMicrophoneDevices(true)}
+                        className="text-[11px] text-[#6e655c] hover:text-[#26231f] font-medium cursor-pointer"
+                      >
+                        Refresh
+                      </button>
+                    </div>
 
-                  <label className="flex items-center gap-2 text-xs text-[#544b43] cursor-pointer select-none pt-0.5">
-                    <input
-                      type="checkbox"
-                      checked={obsCleanMicMode}
+                    <select
+                      value={selectedMicId}
                       onChange={(e) => {
-                        const nextClean = e.target.checked;
-                        setObsCleanMicMode(nextClean);
+                        const nextId = e.target.value;
+                        setSelectedMicId(nextId);
                         try {
                           window.localStorage.setItem(
                             'chromacut_mic_settings_v1',
                             JSON.stringify({
-                              selectedMicId,
-                              obsCleanMicMode: nextClean,
+                              selectedMicId: nextId,
+                              obsCleanMicMode,
                             })
                           );
                         } catch {
                           // ignore
                         }
                       }}
-                      className="rounded border-[#d6cfc2] accent-[#b82d23]"
-                    />
-                    <span>
-                      OBS Studio Clean Audio (48kHz / 256kbps raw mic — disables muffled browser voice filter)
-                    </span>
-                  </label>
+                      className="w-full h-9 px-3 bg-[#f0ece1] border border-[#d6cfc2] focus:border-[#26231f] focus:outline-none rounded-lg text-xs text-[#26231f]"
+                    >
+                      <option value="default">System Default Microphone</option>
+                      {availableMics
+                        .filter((m) => m.deviceId !== 'default')
+                        .map((mic) => (
+                          <option key={mic.deviceId} value={mic.deviceId}>
+                            {mic.label}
+                          </option>
+                        ))}
+                    </select>
+
+                    <label className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#f0ece1]/70 border border-[#e2dcd0] cursor-pointer select-none">
+                      <div>
+                        <div className="text-xs font-medium text-[#26231f]">
+                          Studio Clean Audio (48kHz Raw)
+                        </div>
+                        <div className="text-[10px] text-[#6e655c]">
+                          Disables browser noise & voice muffling filters
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={obsCleanMicMode}
+                        onChange={(e) => {
+                          const nextClean = e.target.checked;
+                          setObsCleanMicMode(nextClean);
+                          try {
+                            window.localStorage.setItem(
+                              'chromacut_mic_settings_v1',
+                              JSON.stringify({
+                                selectedMicId,
+                                obsCleanMicMode: nextClean,
+                              })
+                            );
+                          } catch {
+                            // ignore
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-[#d6cfc2] accent-[#b82d23]"
+                      />
+                    </label>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-2 pt-1">
+                {/* Modal Footer */}
+                <div className="flex items-center justify-between gap-2 px-5 py-3 bg-[#f4f0e6] border-t border-[#e8e2d5]">
                   <button
                     type="button"
                     onClick={handleTestAiConnection}
                     disabled={aiTestStatus.loading || !currentAutoKey.trim()}
-                    className="px-3 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] disabled:opacity-40 border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer transition"
+                    className="h-8 px-3 bg-[#faf8f4] hover:bg-[#e8e2d5] disabled:opacity-40 border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer transition"
                   >
                     {aiTestStatus.loading ? 'Testing...' : 'Test Key'}
                   </button>
 
                   <button
                     onClick={() => setShowSettingsModal(false)}
-                    className="px-4 py-1.5 bg-[#26231f] hover:bg-[#3d3833] rounded-lg text-xs font-medium text-white cursor-pointer"
+                    className="h-8 px-5 bg-[#26231f] hover:bg-[#3d3833] rounded-lg text-xs font-medium text-white cursor-pointer transition"
                   >
                     Save
                   </button>
