@@ -169,7 +169,25 @@ export default function VideoEditorStudio() {
   const draggingHandleRef = useRef<'start' | 'end' | 'playhead' | null>(null);
   const draggingColorEdgeRef = useRef<{
     color: MarkColor;
-    edge: 'start' | 'end';
+    edge: 'start' | 'end' | 'move';
+    initialStart?: number;
+    initialEnd?: number;
+    grabTime?: number;
+  } | null>(null);
+  const canvasTransformRef = useRef<{
+    annId: string;
+    color: MarkColor;
+    mode: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e';
+    startPt: NormalizedPoint;
+    initialBbox: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      cx: number;
+      cy: number;
+    };
+    initialPoints: NormalizedPoint[];
   } | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
 
@@ -183,6 +201,17 @@ export default function VideoEditorStudio() {
     []
   );
 
+  const deleteColor = useCallback(
+    (color: MarkColor) => {
+      setAnnotations((prev) => prev.filter((a) => a.color !== color));
+      pushEditsWithUndo((prev) => prev.filter((e) => e.targetColor !== color));
+      if (focusedColor === color) {
+        setFocusedColor('all');
+      }
+    },
+    [focusedColor, pushEditsWithUndo]
+  );
+
   const handleUndoEdit = useCallback(() => {
     setUndoStack((stack) => {
       if (stack.length === 0) return stack;
@@ -192,7 +221,7 @@ export default function VideoEditorStudio() {
     });
   }, []);
 
-  // Keyboard shortcuts (Space, [, ], 1-4, Ctrl+Z)
+  // Keyboard shortcuts (Space, [, ], 1-4, Delete/Backspace, Ctrl+Z)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -201,6 +230,11 @@ export default function VideoEditorStudio() {
       if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying((p) => !p);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (focusedColor !== 'all') {
+          e.preventDefault();
+          deleteColor(focusedColor);
+        }
       } else if (e.key === '[') {
         setIntervalStart(Math.min(currentTime, intervalEnd - 0.3));
       } else if (e.key === ']') {
@@ -220,7 +254,7 @@ export default function VideoEditorStudio() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [currentTime, intervalStart, intervalEnd, handleUndoEdit]);
+  }, [currentTime, intervalStart, intervalEnd, focusedColor, deleteColor, handleUndoEdit]);
 
   const getActivePlaybackRate = useCallback(
     (t: number) => {
@@ -655,7 +689,7 @@ export default function VideoEditorStudio() {
   };
 
   const getNormalizedPoint = (
-    e: React.PointerEvent<SVGSVGElement>
+    e: React.PointerEvent<SVGElement>
   ): NormalizedPoint => {
     const svg = overlaySvgRef.current;
     if (!svg) return { x: 0.5, y: 0.5 };
@@ -667,12 +701,103 @@ export default function VideoEditorStudio() {
   };
 
   const handleCanvasPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (canvasTransformRef.current) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const pt = getNormalizedPoint(e);
     setCurrentStroke([pt]);
   };
 
   const handleCanvasPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (canvasTransformRef.current) {
+      const tf = canvasTransformRef.current;
+      const pt = getNormalizedPoint(e);
+      const dx = pt.x - tf.startPt.x;
+      const dy = pt.y - tf.startPt.y;
+
+      let nx = tf.initialBbox.x;
+      let ny = tf.initialBbox.y;
+      let nw = tf.initialBbox.width;
+      let nh = tf.initialBbox.height;
+
+      const minSize = 0.03;
+
+      if (tf.mode === 'move') {
+        nx = Math.max(0, Math.min(1 - nw, tf.initialBbox.x + dx));
+        ny = Math.max(0, Math.min(1 - nh, tf.initialBbox.y + dy));
+      } else {
+        if (tf.mode.includes('w')) {
+          const right = tf.initialBbox.x + tf.initialBbox.width;
+          nx = Math.max(0, Math.min(right - minSize, tf.initialBbox.x + dx));
+          nw = right - nx;
+        }
+        if (tf.mode.includes('e')) {
+          nw = Math.max(
+            minSize,
+            Math.min(1 - tf.initialBbox.x, tf.initialBbox.width + dx)
+          );
+        }
+        if (tf.mode.includes('n')) {
+          const bottom = tf.initialBbox.y + tf.initialBbox.height;
+          ny = Math.max(0, Math.min(bottom - minSize, tf.initialBbox.y + dy));
+          nh = bottom - ny;
+        }
+        if (tf.mode.includes('s')) {
+          nh = Math.max(
+            minSize,
+            Math.min(1 - tf.initialBbox.y, tf.initialBbox.height + dy)
+          );
+        }
+      }
+
+      const newBbox = {
+        x: nx,
+        y: ny,
+        width: nw,
+        height: nh,
+        cx: nx + nw / 2,
+        cy: ny + nh / 2,
+      };
+
+      const scaleX =
+        tf.initialBbox.width > 0.001 ? nw / tf.initialBbox.width : 1;
+      const scaleY =
+        tf.initialBbox.height > 0.001 ? nh / tf.initialBbox.height : 1;
+
+      const newPoints =
+        tf.initialPoints.length > 2
+          ? tf.initialPoints.map((p) => ({
+              x: Math.min(
+                1,
+                Math.max(0, nx + (p.x - tf.initialBbox.x) * scaleX)
+              ),
+              y: Math.min(
+                1,
+                Math.max(0, ny + (p.y - tf.initialBbox.y) * scaleY)
+              ),
+            }))
+          : [
+              { x: nx, y: ny },
+              { x: nx + nw, y: ny + nh },
+            ];
+
+      setAnnotations((prev) =>
+        prev.map((a) =>
+          a.id === tf.annId ? { ...a, bbox: newBbox, points: newPoints } : a
+        )
+      );
+      setEdits((prev) =>
+        prev.map((ed) => ({
+          ...ed,
+          annotations: ed.annotations.map((a) =>
+            a.id === tf.annId || a.color === tf.color
+              ? { ...a, bbox: newBbox, points: newPoints }
+              : a
+          ),
+        }))
+      );
+      return;
+    }
+
     if (!currentStroke) return;
     const pt = getNormalizedPoint(e);
     if (activeTool === 'brush') {
@@ -737,20 +862,27 @@ export default function VideoEditorStudio() {
             setIntervalEnd(e);
           }
         }
-        setStatusMessage(
-          `Bottom AI Bar connected to ${MARK_COLORS[color].name} AI! Stretch its [${intervalStart.toFixed(1)}s–${intervalEnd.toFixed(1)}s] bar on the timeline or type below.`
-        );
-      } else {
-        setStatusMessage('Bottom AI Bar connected to All Colors in this interval.');
       }
     },
-    [annotations, intervalStart, intervalEnd]
+    [annotations]
   );
 
   const handleCanvasPointerUp = () => {
+    if (canvasTransformRef.current) {
+      canvasTransformRef.current = null;
+      return;
+    }
     if (!currentStroke || currentStroke.length === 0) return;
-    const drawnColor = activeTool === 'arrow' && focusedColor !== 'all' ? focusedColor : activeColor;
     const bbox = computeBoundingBox(currentStroke, activeTool);
+
+    // Ignore tiny accidental clicks so clicking a placed highlight doesn't spawn a tiny dot
+    if (currentStroke.length < 2 || (bbox.width < 0.025 && bbox.height < 0.025)) {
+      setCurrentStroke(null);
+      return;
+    }
+
+    const drawnColor =
+      activeTool === 'arrow' && focusedColor !== 'all' ? focusedColor : activeColor;
     const newAnnotation: ScreenAnnotation = {
       id: `ann-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       color: drawnColor,
@@ -771,9 +903,6 @@ export default function VideoEditorStudio() {
     if (activeTool !== 'arrow') {
       const nextColor = getNextHighlightColor(nextTimeframeAnns);
       setActiveColor(nextColor);
-      setStatusMessage(
-        `Highlighted ${MARK_COLORS[drawnColor].name} [${intervalStart.toFixed(1)}s–${intervalEnd.toFixed(1)}s] — Bottom AI Bar is now connected to ${MARK_COLORS[drawnColor].name} AI!`
-      );
     }
   };
 
@@ -891,7 +1020,8 @@ export default function VideoEditorStudio() {
   useEffect(() => {
     const handleWindowPointerMove = (e: PointerEvent) => {
       if (draggingColorEdgeRef.current) {
-        const { color, edge } = draggingColorEdgeRef.current;
+        const { color, edge, initialStart, initialEnd, grabTime } =
+          draggingColorEdgeRef.current;
         const t = getTimeFromTimelineEvent(e.clientX);
         const matching = annotations.filter((a) => a.color === color);
         const curStart =
@@ -906,9 +1036,23 @@ export default function VideoEditorStudio() {
         if (edge === 'start') {
           stretchColorInterval(color, Math.min(t, curEnd - 0.3), curEnd);
           setCurrentTime(t);
-        } else {
+        } else if (edge === 'end') {
           stretchColorInterval(color, curStart, Math.max(t, curStart + 0.3));
           setCurrentTime(t);
+        } else if (
+          edge === 'move' &&
+          initialStart !== undefined &&
+          initialEnd !== undefined &&
+          grabTime !== undefined
+        ) {
+          const span = initialEnd - initialStart;
+          const delta = t - grabTime;
+          const nextStart = Math.max(
+            0,
+            Math.min(duration - span, initialStart + delta)
+          );
+          const nextEnd = nextStart + span;
+          stretchColorInterval(color, nextStart, nextEnd);
         }
         return;
       }
@@ -942,6 +1086,7 @@ export default function VideoEditorStudio() {
     const handleWindowPointerUp = () => {
       draggingHandleRef.current = null;
       draggingColorEdgeRef.current = null;
+      canvasTransformRef.current = null;
     };
 
     window.addEventListener('pointermove', handleWindowPointerMove);
@@ -952,6 +1097,7 @@ export default function VideoEditorStudio() {
     };
   }, [
     annotations,
+    duration,
     focusedColor,
     getTimeFromTimelineEvent,
     intervalStart,
@@ -1385,14 +1531,8 @@ export default function VideoEditorStudio() {
                           </span>
                         </button>
                         <button
-                          onClick={() => {
-                            setAnnotations((prev) =>
-                              prev.filter((a) => a.color !== summary.color)
-                            );
-                            if (focusedColor === summary.color) {
-                              setFocusedColor('all');
-                            }
-                          }}
+                          onClick={() => deleteColor(summary.color)}
+                          title={`Delete ${cfg.name}`}
                           className="px-1.5 py-0.5 hover:bg-black/10 border-l border-current/20 cursor-pointer"
                         >
                           ×
@@ -1492,17 +1632,40 @@ export default function VideoEditorStudio() {
                     const bw = ann.bbox.width * 1000;
                     const bh = ann.bbox.height * 562.5;
 
+                    const startTransform = (
+                      e: React.PointerEvent<SVGElement>,
+                      mode:
+                        | 'move'
+                        | 'nw'
+                        | 'ne'
+                        | 'sw'
+                        | 'se'
+                        | 'n'
+                        | 's'
+                        | 'w'
+                        | 'e'
+                    ) => {
+                      e.stopPropagation();
+                      overlaySvgRef.current?.setPointerCapture(e.pointerId);
+                      selectColorForAi(ann.color);
+                      canvasTransformRef.current = {
+                        annId: ann.id,
+                        color: ann.color,
+                        mode,
+                        startPt: getNormalizedPoint(e),
+                        initialBbox: { ...ann.bbox },
+                        initialPoints: ann.points.map((p) => ({ ...p })),
+                      };
+                    };
+
                     if (ann.tool === 'arrow' && ann.points.length >= 2) {
                       const p1 = ann.points[0];
                       const p2 = ann.points[ann.points.length - 1];
                       return (
                         <g
                           key={ann.id}
-                          onPointerDown={(e) => {
-                            e.stopPropagation();
-                            selectColorForAi(ann.color);
-                          }}
-                          className="cursor-pointer"
+                          onPointerDown={(e) => startTransform(e, 'move')}
+                          className="cursor-move"
                         >
                           <line
                             x1={p1.x * 1000}
@@ -1525,66 +1688,165 @@ export default function VideoEditorStudio() {
                       );
                     }
 
+                    const handles: Array<{
+                      mode: 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e';
+                      cx: number;
+                      cy: number;
+                      cursor: string;
+                    }> = [
+                      { mode: 'nw', cx: bx, cy: by, cursor: 'cursor-nwse-resize' },
+                      {
+                        mode: 'ne',
+                        cx: bx + bw,
+                        cy: by,
+                        cursor: 'cursor-nesw-resize',
+                      },
+                      {
+                        mode: 'sw',
+                        cx: bx,
+                        cy: by + bh,
+                        cursor: 'cursor-nesw-resize',
+                      },
+                      {
+                        mode: 'se',
+                        cx: bx + bw,
+                        cy: by + bh,
+                        cursor: 'cursor-nwse-resize',
+                      },
+                      {
+                        mode: 'n',
+                        cx: bx + bw / 2,
+                        cy: by,
+                        cursor: 'cursor-ns-resize',
+                      },
+                      {
+                        mode: 's',
+                        cx: bx + bw / 2,
+                        cy: by + bh,
+                        cursor: 'cursor-ns-resize',
+                      },
+                      {
+                        mode: 'w',
+                        cx: bx,
+                        cy: by + bh / 2,
+                        cursor: 'cursor-ew-resize',
+                      },
+                      {
+                        mode: 'e',
+                        cx: bx + bw,
+                        cy: by + bh / 2,
+                        cursor: 'cursor-ew-resize',
+                      },
+                    ];
+
+                    const labelY = Math.max(4, by - 22);
+
                     return (
-                      <g
-                        key={ann.id}
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          selectColorForAi(ann.color);
-                        }}
-                        className="cursor-pointer"
-                      >
-                        {ann.tool === 'brush' && ann.points.length > 1 ? (
-                          <polygon
-                            fill={cfg.fillRgba}
-                            stroke={cfg.hex}
-                            strokeWidth={isFocused ? 4.5 : 3}
-                            strokeLinejoin="round"
-                            points={ann.points
-                              .map((p) => `${p.x * 1000},${p.y * 562.5}`)
-                              .join(' ')}
-                          />
-                        ) : ann.tool === 'circle' ? (
-                          <ellipse
-                            cx={bx + bw / 2}
-                            cy={by + bh / 2}
-                            rx={bw / 2}
-                            ry={bh / 2}
-                            fill={cfg.fillRgba}
-                            stroke={cfg.hex}
-                            strokeWidth={isFocused ? 4.5 : 3}
-                            strokeDasharray="8 4"
-                          />
-                        ) : (
+                      <g key={ann.id}>
+                        {/* Draggable Shape Body */}
+                        <g
+                          onPointerDown={(e) => startTransform(e, 'move')}
+                          className="cursor-move"
+                        >
+                          {ann.tool === 'brush' && ann.points.length > 1 ? (
+                            <polygon
+                              fill={cfg.fillRgba}
+                              stroke={cfg.hex}
+                              strokeWidth={isFocused ? 4 : 3}
+                              strokeLinejoin="round"
+                              points={ann.points
+                                .map((p) => `${p.x * 1000},${p.y * 562.5}`)
+                                .join(' ')}
+                            />
+                          ) : ann.tool === 'circle' ? (
+                            <ellipse
+                              cx={bx + bw / 2}
+                              cy={by + bh / 2}
+                              rx={bw / 2}
+                              ry={bh / 2}
+                              fill={cfg.fillRgba}
+                              stroke={cfg.hex}
+                              strokeWidth={isFocused ? 4 : 3}
+                              strokeDasharray="8 4"
+                            />
+                          ) : (
+                            <rect
+                              x={bx}
+                              y={by}
+                              width={bw}
+                              height={bh}
+                              rx={6}
+                              fill={cfg.fillRgba}
+                              stroke={cfg.hex}
+                              strokeWidth={isFocused ? 4 : 3}
+                            />
+                          )}
+
+                          {/* Color Label Badge */}
                           <rect
                             x={bx}
-                            y={by}
-                            width={bw}
-                            height={bh}
-                            rx={6}
-                            fill={cfg.fillRgba}
-                            stroke={cfg.hex}
-                            strokeWidth={isFocused ? 4.5 : 3}
+                            y={labelY}
+                            width={94}
+                            height={18}
+                            rx={4}
+                            fill={cfg.hex}
                           />
-                        )}
-                        <rect
-                          x={bx}
-                          y={Math.max(4, by - 22)}
-                          width={106}
-                          height={18}
-                          rx={4}
-                          fill={cfg.hex}
-                        />
-                        <text
-                          x={bx + 53}
-                          y={Math.max(16, by - 9)}
-                          fill="#ffffff"
-                          fontSize="10"
-                          fontWeight="600"
-                          textAnchor="middle"
+                          <text
+                            x={bx + 47}
+                            y={labelY + 12.5}
+                            fill="#ffffff"
+                            fontSize="10"
+                            fontWeight="600"
+                            textAnchor="middle"
+                          >
+                            {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
+                          </text>
+                        </g>
+
+                        {/* Delete Button (×) right on the placed highlight badge */}
+                        <g
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            deleteColor(ann.color);
+                          }}
+                          className="cursor-pointer"
                         >
-                          {cfg.name} {(ann.startTime ?? intervalStart).toFixed(1)}s–{(ann.endTime ?? intervalEnd).toFixed(1)}s
-                        </text>
+                          <rect
+                            x={bx + 96}
+                            y={labelY}
+                            width={18}
+                            height={18}
+                            rx={4}
+                            fill="#26231f"
+                          />
+                          <text
+                            x={bx + 105}
+                            y={labelY + 13}
+                            fill="#ffffff"
+                            fontSize="12"
+                            fontWeight="bold"
+                            textAnchor="middle"
+                          >
+                            ×
+                          </text>
+                        </g>
+
+                        {/* 8 Stretch / Resize Handles around the placed highlight */}
+                        {handles.map((h) => (
+                          <rect
+                            key={h.mode}
+                            x={h.cx - 5.5}
+                            y={h.cy - 5.5}
+                            width={11}
+                            height={11}
+                            rx={2.5}
+                            fill="#ffffff"
+                            stroke={cfg.hex}
+                            strokeWidth={2}
+                            onPointerDown={(e) => startTransform(e, h.mode)}
+                            className={h.cursor}
+                          />
+                        ))}
                       </g>
                     );
                   })}
@@ -1932,15 +2194,22 @@ export default function VideoEditorStudio() {
                   return (
                     <div
                       key={cg.color}
-                      onClick={(e) => {
+                      onPointerDown={(e) => {
                         e.stopPropagation();
                         selectColorForAi(cg.color);
+                        draggingColorEdgeRef.current = {
+                          color: cg.color,
+                          edge: 'move',
+                          initialStart: cg.startTime,
+                          initialEnd: cg.endTime,
+                          grabTime: getTimeFromTimelineEvent(e.clientX),
+                        };
                       }}
                       style={{
                         marginLeft: `${leftPct}%`,
                         width: `${widthPct}%`,
                       }}
-                      className={`relative h-6 px-3 flex items-center justify-between text-[11px] font-medium rounded-md transition cursor-pointer select-none ${
+                      className={`relative h-6 pl-4 pr-8 flex items-center justify-between text-[11px] font-medium rounded-md transition cursor-grab active:cursor-grabbing select-none ${
                         cfg.badgeBg
                       } ${cfg.badgeText} ${
                         isFocused
@@ -1958,9 +2227,10 @@ export default function VideoEditorStudio() {
                             edge: 'start',
                           };
                         }}
-                        className="absolute left-0 top-0 bottom-0 w-2.5 bg-black/25 hover:bg-black/50 rounded-l-md flex items-center justify-center cursor-ew-resize"
+                        title="Drag to stretch start time"
+                        className="absolute left-0 top-0 bottom-0 w-3.5 bg-black/25 hover:bg-black/50 rounded-l-md flex items-center justify-center cursor-ew-resize"
                       >
-                        <span className="text-[9px] text-white/90">[</span>
+                        <span className="text-[9px] text-white">[</span>
                       </div>
 
                       <div className="flex items-center gap-1.5 truncate px-1">
@@ -1972,6 +2242,19 @@ export default function VideoEditorStudio() {
                         </span>
                       </div>
 
+                      {/* Delete Button (×) on Timeline Bar */}
+                      <button
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteColor(cg.color);
+                        }}
+                        title={`Delete ${cfg.name}`}
+                        className="absolute right-3.5 top-0 bottom-0 w-4 hover:bg-black/30 flex items-center justify-center text-white/90 hover:text-white cursor-pointer"
+                      >
+                        ×
+                      </button>
+
                       {/* Right Stretch Handle */}
                       <div
                         onPointerDown={(e) => {
@@ -1982,9 +2265,10 @@ export default function VideoEditorStudio() {
                             edge: 'end',
                           };
                         }}
-                        className="absolute right-0 top-0 bottom-0 w-2.5 bg-black/25 hover:bg-black/50 rounded-r-md flex items-center justify-center cursor-ew-resize"
+                        title="Drag to stretch end time"
+                        className="absolute right-0 top-0 bottom-0 w-3.5 bg-black/25 hover:bg-black/50 rounded-r-md flex items-center justify-center cursor-ew-resize"
                       >
-                        <span className="text-[9px] text-white/90">]</span>
+                        <span className="text-[9px] text-white">]</span>
                       </div>
                     </div>
                   );
