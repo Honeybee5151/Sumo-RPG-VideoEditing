@@ -1653,16 +1653,16 @@ export default function VideoEditorStudio() {
         />
       )}
 
-      {/* MAIN FULL-HEIGHT WORKSPACE (Top header removed so Left Library & Center Stage move all the way up) */}
+      {/* MAIN FULL-HEIGHT WORKSPACE */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* LEFT SIDEBAR: VIDEOS, IMAGES & SOUND LIBRARY (Current Project & Persistent Favorites) */}
-        <aside className="w-60 border-r border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0">
-          {/* Scope Tabs: Current Project vs Favorites (across sessions) */}
-          <div className="p-2.5 border-b border-[#ded7c8] space-y-2">
-            <div className="grid grid-cols-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 text-xs font-medium">
+        <aside className="w-64 border-r border-[#ded7c8] bg-[#faf8f4] flex flex-col shrink-0 h-full">
+          {/* Top Bar (h-11 aligned with Center Toolbar & Right Sidebar Header): Current Project vs Favorites */}
+          <div className="h-11 px-2.5 border-b border-[#ded7c8] flex items-center shrink-0">
+            <div className="w-full grid grid-cols-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 text-xs font-medium">
               <button
                 onClick={() => setLibraryScope('project')}
-                className={`py-1 rounded-md transition cursor-pointer ${
+                className={`w-full py-1 rounded-md transition cursor-pointer ${
                   libraryScope === 'project'
                     ? 'bg-[#26231f] text-white'
                     : 'text-[#6e655c] hover:text-[#26231f]'
@@ -1672,7 +1672,7 @@ export default function VideoEditorStudio() {
               </button>
               <button
                 onClick={() => setLibraryScope('favorites')}
-                className={`flex items-center justify-center gap-1 py-1 rounded-md transition cursor-pointer ${
+                className={`w-full flex items-center justify-center gap-1 py-1 rounded-md transition cursor-pointer ${
                   libraryScope === 'favorites'
                     ? 'bg-[#26231f] text-white'
                     : 'text-[#6e655c] hover:text-[#26231f]'
@@ -1682,161 +1682,174 @@ export default function VideoEditorStudio() {
                 <span>Favorites</span>
               </button>
             </div>
-
-            {/* Category Tabs: Videos | Images | Sound */}
-            <div className="grid grid-cols-3 gap-1 text-[11px] font-medium">
-              {(
-                [
-                  { id: 'video', label: 'Videos', icon: Film },
-                  { id: 'image', label: 'Images', icon: ImageIcon },
-                  { id: 'audio', label: 'Sound', icon: Music },
-                ] as const
-              ).map(({ id, label, icon: Icon }) => {
-                const count = mediaLibrary.filter(
-                  (m) =>
-                    (libraryScope === 'favorites'
-                      ? m.isFavorite
-                      : m.inCurrentProject) && m.category === id
-                ).length;
-                const active = libraryCategory === id;
-                return (
-                  <button
-                    key={id}
-                    onClick={() => setLibraryCategory(id)}
-                    className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border transition cursor-pointer ${
-                      active
-                        ? 'bg-[#f0ece1] border-[#26231f] text-[#26231f] font-semibold'
-                        : 'bg-[#f4f1ea] border-[#ded7c8] text-[#6e655c] hover:text-[#26231f]'
-                    }`}
-                  >
-                    <Icon className="w-3 h-3" />
-                    <span>{label}</span>
-                    {count > 0 && (
-                      <span className="text-[10px] opacity-70">({count})</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
           </div>
 
-          {/* Scrollable Media Asset List */}
-          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
-            {filteredLibraryItems.length === 0 ? (
-              <div className="py-8 px-3 text-center text-xs text-[#8c8277] space-y-2">
-                <p>
-                  No {libraryCategory === 'audio' ? 'sound' : `${libraryCategory}s`} in{' '}
-                  {libraryScope === 'favorites' ? 'Favorites' : 'Current Project'}
-                </p>
-                <label className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] cursor-pointer">
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add {libraryCategory === 'audio' ? 'Sound' : libraryCategory === 'image' ? 'Image' : 'Video'}</span>
-                  <input
-                    type="file"
-                    multiple
-                    accept={
-                      libraryCategory === 'video'
-                        ? 'video/*'
-                        : libraryCategory === 'image'
-                        ? 'image/*'
-                        : 'audio/*'
-                    }
-                    onChange={handleFileInputChange}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-            ) : (
-              filteredLibraryItems.map((asset) => {
-                const isActive =
-                  videoUrl === asset.url ||
-                  activeImageUrl === asset.url ||
-                  activeAudioUrl === asset.url;
-                return (
-                  <div
-                    key={asset.id}
-                    onClick={() => activateMediaAsset(asset)}
-                    className={`group flex items-center justify-between gap-1.5 p-2 rounded-xl border transition cursor-pointer ${
-                      isActive
-                        ? 'bg-[#f0ece1] border-[#26231f]'
-                        : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {asset.category === 'video' ? (
-                        <Film className="w-3.5 h-3.5 text-[#234c7a] shrink-0" />
-                      ) : asset.category === 'image' ? (
-                        <ImageIcon className="w-3.5 h-3.5 text-[#50793e] shrink-0" />
-                      ) : (
-                        <Music className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
-                      )}
-                      <span className="text-xs font-medium text-[#26231f] truncate">
-                        {asset.name}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFavoriteAsset(asset.id);
-                        }}
-                        title={
-                          asset.isFavorite
-                            ? 'Remove from Favorites'
-                            : 'Save to Favorites (persisted across sessions)'
-                        }
-                        className="p-1 rounded hover:bg-black/5 cursor-pointer"
-                      >
-                        <Star
-                          className={`w-3.5 h-3.5 ${
-                            asset.isFavorite
-                              ? 'text-[#c6923a] fill-[#c6923a]'
-                              : 'text-[#8c8277]'
-                          }`}
-                        />
-                      </button>
-
-                      {libraryScope === 'project' && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setMediaLibrary((prev) =>
-                              prev
-                                .map((m) =>
-                                  m.id === asset.id
-                                    ? { ...m, inCurrentProject: false }
-                                    : m
-                                )
-                                .filter((m) => m.inCurrentProject || m.isFavorite)
-                            );
-                          }}
-                          title="Remove from project"
-                          className="p-1 rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
+          {/* Category Tabs: Videos | Images | Sound */}
+          <div className="p-2 border-b border-[#ded7c8] grid grid-cols-3 gap-1.5 text-xs font-medium shrink-0">
+            {(
+              [
+                { id: 'video', label: 'Videos', icon: Film },
+                { id: 'image', label: 'Images', icon: ImageIcon },
+                { id: 'audio', label: 'Sound', icon: Music },
+              ] as const
+            ).map(({ id, label, icon: Icon }) => {
+              const count = mediaLibrary.filter(
+                (m) =>
+                  (libraryScope === 'favorites'
+                    ? m.isFavorite
+                    : m.inCurrentProject) && m.category === id
+              ).length;
+              const active = libraryCategory === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setLibraryCategory(id)}
+                  className={`w-full flex items-center justify-center gap-1 py-1.5 rounded-lg border transition cursor-pointer ${
+                    active
+                      ? 'bg-[#26231f] border-[#26231f] text-white'
+                      : 'bg-[#f4f1ea] border-[#ded7c8] text-[#6e655c] hover:text-[#26231f] hover:bg-[#f0ece1]'
+                  }`}
+                >
+                  <Icon className="w-3 h-3 shrink-0" />
+                  <span className="truncate">
+                    {label}
+                    {count > 0 ? ` (${count})` : ''}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Bottom Add Media Bar in Library */}
-          <div className="p-2.5 border-t border-[#ded7c8]">
-            <label className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
+          {/* Full-Height Media Asset List & Full-Bleed Add Zone */}
+          <div className="flex-1 flex flex-col p-2.5 gap-2 overflow-y-auto min-h-0">
+            <label className="w-full flex items-center justify-center gap-1.5 py-2 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
               <Plus className="w-3.5 h-3.5 text-[#234c7a]" />
-              <span>Add Videos / Images / Sound</span>
+              <span>
+                Add {libraryCategory === 'audio' ? 'Sound' : libraryCategory === 'image' ? 'Image' : 'Video'}
+              </span>
               <input
                 type="file"
                 multiple
-                accept="video/*,image/*,audio/*"
+                accept={
+                  libraryCategory === 'video'
+                    ? 'video/*'
+                    : libraryCategory === 'image'
+                    ? 'image/*'
+                    : 'audio/*'
+                }
                 onChange={handleFileInputChange}
                 className="hidden"
               />
             </label>
+
+            {filteredLibraryItems.length === 0 ? (
+              <label className="flex-1 w-full flex flex-col items-center justify-center text-center p-4 rounded-xl border border-dashed border-[#d6cfc2] bg-[#f4f1ea]/60 hover:bg-[#f0ece1]/70 text-xs text-[#8c8277] gap-1.5 cursor-pointer transition">
+                {libraryCategory === 'video' ? (
+                  <Film className="w-5 h-5 text-[#8c8277]" />
+                ) : libraryCategory === 'image' ? (
+                  <ImageIcon className="w-5 h-5 text-[#8c8277]" />
+                ) : (
+                  <Music className="w-5 h-5 text-[#8c8277]" />
+                )}
+                <span className="font-medium text-[#6e655c]">
+                  No {libraryCategory === 'audio' ? 'sound' : `${libraryCategory}s`} in{' '}
+                  {libraryScope === 'favorites' ? 'Favorites' : 'Current Project'}
+                </span>
+                <span className="text-[11px] text-[#8c8277]">
+                  Click or drop files here to add
+                </span>
+                <input
+                  type="file"
+                  multiple
+                  accept={
+                    libraryCategory === 'video'
+                      ? 'video/*'
+                      : libraryCategory === 'image'
+                      ? 'image/*'
+                      : 'audio/*'
+                  }
+                  onChange={handleFileInputChange}
+                  className="hidden"
+                />
+              </label>
+            ) : (
+              <div className="flex-1 space-y-1.5 overflow-y-auto">
+                {filteredLibraryItems.map((asset) => {
+                  const isActive =
+                    videoUrl === asset.url ||
+                    activeImageUrl === asset.url ||
+                    activeAudioUrl === asset.url;
+                  return (
+                    <div
+                      key={asset.id}
+                      onClick={() => activateMediaAsset(asset)}
+                      className={`w-full group flex items-center justify-between gap-1.5 p-2 rounded-xl border transition cursor-pointer ${
+                        isActive
+                          ? 'bg-[#f0ece1] border-[#26231f]'
+                          : 'bg-[#f4f1ea] border-[#ded7c8] hover:bg-[#f0ece1]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {asset.category === 'video' ? (
+                          <Film className="w-3.5 h-3.5 text-[#234c7a] shrink-0" />
+                        ) : asset.category === 'image' ? (
+                          <ImageIcon className="w-3.5 h-3.5 text-[#50793e] shrink-0" />
+                        ) : (
+                          <Music className="w-3.5 h-3.5 text-[#b82d23] shrink-0" />
+                        )}
+                        <span className="text-xs font-medium text-[#26231f] truncate">
+                          {asset.name}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavoriteAsset(asset.id);
+                          }}
+                          title={
+                            asset.isFavorite
+                              ? 'Remove from Favorites'
+                              : 'Save to Favorites (persisted across sessions)'
+                          }
+                          className="p-1 rounded hover:bg-black/5 cursor-pointer"
+                        >
+                          <Star
+                            className={`w-3.5 h-3.5 ${
+                              asset.isFavorite
+                                ? 'text-[#c6923a] fill-[#c6923a]'
+                                : 'text-[#8c8277]'
+                            }`}
+                          />
+                        </button>
+
+                        {libraryScope === 'project' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMediaLibrary((prev) =>
+                                prev
+                                  .map((m) =>
+                                    m.id === asset.id
+                                      ? { ...m, inCurrentProject: false }
+                                      : m
+                                  )
+                                  .filter((m) => m.inCurrentProject || m.isFavorite)
+                              );
+                            }}
+                            title="Remove from project"
+                            className="p-1 rounded hover:bg-[#b82d23]/10 text-[#8c8277] hover:text-[#b82d23] cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </aside>
 
@@ -1967,10 +1980,12 @@ export default function VideoEditorStudio() {
           </div>
 
           {/* VIDEO CANVAS & INTERACTIVE SVG DRAWING OVERLAY */}
-          <div className="flex-1 relative flex flex-col items-center justify-center p-3 min-h-0 overflow-hidden bg-[#ebe6dc]">
-            <div className="relative aspect-video max-h-full max-w-full rounded-xl border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden">
+          <div className="flex-1 relative flex items-center justify-center p-3 min-h-0 overflow-hidden bg-[#ebe6dc]">
+            <div className="relative w-full aspect-video max-h-full max-w-full rounded-xl border border-[#d6cfc2] shadow-sm bg-[#181614] overflow-hidden">
               <canvas
                 ref={displayCanvasRef}
+                width={1280}
+                height={720}
                 className="w-full h-full block object-contain"
               />
 
@@ -2391,7 +2406,7 @@ export default function VideoEditorStudio() {
 
           {/* ADAPTIVE BOTTOM AI BAR (Shows only the currently selected color from the right panel) */}
           <div className="border-t border-[#ded7c8] bg-[#faf8f4] px-4 py-2 shrink-0">
-            <div className="max-w-5xl mx-auto flex items-center gap-2">
+            <div className="w-full flex items-center gap-2">
               {isEditingIntervalBadge ? (
                 <div
                   style={
