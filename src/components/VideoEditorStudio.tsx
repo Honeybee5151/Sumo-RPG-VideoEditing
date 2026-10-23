@@ -3638,37 +3638,6 @@ export default function VideoEditorStudio() {
                 Colors ({allColorGroups.length}) & Edits ({edits.length})
               </h2>
             </div>
-            <div className="flex items-center gap-2">
-              {undoStack.length > 0 && (
-                <button
-                  onClick={handleUndoEdit}
-                  className="text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
-                >
-                  Undo
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  recordHistorySnapshot();
-                  setAnnotations([]);
-                  setEdits([]);
-                  setCuts([]);
-                  setSplitPoints([]);
-                  setSelectedEditId(null);
-                  setSelectedSegment(null);
-                  setFocusedColor('all');
-                }}
-                disabled={
-                  allColorGroups.length === 0 &&
-                  edits.length === 0 &&
-                  cuts.length === 0 &&
-                  splitPoints.length === 0
-                }
-                className="text-xs text-[#6e655c] hover:text-[#b82d23] disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
-              >
-                Clear All
-              </button>
-            </div>
           </div>
 
           {/* Scrollable List of Placed Colors & Their Connected Edits */}
