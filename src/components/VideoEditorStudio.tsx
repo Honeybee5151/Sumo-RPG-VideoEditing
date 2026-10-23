@@ -1842,12 +1842,14 @@ export default function VideoEditorStudio() {
       const track = timelineTrackRef.current;
       if (!track) return 0;
       const rect = track.getBoundingClientRect();
-      const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+      const innerLeft = rect.left + (track.clientLeft || 0);
+      const innerWidth = track.clientWidth || rect.width;
+      const ratio = Math.min(1, Math.max(0, (clientX - innerLeft) / innerWidth));
       return Number(
         Math.min(
           duration,
           Math.max(0, timelineViewStart + ratio * visibleTimelineSpan)
-        ).toFixed(2)
+        ).toFixed(3)
       );
     },
     [duration, timelineViewStart, visibleTimelineSpan]
@@ -3590,7 +3592,7 @@ export default function VideoEditorStudio() {
               {/* Current Time Red Playhead Line with On-Playhead Cut Button */}
               <div
                 style={{ left: `${timeToTimelinePct(currentTime)}%` }}
-                className="absolute top-0 bottom-0 w-0.5 bg-[#b82d23] pointer-events-none z-20"
+                className="absolute top-0 bottom-0 w-0.5 -translate-x-1/2 bg-[#b82d23] pointer-events-none z-20"
               >
                 <button
                   type="button"
@@ -3600,14 +3602,14 @@ export default function VideoEditorStudio() {
                     handleCutInterval();
                   }}
                   title={`Cut at ${currentTime.toFixed(1)}s (Shortcut: C)`}
-                  className="pointer-events-auto -ml-2.5 top-0.5 w-5 h-5 rounded-full bg-[#b82d23] hover:bg-[#26231f] text-white flex items-center justify-center shadow-xs cursor-pointer transition"
+                  className="pointer-events-auto absolute left-1/2 -translate-x-1/2 top-0.5 w-5 h-5 rounded-full bg-[#b82d23] hover:bg-[#26231f] text-white flex items-center justify-center shadow-xs cursor-pointer transition"
                 >
                   <Scissors className="w-2.5 h-2.5" />
                 </button>
               </div>
             </div>
 
-            {/* Full-Width Elongated Slider Underneath Timeframe (1:1 Aligned with Red Cut Playhead) */}
+            {/* Full-Width Elongated Slider Underneath Timeframe (Sub-pixel 1:1 Aligned with Red Cut Playhead) */}
             <div
               onPointerDown={(e) => {
                 const t = getTimeFromTimelineEvent(e.clientX);
@@ -3618,10 +3620,10 @@ export default function VideoEditorStudio() {
                 draggingHandleRef.current = 'playhead';
               }}
               title={`Slide to scrub playhead (${currentTime.toFixed(1)}s)`}
-              className="relative w-full h-5 flex items-center cursor-pointer select-none shrink-0"
+              className="relative w-full h-5 border-x border-transparent flex items-center cursor-pointer select-none shrink-0"
             >
-              {/* Full-width slider track matching the exact width of the timeframe box above */}
-              <div className="w-full h-2 bg-[#e5dfd0] border border-[#d6cfc2] rounded-full overflow-hidden">
+              {/* Full-width slider track matching the exact inner width of the timeframe box above */}
+              <div className="w-full h-2 bg-[#e5dfd0] ring-1 ring-inset ring-[#d6cfc2] rounded-full overflow-hidden">
                 <div
                   style={{
                     width: `${Math.min(100, Math.max(0, timeToTimelinePct(currentTime)))}%`,
@@ -3630,7 +3632,7 @@ export default function VideoEditorStudio() {
                 />
               </div>
 
-              {/* Slider thumb locked to the exact same X percentage as the Red Cut Playhead */}
+              {/* Slider thumb locked to the exact same X coordinate as the Red Cut Playhead */}
               <div
                 style={{
                   left: `${Math.min(100, Math.max(0, timeToTimelinePct(currentTime)))}%`,
