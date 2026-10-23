@@ -5296,24 +5296,6 @@ export default function VideoEditorStudio() {
                   </button>
                 </div>
               </div>
-
-              <div className="w-44 min-w-[11rem] max-w-[11rem] flex items-center justify-end gap-1.5 text-[11px] text-[#6e655c] shrink-0 overflow-hidden">
-                {focusedColor !== 'all' ? (
-                  <span className="flex items-center gap-1.5 whitespace-nowrap">
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ backgroundColor: MARK_COLORS[focusedColor].hex }}
-                    />
-                    <span>
-                      Editing <strong className="text-[#26231f]">{MARK_COLORS[focusedColor].name}</strong>
-                    </span>
-                  </span>
-                ) : (
-                  <span className="text-[#8c8277] font-mono tabular-nums whitespace-nowrap">
-                    {intervalStart.toFixed(1)}s–{intervalEnd.toFixed(1)}s
-                  </span>
-                )}
-              </div>
             </div>
 
             {/* Interactive Scrubber & Single Selected Color Stretch Track */}
