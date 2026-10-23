@@ -973,21 +973,27 @@ export default function VideoEditorStudio() {
     [recordHistorySnapshot]
   );
 
-  const toggleFavoriteAsset = useCallback((assetId: string) => {
-    setMediaLibrary((prev) =>
-      prev.map((item) => {
-        if (item.id !== assetId) return item;
-        const nextFav = !item.isFavorite;
-        const updated = { ...item, isFavorite: nextFav };
-        if (nextFav) {
-          saveFavoriteToDb(updated);
-        } else {
-          removeFavoriteFromDb(updated.id);
-        }
-        return updated;
-      })
-    );
-  }, []);
+  const toggleFavoriteAsset = useCallback(
+    (assetId: string) => {
+      recordHistorySnapshot();
+      setMediaLibrary((prev) =>
+        prev
+          .map((item) => {
+            if (item.id !== assetId) return item;
+            const nextFav = !item.isFavorite;
+            const updated = { ...item, isFavorite: nextFav };
+            if (nextFav) {
+              saveFavoriteToDb(updated);
+            } else {
+              removeFavoriteFromDb(updated.id);
+            }
+            return updated;
+          })
+          .filter((item) => item.inCurrentProject || item.isFavorite)
+      );
+    },
+    [recordHistorySnapshot]
+  );
 
   // Universal File Import Handler (Videos, Images, Sound, or .chromacut.json Project Files)
   const processImportedFile = (file: File) => {
@@ -1015,16 +1021,21 @@ export default function VideoEditorStudio() {
     recordHistorySnapshot();
     const category = detectMediaCategory(file);
     const url = URL.createObjectURL(file);
+    const addingDirectlyToFavorites = libraryScope === 'favorites';
     const newItem: MediaAssetItem = {
       id: `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name: file.name,
       category,
       url,
       blob: file,
-      isFavorite: false,
-      inCurrentProject: true,
+      isFavorite: addingDirectlyToFavorites,
+      inCurrentProject: !addingDirectlyToFavorites,
       createdAt: Date.now(),
     };
+
+    if (addingDirectlyToFavorites) {
+      saveFavoriteToDb(newItem);
+    }
 
     setMediaLibrary((prev) => [newItem, ...prev]);
     setLibraryCategory(category);
