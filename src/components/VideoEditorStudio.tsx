@@ -4898,14 +4898,14 @@ export default function VideoEditorStudio() {
                 ))}
               </div>
 
-              {/* Cut on Red Playhead Button (Rigid w-28 width so time never clips) */}
+              {/* Cut on Red Playhead Button (Static label so the Scissors icon never jitters/animates while playing) */}
               <button
                 onClick={handleCutInterval}
-                title={`Cut at red playhead (${currentTime.toFixed(1)}s) [Shortcut: C]`}
-                className="w-28 min-w-[7rem] max-w-[7rem] h-7 flex items-center justify-center gap-1 px-2 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-[11px] font-medium tabular-nums whitespace-nowrap text-[#26231f] transition cursor-pointer shrink-0 overflow-hidden"
+                title="Cut at red playhead [Shortcut: C]"
+                className="w-16 min-w-[4rem] max-w-[4rem] h-7 flex items-center justify-center gap-1 px-2 bg-[#f0ece1] hover:bg-[#b82d23] hover:text-white border border-[#d6cfc2] rounded-lg text-[11px] font-medium whitespace-nowrap text-[#26231f] transition cursor-pointer shrink-0 overflow-hidden"
               >
                 <Scissors className="w-3 h-3 shrink-0" />
-                <span>Cut ({currentTime.toFixed(1)}s)</span>
+                <span>Cut</span>
               </button>
 
               {/* Delete Selected Segment / Box / Dot Button (Rigid w-32 width; text adapts to fit) */}
