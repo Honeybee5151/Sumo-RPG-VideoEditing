@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, dialog, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, nativeImage, screen } = require('electron');
 const http = require('http');
 const https = require('https');
 const path = require('path');
@@ -286,9 +286,13 @@ async function createWindow() {
     ? nativeImage.createFromPath(ICON_PATH)
     : ICON_PATH;
 
+  const workArea = screen.getPrimaryDisplay().workArea;
+
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    x: workArea.x,
+    y: workArea.y,
+    width: workArea.width,
+    height: workArea.height,
     minWidth: 1080,
     minHeight: 720,
     show: false,
