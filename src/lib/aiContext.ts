@@ -36,6 +36,12 @@ export interface AiEditorContextInput {
     name: string;
     durationSec?: number;
   }>;
+  projectAssets?: Array<{
+    id: string;
+    name: string;
+    category: 'video' | 'image' | 'audio';
+    durationSec?: number;
+  }>;
 }
 
 const VALID_EFFECT_TYPES: EffectType[] = [
@@ -91,15 +97,52 @@ export function buildAiEditorSystemPrompt(ctx: AiEditorContextInput): string {
           .join('\n')
       : `- targetColor: "all" (Full Frame) | Center: (cx: 0.500, cy: 0.500) | Box: [x: 0.000, y: 0.000, w: 1.000, h: 1.000] | Timeframe: ${ctx.startTime.toFixed(2)}s to ${ctx.endTime.toFixed(2)}s (${activeFrameCount} frames @ 30fps)`;
 
-  const soundLines =
-    ctx.projectSounds && ctx.projectSounds.length > 0
-      ? `\n3. **Available Project Sounds (Current Project -> Sound)**:\n` +
-        ctx.projectSounds
+  const allAssets = ctx.projectAssets ?? [
+    ...(ctx.projectSounds || []).map((s) => ({
+      ...s,
+      category: 'audio' as const,
+    })),
+  ];
+  const appImages = allAssets.filter((a) => a.category === 'image');
+  const appVideos = allAssets.filter((a) => a.category === 'video');
+  const appSounds = allAssets.filter((a) => a.category === 'audio');
+
+  const assetSections: string[] = [];
+  if (appImages.length > 0) {
+    assetSections.push(
+      `   - **Images (Current Project / Saved Images)**:\n` +
+        appImages.map((img) => `     * Name: "${img.name}" | ID: "${img.id}"`).join('\n')
+    );
+  }
+  if (appVideos.length > 0) {
+    assetSections.push(
+      `   - **Videos (Current Project / Saved Videos)**:\n` +
+        appVideos
+          .map(
+            (v) =>
+              `     * Name: "${v.name}" | ID: "${v.id}"${
+                v.durationSec ? ` | Duration: ${v.durationSec.toFixed(2)}s` : ''
+              }`
+          )
+          .join('\n')
+    );
+  }
+  if (appSounds.length > 0) {
+    assetSections.push(
+      `   - **Sounds (Current Project / Saved Sounds)**:\n` +
+        appSounds
           .map(
             (s) =>
-              `   - Name: "${s.name}" | ID: "${s.id}" | Duration: ${(s.durationSec ?? 3.0).toFixed(2)}s`
+              `     * Name: "${s.name}" | ID: "${s.id}" | Duration: ${(s.durationSec ?? 3.0).toFixed(2)}s`
           )
-          .join('\n') +
+          .join('\n')
+    );
+  }
+
+  const soundLines =
+    assetSections.length > 0
+      ? `\n3. **Available App Files (Images, Videos, and Sounds in the App)**:\n` +
+        assetSections.join('\n') +
         '\n'
       : '';
 
@@ -127,7 +170,8 @@ Do whatever the user asks at the target position and timeframe by returning a JS
 - \`"targetColor"\`: The target position's \`targetColor\` ID (e.g. \`"${focusedColorId || (colorSummary[0]?.color ?? 'all')}"\`).
 - \`"startTime"\`: Start time in seconds (default \`${ctx.startTime.toFixed(2)}\`).
 - \`"endTime"\`: End time in seconds (default \`${ctx.endTime.toFixed(2)}\`, or \`startTime + frames / 30\` if the user specifies a frame count, or \`startTime + soundDuration\` if the user asks to lengthen the dot/color interval to fit a sound).
-- \`"audioAssetName"\` (string, optional): If the user asks to use or play a sound from Available Project Sounds (e.g. "use the sound Recorded Sound 1 here"), set this to the exact sound name (e.g. \`"Recorded Sound 1.webm"\`). IMPORTANT: When the user asks ONLY to play a sound on the video without any visual effect, keep the video visible and do NOT provide \`renderCode\` or \`svg\`; when the user asks for BOTH a visual/screen effect (e.g. bounce, zoom, fire, text) AND a sound, provide BOTH \`renderCode\` AND \`audioAssetName\`.
+- \`"audioAssetName"\` (string, optional): If the user asks to use or play a sound from Available App Files (e.g. "use the sound Recorded Sound 1 here"), set this to the exact sound name (e.g. \`"Recorded Sound 1.webm"\`). IMPORTANT: When the user asks ONLY to play a sound on the video without any visual effect, keep the video visible and do NOT provide \`renderCode\` or \`svg\`; when the user asks for BOTH a visual/screen effect (e.g. bounce, zoom, fire, text) AND a sound, provide BOTH \`renderCode\` AND \`audioAssetName\`.
+- \`"imageAssetName"\` (string, optional): If the user asks to add, show, or animate an image or video from Available App Files (e.g. "add the trophy from images in a cool way onto the screen"), set this to the matching file name (e.g. \`"Trophy.png"\`) AND call \`drawImageAsset("Trophy.png", ...)\` or \`getImage("Trophy.png")\` inside your \`renderCode\`!
 - \`"duration"\` (number, optional): ONLY use when \`Active Media Type\` is \`image\` and the user asks to change the total timeline duration of the static image. Never set \`duration\` when editing a video (to change the length of a color/dot interval on a video, set \`"endTime"\` instead!).
 - \`"playbackRate"\` (number, optional): ONLY set when the user explicitly asks for slow-motion, fast-forward, or a speed change (e.g. \`"2x speed"\`, \`"slow motion"\`). NEVER set \`playbackRate\` for visual effects like lag, stutter, choppy FPS, or glitch, because changing \`playbackRate\` alters the video timeline clock and distorts audio!
 - \`"freezeFrame"\` (boolean, optional): ONLY set when the user explicitly asks to pause/freeze the timeline player itself. For visual frame-holds or lag, use \`holdFrame(stepSeconds)\` inside \`renderCode\` instead so the video timeline & audio continue at normal 1.0x speed.
@@ -138,6 +182,10 @@ Do whatever the user asks at the target position and timeframe by returning a JS
   - \`sourceCanvas\`: \`HTMLCanvasElement\` containing the current live unedited video frame
   - \`state\`: Persistent object (\`Record<string, any>\`) preserved across frames for this edit (store particles, physics velocities, timers, or custom buffers here!)
   - **General-Purpose Engine Primitives (directly callable in \`renderCode\`)**:
+    - \`drawImageAsset(nameOrId, dx = cx, dy = cy, maxW = size, maxH = size, options = { center: true, scale: 1, rotation: 0, alpha: 1 })\`: Draws an image or video from **Available App Files** onto \`ctx\` preserving its natural aspect ratio and automatically isolating the subject from any solid background! Whenever the user asks to add/show an image or video from the app (e.g. "add the trophy from images in a cool way"), ALWAYS use \`drawImageAsset("trophy", ...)\` or \`getImage("trophy")\` instead of drawing a fake object from scratch! (Note: if you already called \`ctx.translate(cx, cy)\`, pass \`0, 0\` for \`dx, dy\`!).
+    - \`getImage(nameOrId)\`: Returns the ready \`HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | null\` for any image or video in **Available App Files** so you can draw it directly with \`ctx.drawImage(img, ...)\`.
+    - \`getVideo(nameOrId)\`: Returns the playing \`HTMLVideoElement | null\` for any video clip in **Available App Files**.
+    - \`assets\`: Array of \`{ id, name, category, durationSec }\` listing all files loaded in the app.
     - \`clearFrame(color = '#000000')\`: Clears the pre-drawn live video frame from \`ctx\`.
     - \`createBuffer(id = 'buf', bw = width, bh = height)\`: Returns a persistent offscreen \`{ canvas, ctx }\` preserved across frames for multi-pass effects, motion blur, feedback loops, pixel manipulation, or custom caching.
     - \`holdFrame(stepSeconds = 0.28)\`: Captures and holds a frozen video frame on the canvas for \`stepSeconds\` real seconds at a time while the underlying video continues playing at normal 1.0x speed, and returns that frozen \`HTMLCanvasElement\`.
@@ -413,6 +461,41 @@ export function parseAiEditResponse(
       }
     } else if (rawSoundName) {
       rawParams.audioAssetName = rawSoundName;
+    }
+
+    // Handle attached image/video asset from Available App Files (imageAssetName / imageAssetId)
+    const rawImageName =
+      (typeof item.imageAssetName === 'string' && item.imageAssetName) ||
+      (typeof item.image === 'string' && item.image) ||
+      (typeof rawParams.imageAssetName === 'string' && rawParams.imageAssetName) ||
+      '';
+    const rawImageId =
+      (typeof item.imageAssetId === 'string' && item.imageAssetId) ||
+      (typeof rawParams.imageAssetId === 'string' && rawParams.imageAssetId) ||
+      '';
+
+    const visualAppAssets = (ctx.projectAssets || []).filter(
+      (a) => a.category === 'image' || a.category === 'video'
+    );
+    let matchedVisualAsset = visualAppAssets.find(
+      (a) =>
+        (rawImageId && a.id === rawImageId) ||
+        (rawImageName &&
+          a.name.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim() ===
+            rawImageName.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim())
+    );
+    if (!matchedVisualAsset && visualAppAssets.length > 0) {
+      const lowerP = ctx.prompt.toLowerCase();
+      matchedVisualAsset = visualAppAssets.find((a) => {
+        const baseName = a.name.toLowerCase().replace(/\.[a-z0-9]+$/i, '').trim();
+        return baseName.length >= 2 && lowerP.includes(baseName);
+      });
+    }
+    if (matchedVisualAsset) {
+      rawParams.imageAssetId = matchedVisualAsset.id;
+      rawParams.imageAssetName = matchedVisualAsset.name;
+    } else if (rawImageName) {
+      rawParams.imageAssetName = rawImageName;
     }
 
     // Guard against an LLM accidentally changing <video> playback speed (which alters timeline & audio speed) on visual-only prompts like lag, stutter, bounce, etc.

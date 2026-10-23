@@ -73,6 +73,7 @@ import {
   getDynamicAiPlaybackRate,
   renderCompositedFrame,
   renderProceduralDemoScene,
+  syncCompositorMediaAssets,
 } from '@/lib/canvasCompositor';
 import {
   getOptimalVideoMimeType,
@@ -573,6 +574,18 @@ export default function VideoEditorStudio() {
   }, []);
 
   // Crash-safe continuous auto-save to localStorage, IndexedDB, and disk (.autosave-project.json)
+  useEffect(() => {
+    syncCompositorMediaAssets(
+      mediaLibrary.map((m) => ({
+        id: m.id,
+        name: m.name,
+        category: m.category,
+        url: m.url,
+        durationSec: m.durationSec,
+      }))
+    );
+  }, [mediaLibrary]);
+
   useEffect(() => {
     if (!isSessionRestored) return;
 
@@ -3126,6 +3139,12 @@ export default function VideoEditorStudio() {
               name: m.name,
               durationSec: m.durationSec,
             })),
+          projectAssets: mediaLibrary.map((m) => ({
+            id: m.id,
+            name: m.name,
+            category: m.category,
+            durationSec: m.durationSec,
+          })),
         }),
       });
 

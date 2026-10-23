@@ -110,6 +110,12 @@ interface AiEditRequestBody {
     name: string;
     durationSec?: number;
   }>;
+  projectAssets?: Array<{
+    id: string;
+    name: string;
+    category: 'video' | 'image' | 'audio';
+    durationSec?: number;
+  }>;
   // AI Provider configuration
   provider?: AiProviderId;
   model?: string;
@@ -1149,6 +1155,7 @@ async function tryNativeImageGeneration(params: {
       customContextPrompt,
       reasoningEffort: body.reasoningEffort || 'medium',
       projectSounds,
+      projectAssets: body.projectAssets,
     };
 
     const candidates = resolveActiveProviderAndKey(body);

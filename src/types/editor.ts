@@ -409,6 +409,10 @@ export interface EffectParams {
   audioAssetId?: string;
   audioAssetName?: string;
   audioVolume?: number;
+
+  // Attached Image / Video Asset from the App Media Library
+  imageAssetId?: string;
+  imageAssetName?: string;
 }
 
 export interface TimelineEditItem {

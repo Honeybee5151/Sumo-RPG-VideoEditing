@@ -126,6 +126,28 @@ type AiCompiledRenderFn = (
       dw?: number,
       dh?: number
     ) => void;
+    getImage: (nameOrId?: string) => HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | null;
+    getVideo: (nameOrId?: string) => HTMLVideoElement | null;
+    drawImageAsset: (
+      nameOrId?: string,
+      dx?: number,
+      dy?: number,
+      dw?: number,
+      dh?: number,
+      options?: {
+        center?: boolean;
+        alpha?: number;
+        rotation?: number;
+        scale?: number;
+        isolateSubject?: boolean;
+      }
+    ) => boolean;
+    assets: Array<{
+      id: string;
+      name: string;
+      category: 'video' | 'image' | 'audio';
+      durationSec?: number;
+    }>;
     holdFrame: (stepSeconds?: number) => HTMLCanvasElement;
     getPastFrame: (secondsAgo?: number) => HTMLCanvasElement;
     createBuffer: (
@@ -150,6 +172,252 @@ type AiCompiledRenderFn = (
   }
 ) => void;
 
+export interface CompositorMediaAsset {
+  id: string;
+  name: string;
+  category: 'video' | 'image' | 'audio';
+  url: string;
+  durationSec?: number;
+}
+
+let compositorMediaAssets: CompositorMediaAsset[] = [];
+const compositorImageCache = new Map<string, HTMLImageElement>();
+const compositorIsolatedSubjectCache = new Map<string, HTMLCanvasElement>();
+const compositorVideoCache = new Map<string, HTMLVideoElement>();
+
+export function syncCompositorMediaAssets(assets: CompositorMediaAsset[]): void {
+  compositorMediaAssets = assets || [];
+  if (typeof window === 'undefined') return;
+  for (const asset of compositorMediaAssets) {
+    if (!asset.url) continue;
+    if (asset.category === 'image') {
+      const existing = compositorImageCache.get(asset.id);
+      if (!existing || existing.src !== asset.url) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = asset.url;
+        compositorImageCache.set(asset.id, img);
+        compositorIsolatedSubjectCache.delete(asset.id);
+      }
+    } else if (asset.category === 'video') {
+      const existing = compositorVideoCache.get(asset.id);
+      if (!existing || existing.src !== asset.url) {
+        const vid = document.createElement('video');
+        vid.crossOrigin = 'anonymous';
+        vid.muted = true;
+        vid.loop = true;
+        vid.playsInline = true;
+        vid.preload = 'auto';
+        vid.src = asset.url;
+        compositorVideoCache.set(asset.id, vid);
+      }
+    }
+  }
+}
+
+/**
+ * Isolates a centered subject from a solid/gradient border background (such as legacy AI-drawn 1080p images with a #0f172a backdrop)
+ * and crops empty transparent margins so the object scales and centers cleanly at (cx, cy).
+ */
+function getOrIsolateImageSubject(
+  assetId: string,
+  img: HTMLImageElement
+): HTMLCanvasElement | HTMLImageElement {
+  if (typeof document === 'undefined' || !img.complete || img.naturalWidth <= 0) {
+    return img;
+  }
+  const cached = compositorIsolatedSubjectCache.get(assetId);
+  if (cached) return cached;
+
+  try {
+    const sw = img.naturalWidth;
+    const sh = img.naturalHeight;
+    const workCanvas = document.createElement('canvas');
+    workCanvas.width = sw;
+    workCanvas.height = sh;
+    const wCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+    if (!wCtx) return img;
+    wCtx.drawImage(img, 0, 0);
+    const imgData = wCtx.getImageData(0, 0, sw, sh);
+    const data = imgData.data;
+
+    // Sample the 4 corners to check if the image has an opaque background box around the subject
+    const cornerIndices = [
+      0,
+      (sw - 1) * 4,
+      (sh - 1) * sw * 4,
+      ((sh - 1) * sw + (sw - 1)) * 4,
+    ];
+    const cornerColors = cornerIndices.map((idx) => ({
+      r: data[idx],
+      g: data[idx + 1],
+      b: data[idx + 2],
+      a: data[idx + 3],
+    }));
+
+    const cornersAreOpaque = cornerColors.every((c) => c.a > 220);
+    if (cornersAreOpaque) {
+      // Flood-fill from the outer border edges removing pixels that match the local border gradient/backdrop
+      const visited = new Uint8Array(sw * sh);
+      const queue = new Int32Array(sw * sh);
+      let head = 0;
+      let tail = 0;
+
+      const pushIfBorderBg = (px: number, py: number, refR: number, refG: number, refB: number) => {
+        const pIdx = py * sw + px;
+        if (visited[pIdx]) return;
+        const dIdx = pIdx * 4;
+        const dr = data[dIdx] - refR;
+        const dg = data[dIdx + 1] - refG;
+        const db = data[dIdx + 2] - refB;
+        const distSq = dr * dr + dg * dg + db * db;
+        // Allow smooth gradient variation along the backdrop (step tolerance <= 34)
+        if (distSq <= 1156) {
+          visited[pIdx] = 1;
+          queue[tail++] = pIdx;
+        }
+      };
+
+      // Seed top & bottom edges
+      for (let x = 0; x < sw; x++) {
+        const topIdx = x * 4;
+        pushIfBorderBg(x, 0, data[topIdx], data[topIdx + 1], data[topIdx + 2]);
+        const botIdx = ((sh - 1) * sw + x) * 4;
+        pushIfBorderBg(x, sh - 1, data[botIdx], data[botIdx + 1], data[botIdx + 2]);
+      }
+      // Seed left & right edges
+      for (let y = 0; y < sh; y++) {
+        const leftIdx = y * sw * 4;
+        pushIfBorderBg(0, y, data[leftIdx], data[leftIdx + 1], data[leftIdx + 2]);
+        const rightIdx = (y * sw + (sw - 1)) * 4;
+        pushIfBorderBg(sw - 1, y, data[rightIdx], data[rightIdx + 1], data[rightIdx + 2]);
+      }
+
+      while (head < tail) {
+        const curr = queue[head++];
+        const cx = curr % sw;
+        const cy = (curr - cx) / sw;
+        const cOff = curr * 4;
+        const cr = data[cOff];
+        const cg = data[cOff + 1];
+        const cb = data[cOff + 2];
+
+        // Check if pixel is also reasonably close to one of the 4 corner colors (prevents eating into subject)
+        let minCornerDistSq = Infinity;
+        for (let k = 0; k < 4; k++) {
+          const cc = cornerColors[k];
+          const dr = cr - cc.r;
+          const dg = cg - cc.g;
+          const db = cb - cc.b;
+          const dSq = dr * dr + dg * dg + db * db;
+          if (dSq < minCornerDistSq) minCornerDistSq = dSq;
+        }
+        if (minCornerDistSq > 4800) continue;
+
+        data[cOff + 3] = 0; // Make background pixel transparent
+
+        if (cx > 0) pushIfBorderBg(cx - 1, cy, cr, cg, cb);
+        if (cx + 1 < sw) pushIfBorderBg(cx + 1, cy, cr, cg, cb);
+        if (cy > 0) pushIfBorderBg(cx, cy - 1, cr, cg, cb);
+        if (cy + 1 < sh) pushIfBorderBg(cx, cy + 1, cr, cg, cb);
+      }
+
+      wCtx.putImageData(imgData, 0, 0);
+    }
+
+    // Tight-crop non-transparent bounding box so the isolated object is centered and properly scaled
+    let minX = sw;
+    let minY = sh;
+    let maxX = 0;
+    let maxY = 0;
+    for (let y = 0; y < sh; y += 2) {
+      for (let x = 0; x < sw; x += 2) {
+        if (data[(y * sw + x) * 4 + 3] > 20) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+
+    if (maxX > minX + 8 && maxY > minY + 8) {
+      const pad = 8;
+      const cropX = Math.max(0, minX - pad);
+      const cropY = Math.max(0, minY - pad);
+      const cropW = Math.min(sw - cropX, maxX - minX + pad * 2);
+      const cropH = Math.min(sh - cropY, maxY - minY + pad * 2);
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = cropW;
+      croppedCanvas.height = cropH;
+      const cCtx = croppedCanvas.getContext('2d');
+      if (cCtx) {
+        cCtx.drawImage(workCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+        compositorIsolatedSubjectCache.set(assetId, croppedCanvas);
+        return croppedCanvas;
+      }
+    }
+
+    compositorIsolatedSubjectCache.set(assetId, workCanvas);
+    return workCanvas;
+  } catch {
+    return img;
+  }
+}
+
+function findMatchingCompositorAsset(
+  query?: string,
+  preferredCategory?: 'image' | 'video',
+  fallbackQuery?: string
+): CompositorMediaAsset | null {
+  const candidates = preferredCategory
+    ? compositorMediaAssets.filter((a) => a.category === preferredCategory)
+    : compositorMediaAssets.filter((a) => a.category === 'image' || a.category === 'video');
+  if (candidates.length === 0) return null;
+
+  const clean = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/\.[a-z0-9]+$/i, '')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .trim();
+
+  const tryMatch = (rawQ?: string): CompositorMediaAsset | null => {
+    if (!rawQ || !rawQ.trim()) return null;
+    const qRaw = rawQ.trim().toLowerCase();
+    const qClean = clean(rawQ);
+    if (!qClean) return null;
+
+    // 1. Exact ID or name
+    const exact = candidates.find(
+      (a) => a.id.toLowerCase() === qRaw || a.name.toLowerCase() === qRaw || clean(a.name) === qClean
+    );
+    if (exact) return exact;
+
+    // 2. Substring match
+    const sub = candidates.find((a) => {
+      const aClean = clean(a.name);
+      return aClean.length > 0 && (aClean.includes(qClean) || qClean.includes(aClean));
+    });
+    if (sub) return sub;
+
+    // 3. Token overlap match (ignoring stop words)
+    const stopWords = new Set(['the', 'from', 'images', 'image', 'videos', 'video', 'sound', 'sounds', 'add', 'put', 'show', 'onto', 'screen', 'cool', 'way', 'in', 'on', 'a', 'an']);
+    const qTokens = qClean.split(/\s+/).filter((w) => w.length >= 2 && !stopWords.has(w));
+    for (const token of qTokens) {
+      const tokMatch = candidates.find((a) => clean(a.name).split(/\s+/).some((aw) => aw.includes(token) || token.includes(aw)));
+      if (tokMatch) return tokMatch;
+    }
+    return null;
+  };
+
+  return (
+    tryMatch(query) ||
+    tryMatch(fallbackQuery) ||
+    (candidates.length === 1 ? candidates[0] : null)
+  );
+}
+
 const renderCodeCache = new Map<string, AiCompiledRenderFn | null>();
 
 function getOrCompileRenderCode(rawCode: string): AiCompiledRenderFn | null {
@@ -167,10 +435,11 @@ function getOrCompileRenderCode(rawCode: string): AiCompiledRenderFn | null {
   }
 
   try {
+    // Wrap body in a nested lexical block `{ ... }` and name outer param `__env` so AI code can freely declare `const w`, `const h`, `const r`, `const env`, etc. without SyntaxError!
     const fn = new Function(
       'ctx',
-      'env',
-      `const { sourceCanvas, state, cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, drawSvg, holdFrame, getPastFrame, createBuffer, hash, noise, playTone, lagEffect, glitchSlices, shakeScreen, zoomFrame, clearFrame, setPlaybackRate } = env;\n${body}`
+      '__env',
+      `const { sourceCanvas, state, cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, drawSvg, getImage, getVideo, drawImageAsset, assets, holdFrame, getPastFrame, createBuffer, hash, noise, playTone, lagEffect, glitchSlices, shakeScreen, zoomFrame, clearFrame, setPlaybackRate } = __env;\n{\n${body}\n}`
     ) as AiCompiledRenderFn;
     renderCodeCache.set(trimmed, fn);
     return fn;
@@ -1058,13 +1327,25 @@ export function renderCompositedFrame(
 
     // 6. OPEN-ENDED AI CUSTOM SHADER, PARTICLES, VECTOR SVG & PROCEDURAL CANVAS ENGINE
     const editCombinedText = `${edit.prompt || ''} ${edit.summary || ''}`.toLowerCase();
-    // Run the AI's own renderCode directly; only patch the two legacy saved edits from before the temporal engine existed
-    const effectiveRenderCode =
+    // Run the AI's own renderCode directly; only patch legacy saved edits from before the temporal/asset engines existed
+    let effectiveRenderCode =
       params.renderCode && /\b__lagEchoBuf\b/.test(params.renderCode)
         ? `lagEffect(1.0);`
         : !params.renderCode && /\b(bounce|bouncing)\b/i.test(editCombinedText)
         ? `const phase = elapsed * 8.5;\nconst bounce = Math.abs(Math.sin(phase));\nconst offsetY = -bounce * 64 * scale;\nconst squash = 1 + Math.cos(phase * 2) * 0.045;\nclearFrame('#000000');\nctx.save();\nctx.translate(width / 2, height / 2 + offsetY);\nctx.scale(1 / squash, squash);\nctx.translate(-width / 2, -height / 2);\nctx.drawImage(sourceCanvas, 0, 0, width, height);\nctx.restore();`
         : params.renderCode;
+
+    // If a saved edit asked for an image from the app (e.g. "add the trophy from images...") before `drawImageAsset` existed and drew a manual `// cup bowl` fallback, swap in `drawImageAsset` so it renders the real image from Images!
+    if (
+      effectiveRenderCode &&
+      /\/\/\s*draw trophy[\s\S]*?\/\/\s*cup bowl/i.test(effectiveRenderCode) &&
+      !/\b(getImage|drawImageAsset)\b/.test(effectiveRenderCode)
+    ) {
+      effectiveRenderCode = effectiveRenderCode.replace(
+        /\/\/\s*draw trophy[\s\S]*?ctx\.restore\(\);/i,
+        `drawImageAsset('trophy', 0, 0, size, size, { center: true, isolateSubject: true });\nctx.restore();`
+      );
+    }
 
     if (
       (params.audioAssetId || params.audioAssetName) &&
@@ -1609,6 +1890,121 @@ export function renderCompositedFrame(
             mainCtx.restore();
           };
 
+          const fallbackAssetQuery =
+            params.imageAssetId ||
+            params.imageAssetName ||
+            edit.prompt ||
+            edit.summary;
+
+          const getImageFn = (
+            nameOrId?: string,
+            isolateSubject = true
+          ): HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | null => {
+            const matched = findMatchingCompositorAsset(
+              nameOrId,
+              'image',
+              fallbackAssetQuery
+            );
+            if (matched) {
+              const img = compositorImageCache.get(matched.id);
+              if (img && img.complete && img.naturalWidth > 0) {
+                return isolateSubject
+                  ? getOrIsolateImageSubject(matched.id, img)
+                  : img;
+              }
+            }
+            const matchedVid = findMatchingCompositorAsset(
+              nameOrId,
+              'video',
+              fallbackAssetQuery
+            );
+            if (matchedVid) {
+              const vid = compositorVideoCache.get(matchedVid.id);
+              if (vid && vid.readyState >= 2) {
+                if (vid.paused) vid.play().catch(() => {});
+                return vid;
+              }
+            }
+            return null;
+          };
+
+          const getVideoFn = (nameOrId?: string): HTMLVideoElement | null => {
+            const matchedVid = findMatchingCompositorAsset(
+              nameOrId,
+              'video',
+              fallbackAssetQuery
+            );
+            if (!matchedVid) return null;
+            const vid = compositorVideoCache.get(matchedVid.id);
+            if (vid && vid.readyState >= 2) {
+              if (vid.paused) vid.play().catch(() => {});
+              return vid;
+            }
+            return null;
+          };
+
+          const drawImageAssetFn = (
+            nameOrId?: string,
+            dx = effectiveCx,
+            dy = effectiveCy,
+            dw = Math.max(boxW, Math.min(width, height) * 0.28),
+            dh = Math.max(boxH, Math.min(width, height) * 0.28),
+            options?: {
+              center?: boolean;
+              alpha?: number;
+              rotation?: number;
+              scale?: number;
+              isolateSubject?: boolean;
+            }
+          ): boolean => {
+            const isolate = options?.isolateSubject !== false;
+            const src = getImageFn(nameOrId, isolate);
+            if (!src) return false;
+
+            const srcW =
+              src instanceof HTMLCanvasElement
+                ? src.width
+                : src instanceof HTMLImageElement
+                ? src.naturalWidth || src.width
+                : src.videoWidth || 640;
+            const srcH =
+              src instanceof HTMLCanvasElement
+                ? src.height
+                : src instanceof HTMLImageElement
+                ? src.naturalHeight || src.height
+                : src.videoHeight || 360;
+            if (srcW <= 0 || srcH <= 0) return false;
+
+            const maxW = Math.max(8, dw);
+            const maxH = Math.max(8, dh);
+            const fitScale = Math.min(maxW / srcW, maxH / srcH) * (options?.scale ?? 1);
+            const finalW = srcW * fitScale;
+            const finalH = srcH * fitScale;
+            const isCentered = options?.center !== false;
+
+            mainCtx.save();
+            if (typeof options?.alpha === 'number') {
+              mainCtx.globalAlpha *= Math.max(0, Math.min(1, options.alpha));
+            }
+            if (isCentered) {
+              mainCtx.translate(dx, dy);
+              if (options?.rotation) {
+                mainCtx.rotate(options.rotation);
+              }
+              mainCtx.drawImage(src, -finalW / 2, -finalH / 2, finalW, finalH);
+            } else {
+              if (options?.rotation) {
+                mainCtx.translate(dx + finalW / 2, dy + finalH / 2);
+                mainCtx.rotate(options.rotation);
+                mainCtx.drawImage(src, -finalW / 2, -finalH / 2, finalW, finalH);
+              } else {
+                mainCtx.drawImage(src, dx, dy, finalW, finalH);
+              }
+            }
+            mainCtx.restore();
+            return true;
+          };
+
           compiledFn(mainCtx, {
             ctx: mainCtx,
             sourceCanvas,
@@ -1645,6 +2041,15 @@ export function renderCompositedFrame(
                 mainCtx.drawImage(img, xDraw, yDraw, wDraw, hDraw);
               }
             },
+            getImage: getImageFn,
+            getVideo: getVideoFn,
+            drawImageAsset: drawImageAssetFn,
+            assets: compositorMediaAssets.map((a) => ({
+              id: a.id,
+              name: a.name,
+              category: a.category,
+              durationSec: a.durationSec,
+            })),
             holdFrame: holdFrameFn,
             getPastFrame: getPastFrameFn,
             createBuffer: createBufferFn,
