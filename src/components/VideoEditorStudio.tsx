@@ -2386,19 +2386,6 @@ export default function VideoEditorStudio() {
           {/* UNIFIED TOP BAR: Rigid fixed-width controls & smaller adaptive text so nothing shifts */}
           <div className="h-11 min-h-[2.75rem] max-h-[2.75rem] border-b border-[#ded7c8] bg-[#faf8f4] px-3 flex items-center justify-between gap-2 shrink-0 overflow-hidden">
             <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-              {/* Sumo VideoEditor App Icon & Name */}
-              <div className="h-7 flex items-center gap-1.5 pr-2 mr-0.5 border-r border-[#ded7c8] shrink-0 select-none">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/sumo-icon.png"
-                  alt="Sumo VideoEditor"
-                  className="w-6 h-6 rounded-xs object-contain [image-rendering:pixelated] border border-[#26231f]/20 shrink-0"
-                />
-                <span className="text-[11px] font-bold tracking-tight text-[#26231f] whitespace-nowrap">
-                  Sumo VideoEditor
-                </span>
-              </div>
-
               <div className="h-7 flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5 shrink-0">
                 {(
                   [
