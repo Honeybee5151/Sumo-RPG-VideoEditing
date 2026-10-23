@@ -326,6 +326,7 @@ async function createWindow() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       await mainWindow.loadURL(APP_URL);
       mainWindow.setTitle('Sumo VideoEditor');
+      mainWindow.maximize();
       mainWindow.show();
       mainWindow.focus();
       // Automatically check GitHub Releases on launch and every 15 minutes
