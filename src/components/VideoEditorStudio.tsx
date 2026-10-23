@@ -80,6 +80,7 @@ import {
   playAiEffectSoundCue,
 } from '@/lib/audioEngine';
 import {
+  AssetTimelineState,
   detectMediaCategory,
   loadAllPersistedMediaAssets,
   loadProjectSessionState,
@@ -290,7 +291,8 @@ export default function VideoEditorStudio() {
     initialPoints: NormalizedPoint[];
   } | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
-  const hasRestoredSessionRef = useRef<boolean>(false);
+  const [isSessionRestored, setIsSessionRestored] = useState<boolean>(false);
+  const assetTimelinesRef = useRef<Record<string, AssetTimelineState>>({});
   const restoredVideoTimingRef = useRef<{
     currentTime: number;
     intervalStart: number;
@@ -340,10 +342,44 @@ export default function VideoEditorStudio() {
           diskSession &&
           (!session || (diskSession.savedAt || 0) > (session.savedAt || 0))
         ) {
-          session = diskSession;
+          // If diskSession is newer, still preserve any non-empty annotations/edits if diskSession was empty due to a mid-switch flush
+          if (
+            session &&
+            (!diskSession.annotations || diskSession.annotations.length === 0) &&
+            Array.isArray(session.annotations) &&
+            session.annotations.length > 0 &&
+            Math.abs((diskSession.savedAt || 0) - (session.savedAt || 0)) < 5000
+          ) {
+            // Keep idbOrLocalSession which has the annotations
+          } else {
+            session = diskSession;
+          }
         }
 
+        // Merge per-asset timelines from both local/IndexedDB and disk
+        const mergedTimelines: Record<string, AssetTimelineState> = {
+          ...(idbOrLocalSession?.assetTimelines || {}),
+          ...(diskSession?.assetTimelines || {}),
+          ...(session?.assetTimelines || {}),
+        };
+        assetTimelinesRef.current = mergedTimelines;
+
         if (session) {
+          const activeAssetKey =
+            session.activeVideoAssetId ||
+            session.activeImageAssetId ||
+            'default';
+          const savedAssetTl = mergedTimelines[activeAssetKey];
+
+          const restoredAnnotations =
+            Array.isArray(session.annotations) && session.annotations.length > 0
+              ? session.annotations
+              : savedAssetTl?.annotations || [];
+          const rawRestoredEdits =
+            Array.isArray(session.edits) && session.edits.length > 0
+              ? session.edits
+              : savedAssetTl?.edits || [];
+
           if (session.sceneId) setSceneId(session.sceneId);
           if (typeof session.videoFileName === 'string') {
             setVideoFileName(session.videoFileName);
@@ -362,12 +398,10 @@ export default function VideoEditorStudio() {
             setIntervalEnd(session.intervalEnd);
             setDraftIntervalEnd(session.intervalEnd.toFixed(1));
           }
-          if (Array.isArray(session.annotations)) {
-            setAnnotations(session.annotations);
-          }
-          if (Array.isArray(session.edits)) {
+          setAnnotations(restoredAnnotations);
+          if (rawRestoredEdits.length > 0) {
             const seenTargetColors = new Set<string>();
-            const dedupedEdits = [...session.edits]
+            const dedupedEdits = [...rawRestoredEdits]
               .reverse()
               .filter((ed) => {
                 if (!ed.targetColor || ed.targetColor === 'all') return true;
@@ -460,7 +494,7 @@ export default function VideoEditorStudio() {
         }
       } finally {
         if (!cancelled) {
-          hasRestoredSessionRef.current = true;
+          setIsSessionRestored(true);
         }
       }
     })();
@@ -504,7 +538,7 @@ export default function VideoEditorStudio() {
 
   // Crash-safe continuous auto-save to localStorage, IndexedDB, and disk (.autosave-project.json)
   useEffect(() => {
-    if (!hasRestoredSessionRef.current) return;
+    if (!isSessionRestored) return;
 
     const activeVideoAsset = videoUrl
       ? mediaLibrary.find((m) => m.url === videoUrl)
@@ -515,6 +549,23 @@ export default function VideoEditorStudio() {
     const activeAudioAsset = activeAudioUrl
       ? mediaLibrary.find((m) => m.url === activeAudioUrl)
       : null;
+
+    const activeAssetKey =
+      activeVideoAsset?.id || activeImageAsset?.id || 'default';
+    assetTimelinesRef.current[activeAssetKey] = {
+      annotations,
+      edits,
+      cuts,
+      splitPoints,
+      duration,
+      currentTime,
+      intervalStart,
+      intervalEnd,
+      focusedColor,
+      activeColor,
+      colorPrompts,
+      imageHasAiTime,
+    };
 
     const snapshot: PersistedProjectSession = {
       version: 1,
@@ -545,19 +596,21 @@ export default function VideoEditorStudio() {
       prompt,
       colorPrompts,
       waveformPeaks,
+      assetTimelines: { ...assetTimelinesRef.current },
     };
 
     // 1. Immediate synchronous localStorage + IndexedDB save
     saveProjectSessionState(snapshot);
 
-    // 2. Debounced disk write (.autosave-project.json) + immediate flush on window close/crash
+    // 2. Fast disk write (.autosave-project.json) + immediate flush on window close/crash
     const diskTimer = window.setTimeout(() => {
       fetch('/api/project-state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
         body: JSON.stringify(snapshot),
       }).catch(() => {});
-    }, 250);
+    }, 60);
 
     const flushNow = () => {
       saveProjectSessionState(snapshot);
@@ -581,6 +634,7 @@ export default function VideoEditorStudio() {
       window.removeEventListener('pagehide', flushNow);
     };
   }, [
+    isSessionRestored,
     sceneId,
     videoUrl,
     activeImageUrl,
@@ -1328,25 +1382,88 @@ export default function VideoEditorStudio() {
 
   const activateMediaAsset = useCallback(
     (asset: MediaAssetItem, recordUndo = true) => {
+      // If clicking the video or image that is ALREADY active on stage, do nothing destructive!
+      if (
+        (asset.category === 'video' && videoUrl === asset.url) ||
+        (asset.category === 'image' && activeImageUrl === asset.url)
+      ) {
+        return;
+      }
+
       if (recordUndo) {
         recordHistorySnapshot();
       }
+
+      // Save the current active asset's colors, edits, cuts, and interval before switching
+      const prevVideoAsset = videoUrl
+        ? mediaLibrary.find((m) => m.url === videoUrl)
+        : null;
+      const prevImageAsset = activeImageUrl
+        ? mediaLibrary.find((m) => m.url === activeImageUrl)
+        : null;
+      const prevKey = prevVideoAsset?.id || prevImageAsset?.id || 'default';
+      assetTimelinesRef.current[prevKey] = {
+        annotations,
+        edits,
+        cuts,
+        splitPoints,
+        duration,
+        currentTime,
+        intervalStart,
+        intervalEnd,
+        focusedColor,
+        activeColor,
+        colorPrompts,
+        imageHasAiTime,
+      };
+
+      const savedTl = assetTimelinesRef.current[asset.id];
+
       if (asset.category === 'video') {
         setActiveImageUrl(null);
         setActiveAudioUrl(null);
         setVideoUrl(asset.url);
         setVideoFileName(asset.name);
         setIsMuted(false);
-        setCurrentTime(0);
         setTimelineZoom(1);
         setTimelineScrollStart(0);
-        setAnnotations([]);
-        setEdits([]);
-        setCuts([]);
-        setSplitPoints([]);
         setSelectedSegment(null);
-        setSelectedEditId(null);
-        setFocusedColor('all');
+
+        if (savedTl) {
+          restoredVideoTimingRef.current = {
+            currentTime: savedTl.currentTime ?? 0,
+            intervalStart: savedTl.intervalStart ?? 0,
+            intervalEnd: savedTl.intervalEnd ?? 5,
+          };
+          setDuration(savedTl.duration || 10);
+          setCurrentTime(savedTl.currentTime ?? 0);
+          setIntervalStart(savedTl.intervalStart ?? 0);
+          setIntervalEnd(savedTl.intervalEnd ?? 5);
+          setDraftIntervalStart((savedTl.intervalStart ?? 0).toFixed(1));
+          setDraftIntervalEnd((savedTl.intervalEnd ?? 5).toFixed(1));
+          setAnnotations(savedTl.annotations || []);
+          setEdits(savedTl.edits || []);
+          setCuts(savedTl.cuts || []);
+          setSplitPoints(savedTl.splitPoints || []);
+          setFocusedColor(savedTl.focusedColor || 'all');
+          setActiveColor(
+            savedTl.activeColor ||
+              getNextHighlightColor(savedTl.annotations || [])
+          );
+          setColorPrompts(savedTl.colorPrompts || {});
+          setSelectedEditId(savedTl.edits?.[0]?.id ?? null);
+        } else {
+          setCurrentTime(0);
+          setAnnotations([]);
+          setEdits([]);
+          setCuts([]);
+          setSplitPoints([]);
+          setSelectedEditId(null);
+          setFocusedColor('all');
+          setActiveColor('red');
+          setColorPrompts({});
+        }
+
         if (asset.blob instanceof File) {
           extractAudioPeaksFromFile(asset.blob, 96).then((peaks) =>
             setWaveformPeaks(peaks)
@@ -1356,21 +1473,47 @@ export default function VideoEditorStudio() {
         setVideoUrl(null);
         setActiveAudioUrl(null);
         setActiveImageUrl(asset.url);
-        setImageHasAiTime(false);
         setVideoFileName(asset.name);
-        setDuration(10);
-        setCurrentTime(0);
         setTimelineZoom(1);
         setTimelineScrollStart(0);
-        setIntervalStart(0);
-        setIntervalEnd(5);
-        setAnnotations([]);
-        setEdits([]);
-        setCuts([]);
-        setSplitPoints([]);
         setSelectedSegment(null);
-        setSelectedEditId(null);
-        setFocusedColor('all');
+
+        if (savedTl) {
+          setImageHasAiTime(Boolean(savedTl.imageHasAiTime));
+          setDuration(savedTl.duration || 10);
+          setCurrentTime(savedTl.currentTime ?? 0);
+          setIntervalStart(savedTl.intervalStart ?? 0);
+          setIntervalEnd(savedTl.intervalEnd ?? 5);
+          setDraftIntervalStart((savedTl.intervalStart ?? 0).toFixed(1));
+          setDraftIntervalEnd((savedTl.intervalEnd ?? 5).toFixed(1));
+          setAnnotations(savedTl.annotations || []);
+          setEdits(savedTl.edits || []);
+          setCuts(savedTl.cuts || []);
+          setSplitPoints(savedTl.splitPoints || []);
+          setFocusedColor(savedTl.focusedColor || 'all');
+          setActiveColor(
+            savedTl.activeColor ||
+              getNextHighlightColor(savedTl.annotations || [])
+          );
+          setColorPrompts(savedTl.colorPrompts || {});
+          setSelectedEditId(savedTl.edits?.[0]?.id ?? null);
+        } else {
+          setImageHasAiTime(false);
+          setDuration(10);
+          setCurrentTime(0);
+          setIntervalStart(0);
+          setIntervalEnd(5);
+          setDraftIntervalStart('0.0');
+          setDraftIntervalEnd('5.0');
+          setAnnotations([]);
+          setEdits([]);
+          setCuts([]);
+          setSplitPoints([]);
+          setSelectedEditId(null);
+          setFocusedColor('all');
+          setActiveColor('red');
+          setColorPrompts({});
+        }
       } else if (asset.category === 'audio') {
         // If a video or image is already on the stage, keep the video/image on stage and preview the sound!
         if (videoUrl || activeImageUrl) {
@@ -1402,7 +1545,24 @@ export default function VideoEditorStudio() {
         }
       }
     },
-    [recordHistorySnapshot, videoUrl, activeImageUrl]
+    [
+      recordHistorySnapshot,
+      videoUrl,
+      activeImageUrl,
+      mediaLibrary,
+      annotations,
+      edits,
+      cuts,
+      splitPoints,
+      duration,
+      currentTime,
+      intervalStart,
+      intervalEnd,
+      focusedColor,
+      activeColor,
+      colorPrompts,
+      imageHasAiTime,
+    ]
   );
 
   const toggleFavoriteAsset = useCallback(
@@ -2075,6 +2235,9 @@ export default function VideoEditorStudio() {
       )
     ) {
       return false;
+    }
+    if (activeImageUrl && !videoUrl && !imageHasAiTime) {
+      return true;
     }
     const s = a.startTime ?? 0;
     const e = a.endTime ?? duration;

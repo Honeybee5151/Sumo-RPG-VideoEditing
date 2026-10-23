@@ -20,6 +20,21 @@ export interface MediaAssetItem {
   createdAt: number;
 }
 
+export interface AssetTimelineState {
+  annotations: ScreenAnnotation[];
+  edits: TimelineEditItem[];
+  cuts: Array<{ id: string; startTime: number; endTime: number }>;
+  splitPoints: number[];
+  duration: number;
+  currentTime: number;
+  intervalStart: number;
+  intervalEnd: number;
+  focusedColor: MarkColor | 'all';
+  activeColor: MarkColor;
+  colorPrompts: Partial<Record<MarkColor, string>>;
+  imageHasAiTime: boolean;
+}
+
 export interface PersistedProjectSession {
   version: number;
   savedAt: number;
@@ -49,6 +64,7 @@ export interface PersistedProjectSession {
   prompt: string;
   colorPrompts: Partial<Record<MarkColor, string>>;
   waveformPeaks: number[];
+  assetTimelines?: Record<string, AssetTimelineState>;
 }
 
 const DB_NAME = 'chromacut_media_favorites_db';
@@ -278,9 +294,18 @@ export async function loadProjectSessionState(): Promise<PersistedProjectSession
     });
 
     if (idbSession && localSession) {
-      return (idbSession.savedAt || 0) >= (localSession.savedAt || 0)
-        ? idbSession
-        : localSession;
+      const newer =
+        (idbSession.savedAt || 0) >= (localSession.savedAt || 0)
+          ? idbSession
+          : localSession;
+      const older = newer === idbSession ? localSession : idbSession;
+      return {
+        ...newer,
+        assetTimelines: {
+          ...(older.assetTimelines || {}),
+          ...(newer.assetTimelines || {}),
+        },
+      };
     }
     return idbSession || localSession;
   } catch {
