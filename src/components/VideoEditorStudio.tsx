@@ -1866,8 +1866,15 @@ export default function VideoEditorStudio() {
     [visibleTimelineSpan]
   );
 
+  const hasMediaLoaded = Boolean(videoUrl || activeImageUrl || activeAudioUrl);
+
   const handleTimelineZoomChange = useCallback(
     (nextZoomRaw: number) => {
+      if (!hasMediaLoaded) {
+        setTimelineZoom(1);
+        setTimelineScrollStart(0);
+        return;
+      }
       const nextZoom = Math.min(16, Math.max(1, Number(nextZoomRaw.toFixed(2))));
       const nextSpan = Math.max(0.5, duration / nextZoom);
       const nextMaxScroll = Math.max(0, duration - nextSpan);
@@ -1878,8 +1885,15 @@ export default function VideoEditorStudio() {
       setTimelineZoom(nextZoom);
       setTimelineScrollStart(nextZoom === 1 ? 0 : centeredScroll);
     },
-    [duration, currentTime]
+    [hasMediaLoaded, duration, currentTime]
   );
+
+  useEffect(() => {
+    if (!hasMediaLoaded && (timelineZoom !== 1 || timelineScrollStart !== 0)) {
+      setTimelineZoom(1);
+      setTimelineScrollStart(0);
+    }
+  }, [hasMediaLoaded, timelineZoom, timelineScrollStart]);
 
   useEffect(() => {
     if (!isPlaying || timelineZoom <= 1) return;
@@ -2444,6 +2458,17 @@ export default function VideoEditorStudio() {
                             onClick={(e) => {
                               e.stopPropagation();
                               recordHistorySnapshot();
+                              if (videoUrl === asset.url) {
+                                setVideoUrl(null);
+                                setVideoFileName('No media loaded');
+                              }
+                              if (activeImageUrl === asset.url) {
+                                setActiveImageUrl(null);
+                                setVideoFileName('No media loaded');
+                              }
+                              if (activeAudioUrl === asset.url) {
+                                setActiveAudioUrl(null);
+                              }
                               setMediaLibrary((prev) =>
                                 prev
                                   .map((m) =>
@@ -3330,8 +3355,12 @@ export default function VideoEditorStudio() {
                           : Math.max(1, Math.round((timelineZoom / 1.5) * 2) / 2)
                       )
                     }
-                    disabled={timelineZoom <= 1}
-                    title="Zoom out of timeframe"
+                    disabled={!hasMediaLoaded || timelineZoom <= 1}
+                    title={
+                      hasMediaLoaded
+                        ? 'Zoom out of timeframe'
+                        : 'Load a video or sound to zoom timeframe'
+                    }
                     className="h-5 w-5 flex items-center justify-center rounded text-[#26231f] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition shrink-0"
                   >
                     <ZoomOut className="w-3 h-3" />
@@ -3339,8 +3368,13 @@ export default function VideoEditorStudio() {
                   <button
                     type="button"
                     onClick={() => handleTimelineZoomChange(1)}
-                    title="Reset timeframe zoom to 1x"
-                    className="w-9 min-w-[2.25rem] max-w-[2.25rem] text-center text-[10px] font-mono font-medium text-[#26231f] hover:text-[#b82d23] cursor-pointer tabular-nums truncate shrink-0"
+                    disabled={!hasMediaLoaded || timelineZoom <= 1}
+                    title={
+                      hasMediaLoaded
+                        ? 'Reset timeframe zoom to 1x'
+                        : 'Load a video or sound to zoom timeframe'
+                    }
+                    className="w-9 min-w-[2.25rem] max-w-[2.25rem] text-center text-[10px] font-mono font-medium text-[#26231f] hover:text-[#b82d23] disabled:opacity-50 disabled:pointer-events-none cursor-pointer tabular-nums truncate shrink-0"
                   >
                     {timelineZoom % 1 === 0
                       ? `${timelineZoom}x`
@@ -3355,8 +3389,12 @@ export default function VideoEditorStudio() {
                           : Math.min(16, Math.round(timelineZoom * 1.5 * 2) / 2)
                       )
                     }
-                    disabled={timelineZoom >= 16}
-                    title="Zoom in into timeframe"
+                    disabled={!hasMediaLoaded || timelineZoom >= 16}
+                    title={
+                      hasMediaLoaded
+                        ? 'Zoom in into timeframe'
+                        : 'Load a video or sound to zoom timeframe'
+                    }
                     className="h-5 w-5 flex items-center justify-center rounded text-[#26231f] hover:bg-[#e5dfd0] disabled:opacity-40 disabled:pointer-events-none cursor-pointer transition shrink-0"
                   >
                     <ZoomIn className="w-3 h-3" />
@@ -3387,6 +3425,7 @@ export default function VideoEditorStudio() {
             <div
               ref={timelineTrackRef}
               onWheel={(e) => {
+                if (!hasMediaLoaded) return;
                 if (e.ctrlKey || e.metaKey || e.altKey) {
                   e.preventDefault();
                   const factor = e.deltaY < 0 ? 1.25 : 0.8;
