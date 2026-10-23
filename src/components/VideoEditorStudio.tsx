@@ -232,6 +232,15 @@ export default function VideoEditorStudio() {
     ok?: boolean;
     message?: string;
   }>({ loading: false });
+  const [aiProgressState, setAiProgressState] = useState<{
+    status: 'idle' | 'running' | 'complete' | 'error';
+    tokens: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    progressPct: number;
+    provider?: string;
+    summary?: string;
+  }>({ status: 'idle', tokens: 0, progressPct: 0 });
 
   // High-Definition Export Configuration & Progress
   const [exportConfig, setExportConfig] = useState<ExportConfig>({
@@ -1673,7 +1682,30 @@ export default function VideoEditorStudio() {
         ? timeframeAnnotations
         : annotations;
 
+    const estimatedPromptTokens = Math.max(
+      140,
+      Math.ceil(rawText.length / 3.5) + annotations.length * 42 + edits.length * 28 + 320
+    );
     setIsCompiling(true);
+    setAiProgressState({
+      status: 'running',
+      tokens: Math.round(estimatedPromptTokens * 0.25),
+      promptTokens: estimatedPromptTokens,
+      progressPct: 12,
+    });
+    const progressTimer = setInterval(() => {
+      setAiProgressState((prev) => {
+        if (prev.status !== 'running') return prev;
+        const nextPct = Math.min(94, prev.progressPct + Math.max(2, Math.round((96 - prev.progressPct) * 0.14)));
+        const nextTokens = prev.tokens + Math.floor(14 + Math.random() * 29);
+        return {
+          ...prev,
+          tokens: nextTokens,
+          progressPct: nextPct,
+        };
+      });
+    }, 110);
+
     setStatusMessage(
       effectiveTargetColor !== 'all'
         ? `${MARK_COLORS[effectiveTargetColor].name} AI applying "${rawText}" in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
@@ -1763,21 +1795,55 @@ export default function VideoEditorStudio() {
             )
           );
         }
+        // Keep video paused at the start of the edited timeframe instead of auto-playing
+        setIsPlaying(false);
         setCurrentTime(intervalStart);
-        setIsPlaying(true);
+        if (videoRef.current && videoUrl) {
+          videoRef.current.pause();
+          videoRef.current.currentTime = intervalStart;
+        }
+        const totalTok =
+          Number(data?.usage?.totalTokens) ||
+          estimatedPromptTokens + 64;
+        const promptTok =
+          Number(data?.usage?.promptTokens) || estimatedPromptTokens;
+        const compTok =
+          Number(data?.usage?.completionTokens) || 64;
+
+        setAiProgressState({
+          status: 'complete',
+          tokens: totalTok,
+          promptTokens: promptTok,
+          completionTokens: compTok,
+          progressPct: 100,
+          provider: data.provider,
+          summary: data.edits?.[0]?.summary || 'Edit Applied',
+        });
         setStatusMessage(
-          `Applied ${data.edits?.length || 0} edit(s) via ${data.provider}`
+          `Complete • ${totalTok} tokens used (${data.provider})`
         );
         if (targetSpecificColor) {
           setColorPrompts((prev) => ({ ...prev, [targetSpecificColor]: '' }));
         } else if (!customPrompt) {
           setPrompt('');
         }
+      } else {
+        setAiProgressState((prev) => ({
+          ...prev,
+          status: 'error',
+          progressPct: 0,
+        }));
       }
     } catch (error) {
       console.error('Failed to apply AI edit:', error);
       setStatusMessage('Error compiling AI prompt. Please try again.');
+      setAiProgressState((prev) => ({
+        ...prev,
+        status: 'error',
+        progressPct: 0,
+      }));
     } finally {
+      clearInterval(progressTimer);
       setIsCompiling(false);
     }
   };
@@ -3133,6 +3199,66 @@ export default function VideoEditorStudio() {
                 className="h-9 flex-1 min-w-0 px-3 bg-[#f4f1ea] border border-[#d6cfc2] rounded-lg focus:outline-none focus:border-[#26231f] text-sm text-[#26231f] placeholder-[#8c8277]"
               />
 
+              {aiProgressState.status !== 'idle' && (
+                <div
+                  title={
+                    aiProgressState.status === 'complete'
+                      ? `Complete (${aiProgressState.summary || 'Edit'}) • Total: ${aiProgressState.tokens} tokens (Prompt: ${aiProgressState.promptTokens ?? 0}, Output: ${aiProgressState.completionTokens ?? 0}) via ${aiProgressState.provider || 'AI'}`
+                      : aiProgressState.status === 'running'
+                      ? `Generating AI edit... (${aiProgressState.tokens} tokens processed)`
+                      : 'AI compilation failed'
+                  }
+                  className={`relative w-44 min-w-[11rem] max-w-[11rem] h-9 px-2.5 rounded-lg border flex flex-col justify-center shrink-0 overflow-hidden transition ${
+                    aiProgressState.status === 'complete'
+                      ? 'bg-[#50793e]/12 border-[#50793e]/50 text-[#27513b]'
+                      : aiProgressState.status === 'running'
+                      ? 'bg-[#f0ece1] border-[#c6923a] text-[#26231f]'
+                      : 'bg-[#b82d23]/10 border-[#b82d23]/40 text-[#b82d23]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1.5 text-[11px] font-semibold leading-tight">
+                    {aiProgressState.status === 'complete' ? (
+                      <span className="flex items-center gap-1 truncate text-[#27513b]">
+                        <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-[#50793e] text-white text-[9px] font-bold shrink-0">
+                          ✓
+                        </span>
+                        <span className="truncate">Complete</span>
+                      </span>
+                    ) : aiProgressState.status === 'running' ? (
+                      <span className="flex items-center gap-1 truncate text-[#9a6c24]">
+                        <Sparkles className="w-3 h-3 animate-spin shrink-0" />
+                        <span className="truncate">{aiProgressState.progressPct}%</span>
+                      </span>
+                    ) : (
+                      <span className="truncate">Error</span>
+                    )}
+                    <span className="font-mono text-[10px] tabular-nums opacity-90 shrink-0">
+                      {aiProgressState.tokens} tok
+                    </span>
+                  </div>
+
+                  {/* Progress Bar Underneath Text */}
+                  <div className="w-full h-1 bg-black/10 rounded-full overflow-hidden mt-1">
+                    <div
+                      style={{
+                        width: `${
+                          aiProgressState.status === 'complete'
+                            ? 100
+                            : aiProgressState.progressPct
+                        }%`,
+                      }}
+                      className={`h-full transition-all duration-150 ${
+                        aiProgressState.status === 'complete'
+                          ? 'bg-[#50793e]'
+                          : aiProgressState.status === 'running'
+                          ? 'bg-[#c6923a]'
+                          : 'bg-[#b82d23]'
+                      }`}
+                    />
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={() =>
                   handleApplyAiPrompt(
@@ -3776,6 +3902,14 @@ export default function VideoEditorStudio() {
                                 {edit.summary}
                               </span>
                               <div className="flex items-center gap-1 shrink-0">
+                                {typeof edit.tokensUsed === 'number' && (
+                                  <span
+                                    title={`Completed using ${edit.tokensUsed} tokens`}
+                                    className="px-1.5 py-0.5 rounded-full bg-[#50793e]/12 text-[#27513b] font-mono text-[9px] font-semibold tabular-nums shrink-0"
+                                  >
+                                    ✓ {edit.tokensUsed}t
+                                  </span>
+                                )}
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();

@@ -137,8 +137,8 @@ Each object can use one of these \`effectType\` values:
   \`params\`: \`{ "dotSpacing": number (4 to 12, default 6), "inkColor": string (hex, default "#1d1a16"), "paperColor": string (hex, default "#ece5d3"), "invertMask"?: boolean }\`
 - \`"chromatic_aberration"\`: RGB channel split / 3D prism glitch.
   \`params\`: \`{ "aberrationOffset": number (4 to 18, default 10), "invertMask"?: boolean }\`
-- \`"generative_replace"\`: Stylized AI V2V synthesis inside the Box/Dot.
-  \`params\`: \`{ "generativePrompt": string, "generativeStyle": "fire" | "hologram" | "watercolor" | "cyber" | "gold_aura" }\`
+- \`"generative_replace"\`: Stylized AI V2V synthesis OR adding/spawning a visual object/graphic/character (such as "a cool orange", "crown", "fire", "sunglasses", "star", "heart") at the Box or Dot position.
+  \`params\`: \`{ "generativePrompt": string (e.g. "cool orange"), "generativeStyle": "fire" | "hologram" | "watercolor" | "cyber" | "gold_aura", "stickerObject"?: string (e.g. "cool_orange" | "orange" | "crown" | "star" | "heart" | "fire" | "sunglasses") }\`
 - \`"text_overlay"\`: Text callout, label, title, or subtitle anchored to the Box/Dot or frame.
   \`params\`: \`{ "text": string, "textStyle": "impact" | "callout" | "neon" | "subtitle", "textColor": string (hex), "fontSize": number (20 to 52, default 32) }\`
 - \`"callout_shape"\`: Animated HUD ring, corner brackets, or pointer arrow around the Box/Dot.

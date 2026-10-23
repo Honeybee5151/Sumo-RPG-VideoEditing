@@ -290,9 +290,10 @@ export interface EffectParams {
   // Chromatic Aberration / RGB Split
   aberrationOffset?: number;
 
-  // Generative Replace / V2V Synthesis
+  // Generative Replace / V2V Synthesis / Object Overlay
   generativePrompt?: string;
   generativeStyle?: 'cyber' | 'fire' | 'watercolor' | 'hologram' | 'gold_aura';
+  stickerObject?: string;
   cloudJobUrl?: string;
 
   // Text / Callout Overlay
@@ -327,6 +328,7 @@ export interface TimelineEditItem {
   params: EffectParams;
   enabled: boolean;
   aiProvider?: string;
+  tokensUsed?: number;
 }
 
 export interface ColorGroupSummary {

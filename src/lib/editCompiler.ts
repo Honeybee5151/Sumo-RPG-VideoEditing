@@ -450,8 +450,17 @@ export function compilePromptLocally(
       return;
     }
 
-    // 3. GENERATIVE V2V / INPAINTING SYNTHESIS
-    if (/\b(replace|inpaint|regenerate|synthesize|v2v|hologram|fire|flames|watercolor|transform\s+into)\b/i.test(lower)) {
+    // 3. GENERATIVE V2V / INPAINTING SYNTHESIS & OBJECT SPAWN
+    if (
+      /\b(replace|inpaint|regenerate|synthesize|v2v|hologram|fire|flames|watercolor|transform\s+into)\b/i.test(
+        lower
+      ) ||
+      /\b(add|place|put|spawn|draw)\b.*\borange\b/i.test(lower) ||
+      /\bcool\s+orange\b/i.test(lower)
+    ) {
+      const isCoolOrange =
+        /\b(add|place|put|spawn|draw)\b.*\borange\b/i.test(lower) ||
+        /\bcool\s+orange\b/i.test(lower);
       const generativeStyle = /\b(fire|flame|burn)\b/i.test(lower)
         ? 'fire'
         : /\b(hologram|holo|sci-fi)\b/i.test(lower)
@@ -465,7 +474,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `AI V2V Inpaint (${generativeStyle.toUpperCase()}) ${colorDisplay ? `→ ${colorDisplay}` : ''}`,
+        summary: isCoolOrange
+          ? `Cool Orange ${colorDisplay ? `→ ${colorDisplay}` : ''}`.trim()
+          : `AI V2V Inpaint (${generativeStyle.toUpperCase()}) ${colorDisplay ? `→ ${colorDisplay}` : ''}`,
         startTime: clauseStart,
         endTime: clauseEnd,
         effectType: 'generative_replace',
@@ -474,6 +485,7 @@ export function compilePromptLocally(
         params: {
           generativePrompt: clause,
           generativeStyle,
+          ...(isCoolOrange ? { stickerObject: 'cool_orange' } : {}),
         },
         enabled: true,
         aiProvider: aiProviderLabel,

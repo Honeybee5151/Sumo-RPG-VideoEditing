@@ -560,8 +560,131 @@ export function renderCompositedFrame(
       mainCtx.restore();
     }
 
-    // 6. GENERATIVE V2V / INPAINT SYNTHESIS PREVIEW LAYER
-    if (effectType === 'generative_replace') {
+    // 6. GENERATIVE V2V / INPAINT SYNTHESIS & OBJECT SPAWN LAYER
+    const combinedPromptText = `${edit.prompt || ''} ${edit.summary || ''} ${params.generativePrompt || ''} ${params.stickerObject || ''}`.toLowerCase();
+    const wantsOrangeObject =
+      params.stickerObject === 'cool_orange' ||
+      params.stickerObject === 'orange' ||
+      /\b(add|place|put|spawn|draw)\b.*\borange\b/i.test(combinedPromptText) ||
+      /\bcool\s+orange\b/i.test(combinedPromptText);
+
+    if (wantsOrangeObject) {
+      const bbox =
+        annotations.length > 0
+          ? mergeBoundingBoxes(annotations.map((a) => a.bbox))
+          : { x: 0.42, y: 0.38, width: 0.16, height: 0.24, cx: 0.5, cy: 0.5 };
+      const cx = bbox.cx * width;
+      const cy = bbox.cy * height;
+      const rawRadius = Math.min(bbox.width * width, bbox.height * height) * 0.48;
+      const r = Math.max(46 * resScale, Math.min(140 * resScale, rawRadius));
+      const bobY = Math.sin(currentTime * 4.5) * 4 * resScale;
+
+      mainCtx.save();
+      mainCtx.translate(cx, cy + bobY);
+
+      // Soft ground/drop shadow
+      mainCtx.fillStyle = 'rgba(29, 26, 22, 0.28)';
+      mainCtx.beginPath();
+      mainCtx.ellipse(0, r * 0.95, r * 0.72, r * 0.18, 0, 0, Math.PI * 2);
+      mainCtx.fill();
+
+      // Stem
+      mainCtx.fillStyle = '#544b43';
+      mainCtx.strokeStyle = '#1d1a16';
+      mainCtx.lineWidth = 2.5 * resScale;
+      mainCtx.beginPath();
+      mainCtx.roundRect(-r * 0.08, -r * 1.18, r * 0.16, r * 0.26, 3 * resScale);
+      mainCtx.fill();
+      mainCtx.stroke();
+
+      // Green Leaf
+      mainCtx.fillStyle = '#50793e';
+      mainCtx.beginPath();
+      mainCtx.moveTo(0, -r * 1.02);
+      mainCtx.quadraticCurveTo(r * 0.45, -r * 1.38, r * 0.68, -r * 0.96);
+      mainCtx.quadraticCurveTo(r * 0.32, -r * 0.78, 0, -r * 1.02);
+      mainCtx.closePath();
+      mainCtx.fill();
+      mainCtx.stroke();
+
+      // Orange Fruit Body with 3D Radial Gradient
+      const orangeGrad = mainCtx.createRadialGradient(
+        -r * 0.28,
+        -r * 0.28,
+        r * 0.12,
+        0,
+        0,
+        r
+      );
+      orangeGrad.addColorStop(0, '#ffb347');
+      orangeGrad.addColorStop(0.55, '#ff7b1a');
+      orangeGrad.addColorStop(1, '#d94e0f');
+
+      mainCtx.fillStyle = orangeGrad;
+      mainCtx.beginPath();
+      mainCtx.arc(0, 0, r, 0, Math.PI * 2);
+      mainCtx.fill();
+      mainCtx.lineWidth = 3 * resScale;
+      mainCtx.strokeStyle = '#1d1a16';
+      mainCtx.stroke();
+
+      // Citrus Peel Dimples
+      mainCtx.fillStyle = 'rgba(184, 45, 35, 0.28)';
+      for (const [dx, dy] of [
+        [-0.52, 0.32],
+        [-0.38, 0.54],
+        [0.48, 0.38],
+        [0.58, 0.12],
+        [0.35, -0.52],
+      ]) {
+        mainCtx.beginPath();
+        mainCtx.arc(r * dx, r * dy, 2.2 * resScale, 0, Math.PI * 2);
+        mainCtx.fill();
+      }
+
+      // Cool Sunglasses (Wayfarer Shades + Glint)
+      const bridgeY = -r * 0.1;
+      const lensW = r * 0.56;
+      const lensH = r * 0.36;
+
+      // Sunglasses Top Bar
+      mainCtx.strokeStyle = '#1d1a16';
+      mainCtx.lineWidth = 4 * resScale;
+      mainCtx.beginPath();
+      mainCtx.moveTo(-r * 0.88, bridgeY - lensH * 0.35);
+      mainCtx.lineTo(r * 0.88, bridgeY - lensH * 0.35);
+      mainCtx.stroke();
+
+      // Left & Right Lenses
+      mainCtx.fillStyle = '#1d1a16';
+      mainCtx.beginPath();
+      mainCtx.roundRect(-r * 0.68, bridgeY - lensH * 0.45, lensW, lensH, 6 * resScale);
+      mainCtx.roundRect(r * 0.12, bridgeY - lensH * 0.45, lensW, lensH, 6 * resScale);
+      mainCtx.fill();
+      mainCtx.lineWidth = 2.5 * resScale;
+      mainCtx.strokeStyle = '#ece5d3';
+      mainCtx.stroke();
+
+      // White Diagonal Cool Glint on Lenses
+      mainCtx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      mainCtx.lineWidth = 3 * resScale;
+      mainCtx.beginPath();
+      mainCtx.moveTo(-r * 0.54, bridgeY - lensH * 0.22);
+      mainCtx.lineTo(-r * 0.36, bridgeY + lensH * 0.22);
+      mainCtx.moveTo(r * 0.26, bridgeY - lensH * 0.22);
+      mainCtx.lineTo(r * 0.44, bridgeY + lensH * 0.22);
+      mainCtx.stroke();
+
+      // Confident Cool Smirk
+      mainCtx.strokeStyle = '#1d1a16';
+      mainCtx.lineWidth = 3 * resScale;
+      mainCtx.lineCap = 'round';
+      mainCtx.beginPath();
+      mainCtx.arc(r * 0.05, r * 0.24, r * 0.28, 0.15 * Math.PI, 0.82 * Math.PI);
+      mainCtx.stroke();
+
+      mainCtx.restore();
+    } else if (effectType === 'generative_replace') {
       const style = params.generativeStyle ?? 'gold_aura';
       const stylePalette: Record<string, { primary: string; secondary: string }> = {
         fire: { primary: '#b82d23', secondary: '#c6923a' },

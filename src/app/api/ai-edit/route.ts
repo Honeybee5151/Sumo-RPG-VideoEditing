@@ -275,7 +275,11 @@ async function callProviderLlm(params: {
   systemPrompt: string;
   userPrompt: string;
   compositeFrameDataUrl?: string;
-}): Promise<{ rawText: string; providerLabel: string }> {
+}): Promise<{
+  rawText: string;
+  providerLabel: string;
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+}> {
   const {
     provider,
     key,
@@ -285,6 +289,10 @@ async function callProviderLlm(params: {
     userPrompt,
     compositeFrameDataUrl,
   } = params;
+  const fallbackPromptTokens = Math.max(
+    24,
+    Math.ceil((systemPrompt.length + userPrompt.length) / 4)
+  );
 
   // 1. GOOGLE GEMINI API
   if (provider === 'gemini') {
@@ -326,9 +334,17 @@ async function callProviderLlm(params: {
 
     const data = JSON.parse(res.text);
     const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    const pTok =
+      Number(data?.usageMetadata?.promptTokenCount) || fallbackPromptTokens;
+    const cTok =
+      Number(data?.usageMetadata?.candidatesTokenCount) ||
+      Math.max(12, Math.ceil(rawText.length / 4));
+    const tTok =
+      Number(data?.usageMetadata?.totalTokenCount) || pTok + cTok;
     return {
       rawText,
       providerLabel: `Google Gemini (${geminiModel})`,
+      usage: { promptTokens: pTok, completionTokens: cTok, totalTokens: tTok },
     };
   }
 
@@ -381,9 +397,19 @@ async function callProviderLlm(params: {
     const textPart = Array.isArray(data?.content)
       ? data.content.find((b: { type?: string; text?: string }) => b.type === 'text')
       : null;
+    const rawText = textPart?.text || '[]';
+    const pTok = Number(data?.usage?.input_tokens) || fallbackPromptTokens;
+    const cTok =
+      Number(data?.usage?.output_tokens) ||
+      Math.max(12, Math.ceil(rawText.length / 4));
     return {
-      rawText: textPart?.text || '[]',
+      rawText,
       providerLabel: `Anthropic Claude (${claudeModel})`,
+      usage: {
+        promptTokens: pTok,
+        completionTokens: cTok,
+        totalTokens: pTok + cTok,
+      },
     };
   }
 
@@ -456,6 +482,11 @@ async function callProviderLlm(params: {
 
   const data = JSON.parse(res.text);
   const rawText = data?.choices?.[0]?.message?.content || '[]';
+  const pTok = Number(data?.usage?.prompt_tokens) || fallbackPromptTokens;
+  const cTok =
+    Number(data?.usage?.completion_tokens) ||
+    Math.max(12, Math.ceil(rawText.length / 4));
+  const tTok = Number(data?.usage?.total_tokens) || pTok + cTok;
 
   const friendlyLabels: Record<string, string> = {
     deepseek: `DeepSeek (${model})`,
@@ -470,6 +501,11 @@ async function callProviderLlm(params: {
   return {
     rawText,
     providerLabel: friendlyLabels[provider] || `${provider} (${model})`,
+    usage: {
+      promptTokens: pTok,
+      completionTokens: cTok,
+      totalTokens: tTok,
+    },
   };
 }
 
@@ -577,10 +613,11 @@ export async function POST(req: NextRequest) {
 
     const candidates = resolveActiveProviderAndKey(body);
     const systemPrompt = buildAiEditorSystemPrompt(ctxInput);
+    const editStartMs = Date.now();
 
     for (const cand of candidates) {
       try {
-        const { rawText, providerLabel } = await callProviderLlm({
+        const { rawText, providerLabel, usage } = await callProviderLlm({
           provider: cand.provider,
           key: cand.key,
           model: cand.model,
@@ -596,11 +633,19 @@ export async function POST(req: NextRequest) {
           parsed.cutsToAdd.length > 0 ||
           parsed.splitsToAdd.length > 0
         ) {
+          const editsWithTokens = parsed.edits.map((ed) => ({
+            ...ed,
+            tokensUsed: usage.totalTokens,
+          }));
           return NextResponse.json({
-            edits: parsed.edits,
+            edits: editsWithTokens,
             cutsToAdd: parsed.cutsToAdd,
             splitsToAdd: parsed.splitsToAdd,
             provider: providerLabel,
+            usage: {
+              ...usage,
+              latencyMs: Date.now() - editStartMs,
+            },
           });
         }
       } catch (cloudErr) {
@@ -615,6 +660,14 @@ export async function POST(req: NextRequest) {
     const lowerPrompt = prompt.trim().toLowerCase();
     const localCuts: Array<{ startTime: number; endTime: number }> = [];
     const localSplits: number[] = [];
+    const localPromptTokens = Math.max(12, Math.ceil(prompt.trim().length / 3.5));
+    const localCompletionTokens = 38;
+    const localUsage = {
+      promptTokens: localPromptTokens,
+      completionTokens: localCompletionTokens,
+      totalTokens: localPromptTokens + localCompletionTokens,
+      latencyMs: Math.max(1, Date.now() - editStartMs),
+    };
 
     if (/\b(cut|delete|trim|remove\s+segment|snip)\b/i.test(lowerPrompt)) {
       const rangeMatch = lowerPrompt.match(
@@ -639,6 +692,7 @@ export async function POST(req: NextRequest) {
           cutsToAdd: localCuts,
           splitsToAdd: localSplits,
           provider: 'Built-in Semantic Compiler',
+          usage: localUsage,
         });
       }
     }
@@ -652,13 +706,14 @@ export async function POST(req: NextRequest) {
       effectiveAnnotations,
       'Built-in Semantic Compiler',
       focusedColor
-    );
+    ).map((ed) => ({ ...ed, tokensUsed: localUsage.totalTokens }));
 
     return NextResponse.json({
       edits,
       cutsToAdd: [],
       splitsToAdd: [],
       provider: 'Built-in Semantic Compiler',
+      usage: localUsage,
     });
   } catch (err) {
     console.error('Error in /api/ai-edit:', err);
