@@ -244,27 +244,43 @@ const COLOR_HEX_LOOKUP: Record<string, string> = {
 
 function detectTargetColorInClause(
   clause: string,
-  availableColors: MarkColor[]
+  availableColors: MarkColor[],
+  preferredColor?: MarkColor | 'all'
 ): MarkColor | 'all' {
+  if ( /\b(full\s*frame|entire\s*video|whole\s*screen|everywhere)\b/i.test(clause) ) {
+    return 'all';
+  }
+  const lower = clause.toLowerCase();
+  // 1. Check exact color ID or display name among placed colors
+  for (const c of availableColors) {
+    const cfgName = MARK_COLORS[c]?.name?.toLowerCase() || '';
+    const baseHueWord = cfgName.replace(/#\d+/g, '').trim().split(/\s+/).pop() || '';
+    if (
+      new RegExp(`\\b${c.toLowerCase()}\\b`, 'i').test(lower) ||
+      (cfgName && lower.includes(cfgName)) ||
+      (baseHueWord.length >= 4 && new RegExp(`\\b${baseHueWord}\\b`, 'i').test(lower))
+    ) {
+      return c;
+    }
+  }
+  if (preferredColor && preferredColor !== 'all' && availableColors.includes(preferredColor)) {
+    return preferredColor;
+  }
   if (availableColors.length === 1) {
     return availableColors[0];
   }
-  const lower = clause.toLowerCase();
-  for (const c of availableColors) {
+  for (const c of COLOR_PROGRESSION.slice(0, 32)) {
     const cfgName = MARK_COLORS[c]?.name?.toLowerCase() || '';
     if (
-      lower.includes(c.toLowerCase()) ||
+      new RegExp(`\\b${c}\\b`, 'i').test(lower) ||
       (cfgName && lower.includes(cfgName))
     ) {
       return c;
     }
   }
-  for (const c of COLOR_PROGRESSION.slice(0, 16)) {
-    if (new RegExp(`\\b${c}\\b`, 'i').test(lower)) {
-      return c;
-    }
-  }
-  return availableColors[0] ?? 'all';
+  return preferredColor && preferredColor !== 'all'
+    ? preferredColor
+    : availableColors[0] ?? 'all';
 }
 
 function extractTargetToneHex(clause: string, fallback = '#c6923a'): string {
@@ -290,7 +306,8 @@ export function compilePromptLocally(
   startTime: number,
   endTime: number,
   annotations: ScreenAnnotation[],
-  aiProviderLabel = 'Built-in Semantic Compiler'
+  aiProviderLabel = 'Built-in Semantic Compiler',
+  preferredColor?: MarkColor | 'all'
 ): TimelineEditItem[] {
   const availableColors = Array.from(new Set(annotations.map((a) => a.color)));
   const rawClauses = prompt
@@ -303,13 +320,43 @@ export function compilePromptLocally(
 
   clauses.forEach((clause, idx) => {
     const lower = clause.toLowerCase();
-    const targetColor = detectTargetColorInClause(clause, availableColors);
+    const targetColor = detectTargetColorInClause(clause, availableColors, preferredColor);
     const matchingAnnotations =
       targetColor === 'all'
         ? annotations
         : annotations.filter((a) => a.color === targetColor);
 
+    // Optional inline time override in the clause (e.g. "from 1.5s to 4s" or "2s-5s")
+    let clauseStart = startTime;
+    let clauseEnd = endTime;
+    const timeRangeMatch = lower.match(
+      /(?:from\s+|at\s+|between\s+)?(\d+(?:\.\d+)?)\s*s?\s*(?:to|and|-|–)\s*(\d+(?:\.\d+)?)\s*s?/i
+    );
+    if (timeRangeMatch) {
+      const t1 = parseFloat(timeRangeMatch[1]);
+      const t2 = parseFloat(timeRangeMatch[2]);
+      if (!Number.isNaN(t1) && !Number.isNaN(t2) && Math.abs(t2 - t1) >= 0.2) {
+        clauseStart = Math.min(t1, t2);
+        clauseEnd = Math.max(t1, t2);
+      }
+    } else if (matchingAnnotations.length > 0) {
+      const annStarts = matchingAnnotations
+        .map((a) => a.startTime)
+        .filter((v): v is number => typeof v === 'number');
+      const annEnds = matchingAnnotations
+        .map((a) => a.endTime)
+        .filter((v): v is number => typeof v === 'number');
+      if (annStarts.length > 0 && annEnds.length > 0) {
+        clauseStart = Math.min(...annStarts);
+        clauseEnd = Math.max(...annEnds);
+      }
+    }
+
     const id = `edit-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+    const colorDisplay =
+      targetColor !== 'all'
+        ? MARK_COLORS[targetColor]?.name || targetColor.toUpperCase()
+        : '';
 
     // 0. COMPOSITE RECIPE: ANIME IMPACT / DRAMATIC FOCUS
     if (/\b(anime\s+impact|dramatic\s+impact|action\s+impact|hero\s+moment)\b/i.test(lower)) {
@@ -317,9 +364,9 @@ export function compilePromptLocally(
         {
           id: `${id}-zoom`,
           prompt: clause,
-          summary: `Impact Zoom 2.1x → ${targetColor !== 'all' ? targetColor.toUpperCase() : 'Center'}`,
-          startTime,
-          endTime,
+          summary: `Impact Zoom 2.1x → ${colorDisplay || 'Center'}`,
+          startTime: clauseStart,
+          endTime: clauseEnd,
           effectType: 'zoom',
           targetColor,
           annotations: matchingAnnotations,
@@ -330,9 +377,9 @@ export function compilePromptLocally(
         {
           id: `${id}-rgb`,
           prompt: clause,
-          summary: `Chromatic RGB Split → ${targetColor !== 'all' ? targetColor.toUpperCase() : 'Frame'}`,
-          startTime,
-          endTime,
+          summary: `Chromatic RGB Split → ${colorDisplay || 'Frame'}`,
+          startTime: clauseStart,
+          endTime: clauseEnd,
           effectType: 'chromatic_aberration',
           targetColor,
           annotations: matchingAnnotations,
@@ -343,9 +390,9 @@ export function compilePromptLocally(
         {
           id: `${id}-spot`,
           prompt: clause,
-          summary: `Dramatic Spotlight → ${targetColor !== 'all' ? targetColor.toUpperCase() : 'Center'}`,
-          startTime,
-          endTime,
+          summary: `Dramatic Spotlight → ${colorDisplay || 'Center'}`,
+          startTime: clauseStart,
+          endTime: clauseEnd,
           effectType: 'spotlight',
           targetColor,
           annotations: matchingAnnotations,
@@ -363,9 +410,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Manga Halftone Ink ${invertMask ? '(Background) ' : ''}${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : ''}`,
-        startTime,
-        endTime,
+        summary: `Manga Halftone Ink ${invertMask ? '(Background) ' : ''}${colorDisplay ? `→ ${colorDisplay}` : ''}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'halftone_ink',
         targetColor,
         annotations: matchingAnnotations,
@@ -387,9 +434,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Chromatic RGB Split ${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : '(Full)'}`,
-        startTime,
-        endTime,
+        summary: `Chromatic RGB Split ${colorDisplay ? `→ ${colorDisplay}` : '(Full)'}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'chromatic_aberration',
         targetColor,
         annotations: matchingAnnotations,
@@ -418,9 +465,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `AI V2V Inpaint (${generativeStyle.toUpperCase()}) ${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : ''}`,
-        startTime,
-        endTime,
+        summary: `AI V2V Inpaint (${generativeStyle.toUpperCase()}) ${colorDisplay ? `→ ${colorDisplay}` : ''}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'generative_replace',
         targetColor,
         annotations: matchingAnnotations,
@@ -448,9 +495,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Zoom ${zoomScale.toFixed(1)}x ${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()} mark` : 'in'}`,
-        startTime,
-        endTime,
+        summary: `Zoom ${zoomScale.toFixed(1)}x ${colorDisplay ? `→ ${colorDisplay}` : 'in'}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'zoom',
         targetColor,
         annotations: matchingAnnotations,
@@ -470,9 +517,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Pixelate ${invertMask ? 'outside ' : ''}${targetColor !== 'all' ? `${targetColor.toUpperCase()} region` : 'frame'}`,
-        startTime,
-        endTime,
+        summary: `Pixelate ${invertMask ? 'outside ' : ''}${colorDisplay || 'frame'}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'pixelate',
         targetColor,
         annotations: matchingAnnotations,
@@ -492,9 +539,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Gaussian Blur ${invertMask ? '(Background) ' : ''}${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : '(Full)'}`,
-        startTime,
-        endTime,
+        summary: `Gaussian Blur ${invertMask ? '(Background) ' : ''}${colorDisplay ? `→ ${colorDisplay}` : '(Full)'}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'blur',
         targetColor,
         annotations: matchingAnnotations,
@@ -513,9 +560,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Spotlight ${targetColor !== 'all' ? `${targetColor.toUpperCase()} region` : 'center'}`,
-        startTime,
-        endTime,
+        summary: `Spotlight ${colorDisplay || 'center'}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'spotlight',
         targetColor,
         annotations: matchingAnnotations,
@@ -532,14 +579,14 @@ export function compilePromptLocally(
     if (/\b(neon|glow|aura|laser|electric|cyber|beam|shine|radiate)\b/i.test(lower)) {
       const glowColor = extractTargetToneHex(
         clause,
-        targetColor !== 'all' ? COLOR_HEX_LOOKUP[targetColor] : '#c6923a'
+        targetColor !== 'all' ? MARK_COLORS[targetColor]?.hex || '#c6923a' : '#c6923a'
       );
       results.push({
         id,
         prompt: clause,
-        summary: `Warm Glow (${glowColor}) ${targetColor !== 'all' ? `on ${targetColor.toUpperCase()}` : ''}`,
-        startTime,
-        endTime,
+        summary: `Warm Glow (${glowColor}) ${colorDisplay ? `on ${colorDisplay}` : ''}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'neon_glow',
         targetColor,
         annotations: matchingAnnotations,
@@ -571,9 +618,9 @@ export function compilePromptLocally(
       results.push({
         id,
         prompt: clause,
-        summary: `Callout "${extractedText}" ${targetColor !== 'all' ? `@ ${targetColor.toUpperCase()}` : ''}`,
-        startTime,
-        endTime,
+        summary: `Callout "${extractedText}" ${colorDisplay ? `@ ${colorDisplay}` : ''}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'text_overlay',
         targetColor,
         annotations: matchingAnnotations,
@@ -598,14 +645,14 @@ export function compilePromptLocally(
         : 'ring';
       const shapeColor = extractTargetToneHex(
         clause,
-        targetColor !== 'all' ? COLOR_HEX_LOOKUP[targetColor] : '#b82d23'
+        targetColor !== 'all' ? MARK_COLORS[targetColor]?.hex || '#b82d23' : '#b82d23'
       );
       results.push({
         id,
         prompt: clause,
-        summary: `Animated ${shapeType} ${targetColor !== 'all' ? `@ ${targetColor.toUpperCase()}` : ''}`,
-        startTime,
-        endTime,
+        summary: `Animated ${shapeType} ${colorDisplay ? `@ ${colorDisplay}` : ''}`,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'callout_shape',
         targetColor,
         annotations: matchingAnnotations,
@@ -634,8 +681,8 @@ export function compilePromptLocally(
         id,
         prompt: clause,
         summary: isFreeze ? 'Freeze Frame' : `Playback Speed ${playbackRate}x`,
-        startTime,
-        endTime,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'speed',
         targetColor: 'all',
         annotations: [],
@@ -665,8 +712,8 @@ export function compilePromptLocally(
         id,
         prompt: clause,
         summary: `Camera FX: ${cameraEffect.replace('_', ' ').toUpperCase()}`,
-        startTime,
-        endTime,
+        startTime: clauseStart,
+        endTime: clauseEnd,
         effectType: 'camera_fx',
         targetColor: 'all',
         annotations: [],
@@ -701,14 +748,14 @@ export function compilePromptLocally(
       id,
       prompt: clause,
       summary: isGrayscale
-        ? `Black & White ${invertMask ? '(Color Splash) ' : ''}${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : ''}`
+        ? `Black & White ${invertMask ? '(Color Splash) ' : ''}${colorDisplay ? `→ ${colorDisplay}` : ''}`
         : isInvert
-        ? `Invert Colors ${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : ''}`
+        ? `Invert Colors ${colorDisplay ? `→ ${colorDisplay}` : ''}`
         : hasExplicitTint
-        ? `Color Tint (${tintHex}) ${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : ''}`
-        : `Color Grade ${targetColor !== 'all' ? `→ ${targetColor.toUpperCase()}` : '(Interval)'}`,
-      startTime,
-      endTime,
+        ? `Color Tint (${tintHex}) ${colorDisplay ? `→ ${colorDisplay}` : ''}`
+        : `Color Grade ${colorDisplay ? `→ ${colorDisplay}` : '(Interval)'}`,
+      startTime: clauseStart,
+      endTime: clauseEnd,
       effectType: 'color_grade',
       targetColor,
       annotations: matchingAnnotations,

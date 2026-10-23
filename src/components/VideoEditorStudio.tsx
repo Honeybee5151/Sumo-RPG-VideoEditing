@@ -40,6 +40,9 @@ import {
   Plus,
 } from 'lucide-react';
 import {
+  AI_PROVIDER_CATALOG,
+  AiProviderId,
+  AiSettingsConfig,
   BuiltInSceneId,
   COLOR_PROGRESSION,
   DrawingTool,
@@ -213,6 +216,18 @@ export default function VideoEditorStudio() {
   );
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [falApiKey, setFalApiKey] = useState<string>('');
+  const [aiSettings, setAiSettings] = useState<AiSettingsConfig>({
+    provider: 'auto',
+    model: 'auto',
+    apiKeys: {},
+    customBaseUrl: 'http://localhost:11434/v1/chat/completions',
+    customContextPrompt: '',
+  });
+  const [aiTestStatus, setAiTestStatus] = useState<{
+    loading: boolean;
+    ok?: boolean;
+    message?: string;
+  }>({ loading: false });
 
   // High-Definition Export Configuration & Progress
   const [exportConfig, setExportConfig] = useState<ExportConfig>({
@@ -268,7 +283,82 @@ export default function VideoEditorStudio() {
         });
       }
     });
+    try {
+      const savedAi = window.localStorage.getItem('chromacut_ai_settings_v2');
+      if (savedAi) {
+        const parsed = JSON.parse(savedAi) as Partial<AiSettingsConfig>;
+        setAiSettings((prev) => ({
+          ...prev,
+          ...parsed,
+          apiKeys: { ...prev.apiKeys, ...(parsed.apiKeys || {}) },
+        }));
+      }
+    } catch {
+      // ignore storage parse issues
+    }
   }, []);
+
+  const updateAiSettings = useCallback(
+    (updater: (prev: AiSettingsConfig) => AiSettingsConfig) => {
+      setAiSettings((prev) => {
+        const next = updater(prev);
+        try {
+          window.localStorage.setItem(
+            'chromacut_ai_settings_v2',
+            JSON.stringify(next)
+          );
+        } catch {
+          // ignore storage write issues
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleTestAiConnection = async () => {
+    setAiTestStatus({ loading: true });
+    try {
+      const activeKey =
+        aiSettings.apiKeys[aiSettings.provider] ||
+        aiSettings.apiKeys.auto ||
+        geminiApiKey ||
+        '';
+      const res = await fetch('/api/ai-edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'test',
+          provider: aiSettings.provider,
+          model: aiSettings.model,
+          apiKey: activeKey,
+          apiKeys: aiSettings.apiKeys,
+          geminiApiKey,
+          customBaseUrl: aiSettings.customBaseUrl,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setAiTestStatus({
+          loading: false,
+          ok: true,
+          message: data.message || `Connected to ${data.provider}!`,
+        });
+      } else {
+        setAiTestStatus({
+          loading: false,
+          ok: false,
+          message: data.error || 'Connection test failed.',
+        });
+      }
+    } catch (err) {
+      setAiTestStatus({
+        loading: false,
+        ok: false,
+        message: err instanceof Error ? err.message : 'Network error testing API.',
+      });
+    }
+  };
 
   const recordHistorySnapshot = useCallback(() => {
     setUndoStack((stack) => [
@@ -1501,50 +1591,111 @@ export default function VideoEditorStudio() {
     const rawText = (customPrompt ?? prompt).trim();
     if (!rawText) return;
 
-    // If writing to a specific color's AI, scope annotations to that color and ensure color context
-    const scopedAnnotations = targetSpecificColor
-      ? timeframeAnnotations.filter((a) => a.color === targetSpecificColor)
-      : timeframeAnnotations;
+    const effectiveTargetColor: MarkColor | 'all' =
+      targetSpecificColor ?? focusedColor;
 
-    const textToCompile =
-      targetSpecificColor &&
-      !new RegExp(`\\b${targetSpecificColor}\\b`, 'i').test(rawText)
-        ? `${rawText} on the ${targetSpecificColor} area`
-        : rawText;
+    // Include annotations matching the target color (even if playhead moved outside), plus all placed annotations for full context
+    const scopedAnnotations =
+      effectiveTargetColor !== 'all'
+        ? annotations.filter((a) => a.color === effectiveTargetColor)
+        : timeframeAnnotations.length > 0
+        ? timeframeAnnotations
+        : annotations;
 
     setIsCompiling(true);
     setStatusMessage(
-      targetSpecificColor
-        ? `${MARK_COLORS[targetSpecificColor].name} AI applying "${rawText}" in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
+      effectiveTargetColor !== 'all'
+        ? `${MARK_COLORS[effectiveTargetColor].name} AI applying "${rawText}" in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
         : `Applying AI edit for timeframe [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s]...`
     );
 
     try {
       const compositeFrameDataUrl = captureCompositeVisualPrompt();
+      const activeKey =
+        aiSettings.apiKeys[aiSettings.provider] ||
+        aiSettings.apiKeys.auto ||
+        geminiApiKey ||
+        '';
+      const activeMediaCategory: 'video' | 'image' | 'audio' = activeImageUrl
+        ? 'image'
+        : activeAudioUrl && !videoUrl
+        ? 'audio'
+        : 'video';
+
       const response = await fetch('/api/ai-edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: textToCompile,
+          mode: 'edit',
+          prompt: rawText,
           startTime: intervalStart,
           endTime: intervalEnd,
+          currentTime,
+          duration,
+          focusedColor: effectiveTargetColor,
           annotations: scopedAnnotations,
+          allAnnotations: annotations,
+          existingEdits: edits.map((e) => ({
+            id: e.id,
+            summary: e.summary,
+            effectType: e.effectType,
+            targetColor: e.targetColor,
+            startTime: e.startTime,
+            endTime: e.endTime,
+          })),
+          splitPoints,
+          cuts: cuts.map((c) => ({ startTime: c.startTime, endTime: c.endTime })),
+          mediaFileName: videoFileName,
+          mediaCategory: activeMediaCategory,
           compositeFrameDataUrl,
+          provider: aiSettings.provider,
+          model: aiSettings.model,
+          apiKey: activeKey,
+          apiKeys: aiSettings.apiKeys,
           geminiApiKey,
+          customBaseUrl: aiSettings.customBaseUrl,
+          customContextPrompt: aiSettings.customContextPrompt,
         }),
       });
 
       const data = await response.json();
-      if (data.edits && Array.isArray(data.edits) && data.edits.length > 0) {
-        pushEditsWithUndo((prev) => [...prev, ...data.edits]);
-        setSelectedEditId(data.edits[0].id);
+      const hasEdits = Array.isArray(data.edits) && data.edits.length > 0;
+      const hasCuts = Array.isArray(data.cutsToAdd) && data.cutsToAdd.length > 0;
+      const hasSplits =
+        Array.isArray(data.splitsToAdd) && data.splitsToAdd.length > 0;
+
+      if (hasEdits || hasCuts || hasSplits) {
+        recordHistorySnapshot();
+        if (hasEdits) {
+          setEdits((prev) => [...prev, ...data.edits]);
+          setSelectedEditId(data.edits[0].id);
+          if (sfxEnabled) {
+            playAiEffectSoundCue(data.edits[0].effectType);
+          }
+        }
+        if (hasCuts) {
+          setCuts((prev) => [
+            ...prev,
+            ...data.cutsToAdd.map(
+              (c: { startTime: number; endTime: number }, i: number) => ({
+                id: `cut-ai-${Date.now()}-${i}`,
+                startTime: c.startTime,
+                endTime: c.endTime,
+              })
+            ),
+          ]);
+        }
+        if (hasSplits) {
+          setSplitPoints((prev) =>
+            Array.from(new Set([...prev, ...data.splitsToAdd])).sort(
+              (a, b) => a - b
+            )
+          );
+        }
         setCurrentTime(intervalStart);
         setIsPlaying(true);
-        if (sfxEnabled) {
-          playAiEffectSoundCue(data.edits[0].effectType);
-        }
         setStatusMessage(
-          `Applied ${data.edits.length} edit(s) in [${intervalStart.toFixed(1)}s – ${intervalEnd.toFixed(1)}s] via ${data.provider}`
+          `Applied ${data.edits?.length || 0} edit(s) via ${data.provider}`
         );
         if (targetSpecificColor) {
           setColorPrompts((prev) => ({ ...prev, [targetSpecificColor]: '' }));
@@ -3973,60 +4124,262 @@ export default function VideoEditorStudio() {
         </div>
       )}
 
-      {/* AI SETTINGS MODAL */}
-      {showSettingsModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-[#faf8f4] border border-[#ded7c8] rounded-2xl p-6 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[#26231f] flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-[#b82d23]" />
-                AI Settings
-              </h3>
-              <button
-                onClick={() => setShowSettingsModal(false)}
-                className="text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
+      {/* AI SETTINGS & CONTEXT MODAL (Supports DeepSeek, OpenAI, Gemini, Claude, OpenRouter, Groq, xAI, Mistral, Custom/Ollama) */}
+      {showSettingsModal &&
+        (() => {
+          const activeProviderDef =
+            AI_PROVIDER_CATALOG.find((p) => p.id === aiSettings.provider) ||
+            AI_PROVIDER_CATALOG[0];
+          const currentProviderKey =
+            aiSettings.apiKeys[aiSettings.provider] ??
+            (aiSettings.provider === 'gemini' ? geminiApiKey : '') ??
+            '';
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#6e655c] block">
-                Google AI Studio Key (Gemini 2.5 Flash — Optional)
-              </label>
-              <input
-                type="password"
-                value={geminiApiKey}
-                onChange={(e) => setGeminiApiKey(e.target.value)}
-                placeholder="AIzaSy..."
-                className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
-              />
-            </div>
+          return (
+            <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="w-full max-w-lg bg-[#faf8f4] border border-[#ded7c8] rounded-2xl p-6 space-y-4 shadow-xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-[#ded7c8] pb-3">
+                  <h3 className="text-sm font-semibold text-[#26231f] flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#b82d23]" />
+                    AI Providers &amp; Editor Context
+                  </h3>
+                  <button
+                    onClick={() => setShowSettingsModal(false)}
+                    className="text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-[#6e655c] block">
-                fal.ai / Replicate Key (Optional)
-              </label>
-              <input
-                type="password"
-                value={falApiKey}
-                onChange={(e) => setFalApiKey(e.target.value)}
-                placeholder="fal_..."
-                className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
-              />
-            </div>
+                {/* 1. AI Provider Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-[#26231f] block">
+                    AI Provider
+                  </label>
+                  <select
+                    value={aiSettings.provider}
+                    onChange={(e) => {
+                      const nextProvider = e.target.value as AiProviderId;
+                      const def = AI_PROVIDER_CATALOG.find(
+                        (p) => p.id === nextProvider
+                      );
+                      setAiTestStatus({ loading: false });
+                      updateAiSettings((prev) => ({
+                        ...prev,
+                        provider: nextProvider,
+                        model: def?.defaultModel || 'auto',
+                      }));
+                    }}
+                    className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
+                  >
+                    {AI_PROVIDER_CATALOG.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="flex justify-end">
-              <button
-                onClick={() => setShowSettingsModal(false)}
-                className="px-4 py-2 bg-[#26231f] hover:bg-[#3d3833] rounded-lg text-xs font-medium text-white cursor-pointer"
-              >
-                Save
-              </button>
+                {/* 2. Model Selector */}
+                {aiSettings.provider !== 'local' && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-[#26231f] block">
+                      Model
+                    </label>
+                    {aiSettings.provider === 'custom' ||
+                    aiSettings.provider === 'openrouter' ? (
+                      <div className="space-y-1.5">
+                        <select
+                          value={
+                            activeProviderDef.models.some(
+                              (m) => m.id === aiSettings.model
+                            )
+                              ? aiSettings.model
+                              : activeProviderDef.defaultModel
+                          }
+                          onChange={(e) =>
+                            updateAiSettings((prev) => ({
+                              ...prev,
+                              model: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
+                        >
+                          {activeProviderDef.models.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          value={aiSettings.model}
+                          onChange={(e) =>
+                            updateAiSettings((prev) => ({
+                              ...prev,
+                              model: e.target.value,
+                            }))
+                          }
+                          placeholder="Or type any model ID (e.g. deepseek/deepseek-chat, deepseek-r1:latest)"
+                          className="w-full px-3 py-1.5 bg-[#f4f1ea] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
+                        />
+                      </div>
+                    ) : (
+                      <select
+                        value={aiSettings.model}
+                        onChange={(e) =>
+                          updateAiSettings((prev) => ({
+                            ...prev,
+                            model: e.target.value,
+                          }))
+                        }
+                        className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f]"
+                      >
+                        {activeProviderDef.models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                {/* 3. Custom Endpoint Base URL (for Custom / Ollama / LM Studio) */}
+                {aiSettings.provider === 'custom' && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-[#26231f] block">
+                      OpenAI-Compatible Chat Completions Endpoint URL
+                    </label>
+                    <input
+                      type="text"
+                      value={aiSettings.customBaseUrl}
+                      onChange={(e) =>
+                        updateAiSettings((prev) => ({
+                          ...prev,
+                          customBaseUrl: e.target.value,
+                        }))
+                      }
+                      placeholder="http://localhost:11434/v1/chat/completions"
+                      className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
+                    />
+                  </div>
+                )}
+
+                {/* 4. API Key Input + Test Button */}
+                {aiSettings.provider !== 'local' && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-[#26231f] block">
+                      API Key ({activeProviderDef.label.split('(')[0].trim()})
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        value={currentProviderKey}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (aiSettings.provider === 'gemini') {
+                            setGeminiApiKey(val);
+                          }
+                          updateAiSettings((prev) => ({
+                            ...prev,
+                            apiKeys: {
+                              ...prev.apiKeys,
+                              [prev.provider]: val,
+                            },
+                          }));
+                        }}
+                        placeholder={activeProviderDef.keyPlaceholder}
+                        className="flex-1 px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs font-mono text-[#26231f]"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleTestAiConnection}
+                        disabled={aiTestStatus.loading}
+                        className="px-3 py-2 bg-[#234c7a] hover:bg-[#1b3b60] disabled:opacity-50 rounded-lg text-xs font-medium text-white shrink-0 cursor-pointer transition"
+                      >
+                        {aiTestStatus.loading ? 'Testing...' : 'Test API'}
+                      </button>
+                    </div>
+                    {aiTestStatus.message && (
+                      <div
+                        className={`text-[11px] px-2.5 py-1.5 rounded-lg border ${
+                          aiTestStatus.ok
+                            ? 'bg-[#50793e]/10 border-[#50793e]/30 text-[#50793e]'
+                            : 'bg-[#b82d23]/10 border-[#b82d23]/30 text-[#b82d23]'
+                        }`}
+                      >
+                        {aiTestStatus.message}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 5. How AI Context Works + Custom Project Context */}
+                <div className="space-y-2 pt-2 border-t border-[#ded7c8]">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-[#26231f]">
+                      AI Editor Context (Automatically Sent on Every Prompt)
+                    </label>
+                    <span className="text-[10px] font-mono text-[#50793e]">
+                      Active
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-[#f0ece1] border border-[#d6cfc2] text-[11px] text-[#6e655c] space-y-1">
+                    <div>
+                      • <strong className="text-[#26231f]">Placed Colors &amp; Coordinates:</strong>{' '}
+                      {allColorGroups.length > 0
+                        ? allColorGroups
+                            .map(
+                              (cg) =>
+                                `${MARK_COLORS[cg.color].name} (${cg.startTime.toFixed(1)}s–${cg.endTime.toFixed(1)}s)`
+                            )
+                            .join(', ')
+                        : 'None placed yet (full-frame context)'}
+                    </div>
+                    <div>
+                      • <strong className="text-[#26231f]">Focused Color &amp; Interval:</strong>{' '}
+                      {focusedColor !== 'all'
+                        ? `${MARK_COLORS[focusedColor].name} (${intervalStart.toFixed(1)}s–${intervalEnd.toFixed(1)}s)`
+                        : `Full Frame (${intervalStart.toFixed(1)}s–${intervalEnd.toFixed(1)}s)`}
+                    </div>
+                    <div>
+                      • <strong className="text-[#26231f]">Capabilities Taught to AI:</strong>{' '}
+                      13 spatial/temporal shaders (Zoom, Blur/Bokeh, Pixelate, Spotlight, Color Splash/Grade, Neon Glow, Manga Ink, Chromatic RGB, V2V Synthesis, Text Callouts, HUD Shapes, Speed, Camera FX) + Timeline Cuts &amp; Splits.
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-[#6e655c] block">
+                      Additional Project Context / Instructions for AI (Optional)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={aiSettings.customContextPrompt}
+                      onChange={(e) =>
+                        updateAiSettings((prev) => ({
+                          ...prev,
+                          customContextPrompt: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. This is a Sumo RPG combat clip. Always use dramatic smooth zooms and bold callout text."
+                      className="w-full px-3 py-2 bg-[#f0ece1] border border-[#d6cfc2] rounded-lg text-xs text-[#26231f] placeholder-[#8c8277]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-[#ded7c8]">
+                  <button
+                    onClick={() => setShowSettingsModal(false)}
+                    className="px-4 py-2 bg-[#26231f] hover:bg-[#3d3833] rounded-lg text-xs font-medium text-white cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
 
       {/* PRESETS MODAL */}
       {showGrimoireModal && (

@@ -456,3 +456,217 @@ export function isAnnotationInTimeframe(
   // Overlap check with small epsilon
   return ann.startTime <= endTime + 0.05 && ann.endTime >= startTime - 0.05;
 }
+
+export type AiProviderId =
+  | 'auto'
+  | 'deepseek'
+  | 'openai'
+  | 'gemini'
+  | 'anthropic'
+  | 'openrouter'
+  | 'groq'
+  | 'xai'
+  | 'mistral'
+  | 'custom'
+  | 'local';
+
+export interface AiSettingsConfig {
+  provider: AiProviderId;
+  model: string;
+  apiKeys: Partial<Record<AiProviderId, string>>;
+  customBaseUrl: string;
+  customContextPrompt: string;
+}
+
+export interface AiProviderDefinition {
+  id: AiProviderId;
+  label: string;
+  defaultModel: string;
+  models: Array<{ id: string; label: string }>;
+  keyPlaceholder: string;
+  supportsVision: boolean;
+  baseUrl?: string;
+}
+
+export const AI_PROVIDER_CATALOG: AiProviderDefinition[] = [
+  {
+    id: 'auto',
+    label: 'Auto-Detect (Any Key / DeepSeek / Gemini / OpenAI / Claude)',
+    defaultModel: 'auto',
+    models: [{ id: 'auto', label: 'Automatic Best Model for Key' }],
+    keyPlaceholder: 'Paste any API key (DeepSeek sk-..., Gemini AIza..., OpenAI sk-..., Claude sk-ant-..., OpenRouter sk-or-...)',
+    supportsVision: true,
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek (V3 / R1)',
+    defaultModel: 'deepseek-chat',
+    models: [
+      { id: 'deepseek-chat', label: 'DeepSeek V3 (deepseek-chat — Fast & Accurate)' },
+      { id: 'deepseek-reasoner', label: 'DeepSeek R1 (deepseek-reasoner — Deep Reasoning)' },
+    ],
+    keyPlaceholder: 'sk-...',
+    supportsVision: false,
+    baseUrl: 'https://api.deepseek.com/chat/completions',
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI (GPT-4o / o3-mini)',
+    defaultModel: 'gpt-4o-mini',
+    models: [
+      { id: 'gpt-4o-mini', label: 'GPT-4o Mini (Fast Vision + JSON)' },
+      { id: 'gpt-4o', label: 'GPT-4o (Flagship Multimodal Vision)' },
+      { id: 'o3-mini', label: 'o3-mini (Reasoning)' },
+    ],
+    keyPlaceholder: 'sk-proj-...',
+    supportsVision: true,
+    baseUrl: 'https://api.openai.com/v1/chat/completions',
+  },
+  {
+    id: 'gemini',
+    label: 'Google Gemini (2.5 Flash / Pro)',
+    defaultModel: 'gemini-2.5-flash',
+    models: [
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Multimodal Vision)' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro (Advanced Multimodal)' },
+      { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+    ],
+    keyPlaceholder: 'AIzaSy...',
+    supportsVision: true,
+  },
+  {
+    id: 'anthropic',
+    label: 'Anthropic Claude (3.7 / 3.5 Sonnet)',
+    defaultModel: 'claude-3-7-sonnet-latest',
+    models: [
+      { id: 'claude-3-7-sonnet-latest', label: 'Claude 3.7 Sonnet (Vision)' },
+      { id: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet (Vision)' },
+      { id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku (Fast)' },
+    ],
+    keyPlaceholder: 'sk-ant-...',
+    supportsVision: true,
+    baseUrl: 'https://api.anthropic.com/v1/messages',
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter (DeepSeek / Claude / GPT / Qwen / Llama)',
+    defaultModel: 'deepseek/deepseek-chat',
+    models: [
+      { id: 'deepseek/deepseek-chat', label: 'DeepSeek V3 (via OpenRouter)' },
+      { id: 'deepseek/deepseek-r1', label: 'DeepSeek R1 (via OpenRouter)' },
+      { id: 'google/gemini-2.5-flash-preview', label: 'Gemini 2.5 Flash (via OpenRouter)' },
+      { id: 'anthropic/claude-3.7-sonnet', label: 'Claude 3.7 Sonnet (via OpenRouter)' },
+      { id: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (via OpenRouter)' },
+    ],
+    keyPlaceholder: 'sk-or-v1-...',
+    supportsVision: true,
+    baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+  },
+  {
+    id: 'groq',
+    label: 'Groq (Ultra-Fast Llama 3.3 / DeepSeek R1)',
+    defaultModel: 'llama-3.3-70b-versatile',
+    models: [
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile' },
+      { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill Llama 70B' },
+      { id: 'llama-3.2-90b-vision-preview', label: 'Llama 3.2 90B Vision' },
+    ],
+    keyPlaceholder: 'gsk_...',
+    supportsVision: false,
+    baseUrl: 'https://api.groq.com/openai/v1/chat/completions',
+  },
+  {
+    id: 'xai',
+    label: 'xAI (Grok 2 / Vision)',
+    defaultModel: 'grok-2-latest',
+    models: [
+      { id: 'grok-2-latest', label: 'Grok 2 Latest' },
+      { id: 'grok-2-vision-latest', label: 'Grok 2 Vision' },
+    ],
+    keyPlaceholder: 'xai-...',
+    supportsVision: true,
+    baseUrl: 'https://api.x.ai/v1/chat/completions',
+  },
+  {
+    id: 'mistral',
+    label: 'Mistral AI (Large / Pixtral)',
+    defaultModel: 'mistral-large-latest',
+    models: [
+      { id: 'mistral-large-latest', label: 'Mistral Large' },
+      { id: 'pixtral-large-latest', label: 'Pixtral Large (Vision)' },
+    ],
+    keyPlaceholder: 'Mistral API key...',
+    supportsVision: true,
+    baseUrl: 'https://api.mistral.ai/v1/chat/completions',
+  },
+  {
+    id: 'custom',
+    label: 'Custom OpenAI-Compatible (Ollama / LM Studio / vLLM)',
+    defaultModel: 'deepseek-r1:latest',
+    models: [
+      { id: 'deepseek-r1:latest', label: 'deepseek-r1:latest (Ollama)' },
+      { id: 'llama3.2:latest', label: 'llama3.2:latest (Ollama)' },
+      { id: 'qwen2.5-coder:latest', label: 'qwen2.5-coder:latest (Ollama)' },
+    ],
+    keyPlaceholder: 'Optional API key (leave blank for local Ollama)',
+    supportsVision: false,
+    baseUrl: 'http://localhost:11434/v1/chat/completions',
+  },
+  {
+    id: 'local',
+    label: 'Built-in Instant Semantic Engine (No API Key Needed)',
+    defaultModel: 'semantic-v2',
+    models: [{ id: 'semantic-v2', label: 'ChromaCut Local Semantic Compiler v2' }],
+    keyPlaceholder: 'No API key required',
+    supportsVision: false,
+  },
+];
+
+/**
+ * Resolves any color reference (ID like 'red' or 'c_14', display name like 'Crimson' or 'Cobalt' or 'Vivid Gold #15')
+ * against the placed annotations first, and then against the full 512-color catalog.
+ */
+export function resolveColorId(
+  rawColorRef: string | undefined | null,
+  placedColors: MarkColor[] = [],
+  fallbackColor: MarkColor | 'all' = 'all'
+): MarkColor | 'all' {
+  if (!rawColorRef) return fallbackColor;
+  const cleaned = rawColorRef.trim().toLowerCase();
+  if (!cleaned || cleaned === 'all' || cleaned === 'full' || cleaned === 'frame' || cleaned === 'global') {
+    return 'all';
+  }
+
+  // 1. Direct ID match in placedColors or COLOR_PROGRESSION
+  for (const pc of placedColors) {
+    if (pc.toLowerCase() === cleaned) return pc;
+  }
+  if (COLOR_PROGRESSION.includes(cleaned)) {
+    return cleaned;
+  }
+
+  // 2. Match against placedColors display names (e.g. "Crimson", "Cobalt", "Vivid Emerald #15")
+  for (const pc of placedColors) {
+    const cfg = MARK_COLORS[pc];
+    if (!cfg) continue;
+    const nameLower = cfg.name.toLowerCase();
+    if (
+      nameLower === cleaned ||
+      cleaned.includes(nameLower) ||
+      nameLower.includes(cleaned)
+    ) {
+      return pc;
+    }
+  }
+
+  // 3. Match against any of the 512 colors by display name
+  for (const cid of COLOR_PROGRESSION) {
+    const cfg = MARK_COLORS[cid];
+    if (cfg && cfg.name.toLowerCase() === cleaned) {
+      return cid;
+    }
+  }
+
+  return fallbackColor;
+}
+
