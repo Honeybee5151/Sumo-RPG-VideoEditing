@@ -2240,20 +2240,8 @@ export default function VideoEditorStudio() {
               </button>
             </div>
 
-            {/* Right Actions: Import, Save, Settings, Export + ⋯ */}
+            {/* Right Actions: Save, Settings, Export + ⋯ */}
             <div className="flex items-center gap-2 shrink-0">
-              <label className="flex items-center gap-1.5 px-2.5 py-1 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer">
-                <Upload className="w-3.5 h-3.5 text-[#234c7a]" />
-                <span>Import</span>
-                <input
-                  type="file"
-                  multiple
-                  accept="video/*,image/*,audio/*,.json"
-                  onChange={handleFileInputChange}
-                  className="hidden"
-                />
-              </label>
-
               <button
                 onClick={() =>
                   exportProjectFile({
