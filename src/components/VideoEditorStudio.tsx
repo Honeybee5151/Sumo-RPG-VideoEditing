@@ -1720,10 +1720,9 @@ export default function VideoEditorStudio() {
             })}
           </div>
 
-          {/* Full-Height Media Asset List & Full-Bleed Add Zone */}
+          {/* Full-Height Media Asset List */}
           <div className="flex-1 flex flex-col p-2.5 gap-2 overflow-y-auto min-h-0">
-            <label className="w-full flex items-center justify-center gap-1.5 py-2 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
-              <Plus className="w-3.5 h-3.5 text-[#234c7a]" />
+            <label className="w-full flex items-center justify-center py-2 bg-[#f0ece1] hover:bg-[#e5dfd0] border border-[#d6cfc2] rounded-lg text-xs font-medium text-[#26231f] transition cursor-pointer shrink-0">
               <span>
                 Add {libraryCategory === 'audio' ? 'Sound' : libraryCategory === 'image' ? 'Image' : 'Video'}
               </span>
@@ -1743,35 +1742,12 @@ export default function VideoEditorStudio() {
             </label>
 
             {filteredLibraryItems.length === 0 ? (
-              <label className="flex-1 w-full flex flex-col items-center justify-center text-center p-4 rounded-xl border border-dashed border-[#d6cfc2] bg-[#f4f1ea]/60 hover:bg-[#f0ece1]/70 text-xs text-[#8c8277] gap-1.5 cursor-pointer transition">
-                {libraryCategory === 'video' ? (
-                  <Film className="w-5 h-5 text-[#8c8277]" />
-                ) : libraryCategory === 'image' ? (
-                  <ImageIcon className="w-5 h-5 text-[#8c8277]" />
-                ) : (
-                  <Music className="w-5 h-5 text-[#8c8277]" />
-                )}
-                <span className="font-medium text-[#6e655c]">
+              <div className="flex-1 w-full flex flex-col items-center justify-center text-center p-4 text-xs text-[#8c8277]">
+                <span>
                   No {libraryCategory === 'audio' ? 'sound' : `${libraryCategory}s`} in{' '}
                   {libraryScope === 'favorites' ? 'Favorites' : 'Current Project'}
                 </span>
-                <span className="text-[11px] text-[#8c8277]">
-                  Click or drop files here to add
-                </span>
-                <input
-                  type="file"
-                  multiple
-                  accept={
-                    libraryCategory === 'video'
-                      ? 'video/*'
-                      : libraryCategory === 'image'
-                      ? 'image/*'
-                      : 'audio/*'
-                  }
-                  onChange={handleFileInputChange}
-                  className="hidden"
-                />
-              </label>
+              </div>
             ) : (
               <div className="flex-1 space-y-1.5 overflow-y-auto">
                 {filteredLibraryItems.map((asset) => {
