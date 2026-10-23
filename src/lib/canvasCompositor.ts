@@ -2,6 +2,7 @@ import {
   getInterpolatedAnnotations,
   mergeBoundingBoxes,
 } from '@/lib/editCompiler';
+import { getRealtimeTrackedBbox } from '@/lib/realtimeObjectTracker';
 import {
   AiCanvasDrawCommand,
   AiCustomAnimation,
@@ -771,9 +772,19 @@ export function renderCompositedFrame(
       scale = 1 + (targetScale - 1) * eased;
 
       if (dynamicAnns.length > 0) {
-        const merged = mergeBoundingBoxes(dynamicAnns.map((a) => a.bbox));
-        focusX = 0.5 + (merged.cx - 0.5) * eased;
-        focusY = 0.5 + (merged.cy - 0.5) * eased;
+        const baseMerged = mergeBoundingBoxes(dynamicAnns.map((a) => a.bbox));
+        const trackedMerged =
+          baseMerged.width * baseMerged.height < 0.85
+            ? getRealtimeTrackedBbox(
+                edit.id,
+                sourceCanvas,
+                baseMerged,
+                currentTime,
+                edit.startTime
+              )
+            : baseMerged;
+        focusX = 0.5 + (trackedMerged.cx - 0.5) * eased;
+        focusY = 0.5 + (trackedMerged.cy - 0.5) * eased;
       }
     }
 
@@ -921,10 +932,27 @@ export function renderCompositedFrame(
     }
 
     // 6. OPEN-ENDED AI CUSTOM SHADER, PARTICLES, VECTOR SVG & PROCEDURAL CANVAS ENGINE
-    const targetBbox =
+    const baseTargetBbox =
       annotations.length > 0
         ? mergeBoundingBoxes(annotations.map((a) => a.bbox))
         : { x: 0.38, y: 0.32, width: 0.24, height: 0.36, cx: 0.5, cy: 0.5 };
+    const editCombinedText = `${edit.prompt || ''} ${edit.summary || ''}`.toLowerCase();
+    const shouldTrackObject =
+      annotations.length > 0 &&
+      baseTargetBbox.width * baseTargetBbox.height < 0.85 &&
+      (/\b(follow|follows|following|track|tracks|tracking|moves|moving|chase|lock\s+on)\b/i.test(
+        editCombinedText
+      ) ||
+        /\bzoom\b/i.test(editCombinedText));
+    const targetBbox = shouldTrackObject
+      ? getRealtimeTrackedBbox(
+          edit.id,
+          sourceCanvas,
+          baseTargetBbox,
+          currentTime,
+          edit.startTime
+        )
+      : baseTargetBbox;
     const isPinpointDot =
       annotations.length > 0 && annotations.every((a) => a.tool === 'dot');
 
@@ -1112,11 +1140,35 @@ export function renderCompositedFrame(
             }
           }
 
+          const isPivotZoomCode =
+            shouldTrackObject &&
+            /\bscale\s*\(/.test(params.renderCode) &&
+            /\bdrawImage\s*\(\s*sourceCanvas\b/.test(params.renderCode) &&
+            !/translate\s*\(\s*width\s*\/\s*2/.test(params.renderCode);
+
+          const initCxPx = baseTargetBbox.cx * width;
+          const initCyPx = baseTargetBbox.cy * height;
+          const trackedCxPx = targetBbox.cx * width;
+          const trackedCyPx = targetBbox.cy * height;
+
+          const effectiveCx = isPivotZoomCode
+            ? Math.min(
+                width,
+                Math.max(0, initCxPx + (trackedCxPx - initCxPx) * 1.85)
+              )
+            : trackedCxPx;
+          const effectiveCy = isPivotZoomCode
+            ? Math.min(
+                height,
+                Math.max(0, initCyPx + (trackedCyPx - initCyPx) * 1.85)
+              )
+            : trackedCyPx;
+
           compiledFn(mainCtx, {
             ctx: mainCtx,
             sourceCanvas,
-            cx: targetBbox.cx * width,
-            cy: targetBbox.cy * height,
+            cx: effectiveCx,
+            cy: effectiveCy,
             x: boxX,
             y: boxY,
             w: boxW,
@@ -1142,8 +1194,8 @@ export function renderCompositedFrame(
               if (img && img.complete && img.naturalWidth > 0) {
                 const wDraw = dw ?? baseRadius * 2;
                 const hDraw = dh ?? baseRadius * 2;
-                const xDraw = dx ?? targetBbox.cx * width - wDraw / 2;
-                const yDraw = dy ?? targetBbox.cy * height - hDraw / 2;
+                const xDraw = dx ?? trackedCxPx - wDraw / 2;
+                const yDraw = dy ?? trackedCyPx - hDraw / 2;
                 mainCtx.drawImage(img, xDraw, yDraw, wDraw, hDraw);
               }
             },

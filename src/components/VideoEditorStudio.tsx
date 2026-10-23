@@ -345,7 +345,17 @@ export default function VideoEditorStudio() {
             setAnnotations(session.annotations);
           }
           if (Array.isArray(session.edits)) {
-            setEdits(session.edits);
+            const seenTargetColors = new Set<string>();
+            const dedupedEdits = [...session.edits]
+              .reverse()
+              .filter((ed) => {
+                if (!ed.targetColor || ed.targetColor === 'all') return true;
+                if (seenTargetColors.has(ed.targetColor)) return false;
+                seenTargetColors.add(ed.targetColor);
+                return true;
+              })
+              .reverse();
+            setEdits(dedupedEdits);
           }
           if (Array.isArray(session.cuts)) {
             setCuts(session.cuts);
@@ -1540,6 +1550,18 @@ export default function VideoEditorStudio() {
 
   // Highlights visible at the current playhead timestamp (`currentTime`), plus the actively focused color while paused so the Red Playhead and color bar are 100% independent
   const timeframeAnnotations = annotations.filter((a) => {
+    if (
+      isPlaying &&
+      edits.some(
+        (ed) =>
+          ed.enabled &&
+          ed.targetColor === a.color &&
+          currentTime >= ed.startTime &&
+          currentTime <= ed.endTime
+      )
+    ) {
+      return false;
+    }
     const s = a.startTime ?? 0;
     const e = a.endTime ?? duration;
     return (
@@ -2047,7 +2069,21 @@ export default function VideoEditorStudio() {
           setImageHasAiTime(true);
         }
         if (hasEdits) {
-          setEdits((prev) => [...prev, ...data.edits]);
+          setEdits((prev) => {
+            const incomingColors = new Set(
+              data.edits
+                .map((ne: TimelineEditItem) => ne.targetColor)
+                .filter((c: string | undefined) => c && c !== 'all')
+            );
+            const filteredPrev = prev.filter(
+              (existing) =>
+                !(
+                  existing.targetColor &&
+                  incomingColors.has(existing.targetColor)
+                )
+            );
+            return [...filteredPrev, ...data.edits];
+          });
           setSelectedEditId(data.edits[0].id);
           if (sfxEnabled) {
             playAiEffectSoundCue(data.edits[0].effectType);

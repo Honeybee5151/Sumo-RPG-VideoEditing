@@ -113,8 +113,8 @@ Do whatever the user asks at the target position and timeframe by returning a JS
   Your \`renderCode\` runs inside \`function(ctx, env) { ... }\` where both \`ctx\` and all properties of \`env\` are directly in scope:
   - \`ctx\`: \`CanvasRenderingContext2D\` of the output video canvas
   - \`sourceCanvas\`: \`HTMLCanvasElement\` containing the unedited video frame (use \`ctx.drawImage(sourceCanvas, ...)\` if you want to manipulate, spin, rotate, zoom, filter, blur, or sample pixels from the video itself; when spinning/rotating/scaling the frame or region, fill the background with pure black \`#000000\` before drawing \`sourceCanvas\` so the old un-transformed frame is not visible behind it)
-  - \`cx\`, \`cy\`: Target position center in pixels on the canvas
-  - \`x\`, \`y\`, \`w\`, \`h\`: Target region top-left and width/height in pixels
+  - \`cx\`, \`cy\`: Target position center in pixels on the canvas (automatically updated every frame by the engine's real-time optical pixel tracker to follow the marked object as it moves!)
+  - \`x\`, \`y\`, \`w\`, \`h\`: Target region top-left and width/height in pixels (also automatically tracked per-frame when following a moving object)
   - \`r\`: Target radius in pixels at that position
   - \`width\`, \`height\`: Full canvas width and height in pixels
   - \`scale\`: Resolution scale factor (\`width / 960\`)
