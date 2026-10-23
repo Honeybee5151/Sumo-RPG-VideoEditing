@@ -4533,6 +4533,7 @@ export default function VideoEditorStudio() {
                 className="absolute inset-0 w-full h-full cursor-crosshair touch-none overflow-hidden"
               >
                 {showMarkingsOverlay &&
+                  !isPlaying &&
                   [...timeframeAnnotations]
                     .sort((a, b) =>
                       a.tool === 'dot' && b.tool !== 'dot'
