@@ -1528,39 +1528,13 @@ export default function VideoEditorStudio() {
             <Settings className="w-3.5 h-3.5 text-[#6e655c]" />
           </button>
 
-          {/* Direct Resolution Selector + Export Button */}
+          {/* Export Button + ⋯ Export Options Modal Trigger */}
           <div className="flex items-center bg-[#f0ece1] border border-[#d6cfc2] rounded-lg p-0.5">
-            <select
-              value={exportConfig.resolution}
-              onChange={(e) => {
-                const res = e.target.value as ExportResolutionPreset;
-                const recBitrate =
-                  res === 'native'
-                    ? 24
-                    : EXPORT_RESOLUTION_MAP[res].recommendedBitrate;
-                setExportConfig((prev) => ({
-                  ...prev,
-                  resolution: res,
-                  bitrateMbps: recBitrate,
-                }));
-              }}
-              aria-label="Export Resolution"
-              className="px-2 py-1 bg-transparent text-xs font-medium text-[#26231f] cursor-pointer focus:outline-none"
-            >
-              <option value="720p">720p HD</option>
-              <option value="1080p">1080p FHD</option>
-              <option value="1440p">1440p 2K</option>
-              <option value="4k">2160p 4K</option>
-              <option value="native">
-                Native ({videoMeta.width}×{videoMeta.height})
-              </option>
-            </select>
-
             <button
               onClick={startHighDefinitionExport}
               disabled={isExporting}
               className="flex items-center gap-1.5 px-3 py-1 bg-[#b82d23] hover:bg-[#a1261d] disabled:opacity-50 rounded-md text-xs font-medium text-white transition cursor-pointer"
-              title="Export video at selected resolution"
+              title="Export video"
             >
               <Download className="w-3.5 h-3.5" />
               <span>
@@ -1573,7 +1547,7 @@ export default function VideoEditorStudio() {
             <button
               onClick={() => setShowExportModal(true)}
               className="px-2 py-1 text-xs text-[#6e655c] hover:text-[#26231f] cursor-pointer"
-              title="More export options (FPS, Bitrate, Frame PNG)"
+              title="Export settings (Resolution, FPS, Bitrate, Frame PNG)"
             >
               ⋯
             </button>
