@@ -1303,63 +1303,110 @@ export default function VideoEditorStudio() {
   const togglePreviewSoundAsset = useCallback(
     (asset: MediaAssetItem) => {
       const fallbackDur =
-        asset.durationSec && asset.durationSec > 0 ? asset.durationSec : 1;
+        asset.durationSec && asset.durationSec > 0 ? asset.durationSec : 0.6;
 
-      const startProgressLoop = (audioEl: HTMLAudioElement, assetId: string) => {
+      const startProgressLoop = (
+        audioEl: HTMLAudioElement,
+        assetId: string,
+        startOffsetSec = 0
+      ) => {
         if (previewRafRef.current !== null) {
           cancelAnimationFrame(previewRafRef.current);
         }
+        const playStartWall = performance.now() - startOffsetSec * 1000;
+
         const tick = () => {
           const validDur =
             Number.isFinite(audioEl.duration) && audioEl.duration > 0
               ? audioEl.duration
               : fallbackDur;
-          const cur = Math.max(0, audioEl.currentTime || 0);
-          const pct = Math.max(0, Math.min(1, cur / Math.max(0.05, validDur)));
+          // Ensure even ultra-short sounds (e.g. 0.08s–0.3s) visibly sweep across the progress bar over at least 0.38s
+          const visualDur = Math.max(0.38, validDur);
+          const wallElapsedSec = Math.max(
+            0,
+            (performance.now() - playStartWall) / 1000
+          );
+          const hwCur =
+            !audioEl.ended && Number.isFinite(audioEl.currentTime)
+              ? audioEl.currentTime
+              : 0;
+          // Blend hardware clock and wall clock so short clips where currentTime jumps 0 -> end still animate every 60fps frame
+          const effectiveElapsed = audioEl.ended
+            ? wallElapsedSec
+            : Math.max(hwCur, Math.min(wallElapsedSec, validDur));
+          const pct = Math.max(
+            0,
+            Math.min(1, wallElapsedSec / visualDur, effectiveElapsed / validDur)
+          );
+          const visualSweepPct = Math.max(
+            0,
+            Math.min(1, wallElapsedSec / visualDur)
+          );
+          const finalPct =
+            validDur < 0.45 ? visualSweepPct : Math.max(pct, visualSweepPct * 0.98);
+
+          const isDone = audioEl.ended && visualSweepPct >= 1;
+
           setPreviewAudioState({
             assetId,
-            isPlaying: !audioEl.paused && !audioEl.ended,
-            finished: audioEl.ended,
-            progress: audioEl.ended ? 1 : pct,
-            currentTime: cur,
+            isPlaying: !isDone && (!audioEl.paused || audioEl.ended),
+            finished: isDone,
+            progress: isDone ? 1 : Math.min(0.99, finalPct),
+            currentTime: isDone
+              ? validDur
+              : Math.min(validDur, Math.max(hwCur, wallElapsedSec)),
             duration: validDur,
           });
-          if (!audioEl.paused && !audioEl.ended) {
+
+          if (!isDone && (!audioEl.paused || audioEl.ended)) {
             previewRafRef.current = requestAnimationFrame(tick);
+          } else {
+            previewRafRef.current = null;
           }
         };
         previewRafRef.current = requestAnimationFrame(tick);
       };
 
-      // If clicking the same sound that is already loaded in previewAudioRef
+      // If clicking the same sound while it is actively playing (not finished), pause it
       if (
         previewAudioState.assetId === asset.id &&
-        previewAudioRef.current
+        previewAudioState.isPlaying &&
+        !previewAudioState.finished &&
+        previewAudioRef.current &&
+        !previewAudioRef.current.paused &&
+        !previewAudioRef.current.ended
       ) {
-        const existing = previewAudioRef.current;
-        if (!existing.paused && !existing.ended) {
-          existing.pause();
-          if (previewRafRef.current !== null) {
-            cancelAnimationFrame(previewRafRef.current);
-            previewRafRef.current = null;
-          }
-          setPreviewAudioState((prev) => ({
-            ...prev,
-            isPlaying: false,
-          }));
-          return;
+        previewAudioRef.current.pause();
+        if (previewRafRef.current !== null) {
+          cancelAnimationFrame(previewRafRef.current);
+          previewRafRef.current = null;
         }
-        // Resume or restart if finished
-        if (existing.ended || previewAudioState.progress >= 0.99) {
-          existing.currentTime = 0;
-        }
-        applyMediaElementVolume(existing, masterVolume, isMuted);
-        existing.play().catch(() => {});
-        startProgressLoop(existing, asset.id);
+        setPreviewAudioState((prev) => ({
+          ...prev,
+          isPlaying: false,
+        }));
         return;
       }
 
-      // Otherwise stop any previous preview and start playing this sound
+      // If resuming from a mid-way pause on the same sound
+      if (
+        previewAudioState.assetId === asset.id &&
+        !previewAudioState.isPlaying &&
+        !previewAudioState.finished &&
+        previewAudioState.progress > 0.02 &&
+        previewAudioState.progress < 0.95 &&
+        previewAudioRef.current &&
+        !previewAudioRef.current.ended
+      ) {
+        const existing = previewAudioRef.current;
+        const resumeSec = existing.currentTime || previewAudioState.currentTime || 0;
+        applyMediaElementVolume(existing, masterVolume, isMuted);
+        existing.play().catch(() => {});
+        startProgressLoop(existing, asset.id, resumeSec);
+        return;
+      }
+
+      // Otherwise (new sound OR re-playing a finished sound), start fresh from 0%
       if (previewRafRef.current !== null) {
         cancelAnimationFrame(previewRafRef.current);
         previewRafRef.current = null;
@@ -1381,46 +1428,31 @@ export default function VideoEditorStudio() {
         duration: fallbackDur,
       });
 
-      preview.onended = () => {
+      startProgressLoop(preview, asset.id, 0);
+
+      preview.play().catch(() => {
         if (previewRafRef.current !== null) {
           cancelAnimationFrame(previewRafRef.current);
           previewRafRef.current = null;
         }
-        const finalDur =
-          Number.isFinite(preview.duration) && preview.duration > 0
-            ? preview.duration
-            : fallbackDur;
-        setPreviewAudioState({
-          assetId: asset.id,
+        setPreviewAudioState((prev) => ({
+          ...prev,
           isPlaying: false,
-          finished: true,
-          progress: 1,
-          currentTime: finalDur,
-          duration: finalDur,
-        });
-      };
-
-      preview
-        .play()
-        .then(() => {
-          startProgressLoop(preview, asset.id);
-        })
-        .catch(() => {
-          setPreviewAudioState((prev) => ({
-            ...prev,
-            isPlaying: false,
-          }));
-        });
+        }));
+      });
 
       setStatusMessage(
         `Playing "${asset.name}"${
-          asset.durationSec ? ` (${asset.durationSec.toFixed(1)}s)` : ''
+          asset.durationSec ? ` (${asset.durationSec.toFixed(2)}s)` : ''
         }. Ask AI e.g. "use ${asset.name.replace(/\.[a-z0-9]+$/i, '')} here" on any color/dot!`
       );
     },
     [
       previewAudioState.assetId,
+      previewAudioState.isPlaying,
+      previewAudioState.finished,
       previewAudioState.progress,
+      previewAudioState.currentTime,
       applyMediaElementVolume,
       masterVolume,
       isMuted,
@@ -1837,6 +1869,19 @@ export default function VideoEditorStudio() {
     setLibraryCategory(category);
 
     if (category === 'audio') {
+      const updateAudioDuration = (rawDur: number) => {
+        if (!Number.isFinite(rawDur) || rawDur <= 0) return;
+        const exactDur = Number(Math.max(0.05, rawDur).toFixed(2));
+        setMediaLibrary((prev) =>
+          prev.map((m) => {
+            if (m.id !== newItem.id) return m;
+            const updated = { ...m, durationSec: exactDur };
+            saveMediaAssetToDb(updated);
+            return updated;
+          })
+        );
+      };
+
       const probe = new Audio(url);
       probe.onloadedmetadata = () => {
         if (
@@ -1844,17 +1889,28 @@ export default function VideoEditorStudio() {
           Number.isFinite(probe.duration) &&
           probe.duration > 0
         ) {
-          const exactDur = Number(probe.duration.toFixed(2));
-          setMediaLibrary((prev) =>
-            prev.map((m) => {
-              if (m.id !== newItem.id) return m;
-              const updated = { ...m, durationSec: exactDur };
-              saveMediaAssetToDb(updated);
-              return updated;
-            })
-          );
+          updateAudioDuration(probe.duration);
         }
       };
+
+      // Also decode sample-accurate duration via Web Audio API so very short clips & WebM recordings always have exact durations
+      if (typeof AudioContext !== 'undefined') {
+        file
+          .arrayBuffer()
+          .then((buf) => {
+            const tempCtx = new AudioContext();
+            return tempCtx
+              .decodeAudioData(buf)
+              .then((decoded) => {
+                updateAudioDuration(decoded.duration);
+                tempCtx.close().catch(() => {});
+              })
+              .catch(() => {
+                tempCtx.close().catch(() => {});
+              });
+          })
+          .catch(() => {});
+      }
     }
 
     // If importing/recording a sound while a video or image is already on stage, keep the video/image active!
@@ -2056,7 +2112,7 @@ export default function VideoEditorStudio() {
         if (chunks.length === 0) return;
 
         const recordedSec = Math.max(
-          0.5,
+          0.1,
           Number(((performance.now() - recordingStartWallRef.current) / 1000).toFixed(2))
         );
         const existingAudioCount = mediaLibrary.filter(
@@ -4127,9 +4183,6 @@ export default function VideoEditorStudio() {
                   isThisAudioActive && previewAudioState.isPlaying;
                 const isThisAudioFinished =
                   isThisAudioActive && previewAudioState.finished;
-                const audioProgressPct = isThisAudioActive
-                  ? Math.round(previewAudioState.progress * 100)
-                  : 0;
                 const totalDurSec =
                   isThisAudioActive && previewAudioState.duration > 0
                     ? previewAudioState.duration
@@ -4299,8 +4352,13 @@ export default function VideoEditorStudio() {
                         className="w-full h-1.5 bg-[#ded7c8] rounded-full overflow-hidden cursor-pointer"
                       >
                         <div
-                          style={{ width: `${audioProgressPct}%` }}
-                          className={`h-full rounded-full transition-[width] duration-75 ${
+                          style={{
+                            width: `${(
+                              (isThisAudioActive ? previewAudioState.progress : 0) *
+                              100
+                            ).toFixed(1)}%`,
+                          }}
+                          className={`h-full rounded-full ${
                             isThisAudioFinished
                               ? 'bg-[#50793e]'
                               : 'bg-[#b82d23]'
