@@ -127,7 +127,7 @@ type AiCompiledRenderFn = (
       dh?: number
     ) => void;
     getImage: (nameOrId?: string) => HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | null;
-    getVideo: (nameOrId?: string) => HTMLVideoElement | null;
+    getVideo: (nameOrId?: string) => HTMLCanvasElement | HTMLVideoElement | null;
     drawImageAsset: (
       nameOrId?: string,
       dx?: number,
@@ -362,6 +362,99 @@ function getOrIsolateImageSubject(
     return workCanvas;
   } catch {
     return img;
+  }
+}
+
+const compositorVideoWorkCanvasCache = new Map<string, HTMLCanvasElement>();
+
+/**
+ * Isolates an animated subject in a video overlay frame if the video has a uniform solid/dark backdrop
+ * (e.g. black #000000 from video codecs without alpha, or #0f172a from earlier generated videos)
+ * so AI-created videos overlay cleanly on top of the original video without a background box.
+ */
+function isolateVideoFrameSubject(
+  assetId: string,
+  vid: HTMLVideoElement
+): HTMLCanvasElement | HTMLVideoElement {
+  if (typeof document === 'undefined' || vid.readyState < 2) return vid;
+  const vw = vid.videoWidth || 640;
+  const vh = vid.videoHeight || 360;
+  if (vw <= 0 || vh <= 0) return vid;
+
+  // Use a fast 640x360 work canvas for 60 FPS real-time keying
+  const workW = Math.min(640, vw);
+  const workH = Math.max(1, Math.round((vh / vw) * workW));
+  let workCanvas = compositorVideoWorkCanvasCache.get(assetId);
+  if (!workCanvas || workCanvas.width !== workW || workCanvas.height !== workH) {
+    workCanvas = document.createElement('canvas');
+    workCanvas.width = workW;
+    workCanvas.height = workH;
+    compositorVideoWorkCanvasCache.set(assetId, workCanvas);
+  }
+
+  const wCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+  if (!wCtx) return vid;
+
+  try {
+    wCtx.clearRect(0, 0, workW, workH);
+    wCtx.drawImage(vid, 0, 0, workW, workH);
+    const imgData = wCtx.getImageData(0, 0, workW, workH);
+    const data = imgData.data;
+
+    // Sample the 4 corners
+    const cIndices = [
+      0,
+      (workW - 1) * 4,
+      (workH - 1) * workW * 4,
+      ((workH - 1) * workW + (workW - 1)) * 4,
+    ];
+    // If corners are already transparent (native WebM alpha), return workCanvas directly
+    if (cIndices.some((idx) => data[idx + 3] < 180)) {
+      return workCanvas;
+    }
+
+    const r0 = data[cIndices[0]];
+    const g0 = data[cIndices[0] + 1];
+    const b0 = data[cIndices[0] + 2];
+
+    // Check if the 4 corners share a consistent background color (indicating an isolated animation on a uniform stage)
+    let cornersConsistent = true;
+    for (let k = 1; k < 4; k++) {
+      const idx = cIndices[k];
+      const dr = data[idx] - r0;
+      const dg = data[idx + 1] - g0;
+      const db = data[idx + 2] - b0;
+      if (dr * dr + dg * dg + db * db > 2500) {
+        cornersConsistent = false;
+        break;
+      }
+    }
+    if (!cornersConsistent) {
+      return vid;
+    }
+
+    // Key out pixels matching the corner backdrop color with smooth edge feathering
+    const lowThreshSq = 784; // dist <= 28 -> fully transparent
+    const highThreshSq = 2304; // dist 28..48 -> smooth feather ramp
+    const rangeSq = highThreshSq - lowThreshSq;
+
+    for (let i = 0, len = data.length; i < len; i += 4) {
+      const dr = data[i] - r0;
+      const dg = data[i + 1] - g0;
+      const db = data[i + 2] - b0;
+      const dSq = dr * dr + dg * dg + db * db;
+      if (dSq <= lowThreshSq) {
+        data[i + 3] = 0;
+      } else if (dSq < highThreshSq) {
+        const factor = (dSq - lowThreshSq) / rangeSq;
+        data[i + 3] = Math.round(data[i + 3] * factor);
+      }
+    }
+
+    wCtx.putImageData(imgData, 0, 0);
+    return workCanvas;
+  } catch {
+    return vid;
   }
 }
 
@@ -1922,13 +2015,18 @@ export function renderCompositedFrame(
               const vid = compositorVideoCache.get(matchedVid.id);
               if (vid && vid.readyState >= 2) {
                 if (vid.paused) vid.play().catch(() => {});
-                return vid;
+                return isolateSubject
+                  ? isolateVideoFrameSubject(matchedVid.id, vid)
+                  : vid;
               }
             }
             return null;
           };
 
-          const getVideoFn = (nameOrId?: string): HTMLVideoElement | null => {
+          const getVideoFn = (
+            nameOrId?: string,
+            isolateSubject = true
+          ): HTMLCanvasElement | HTMLVideoElement | null => {
             const matchedVid = findMatchingCompositorAsset(
               nameOrId,
               'video',
@@ -1938,7 +2036,9 @@ export function renderCompositedFrame(
             const vid = compositorVideoCache.get(matchedVid.id);
             if (vid && vid.readyState >= 2) {
               if (vid.paused) vid.play().catch(() => {});
-              return vid;
+              return isolateSubject
+                ? isolateVideoFrameSubject(matchedVid.id, vid)
+                : vid;
             }
             return null;
           };

@@ -748,11 +748,16 @@ STRICT RULES FOR \`renderCode\`:
    - \`duration\`: Total video duration in seconds (default \`${defaultDurationSec}\`, or set \`"durationSec"\` between \`2\` and \`15\` if the user specifies a duration)
    - \`progress\`: \`0.0\` to \`1.0\` progress through the video
    - \`frame\`: Current frame index (\`0\` to \`totalFrames\`), \`totalFrames\`: \`Math.round(duration * 30)\`
-   - \`state\`: Persistent object (\`Record<string, any>\`) preserved across frames (store particle arrays, stars, physics entities, or trail history here!)
+   - \`state\`: Persistent object (\`Record<string, any>\`) preserved across frames (store particle arrays, physics entities, or trail history here!)
    - \`hash(n)\`: Deterministic float in \`[0, 1)\` for any seed number \`n\`
-   - \`noise(nx, ny = 0)\`: Smooth 2D value noise in \`[0, 1]\` for organic motion, waves, fire, clouds, or camera drift
+   - \`noise(nx, ny = 0)\`: Smooth 2D value noise in \`[0, 1]\` for organic motion, waves, fire, or physics
 2. Do NOT wrap your code in \`function() { ... }\` or markdown fences. Write the JavaScript statements directly inside \`renderCode\`.
-3. Clear or paint the full \`width x height\` canvas every frame (e.g. rich animated gradient sky/backdrop, or dark stage background) and animate your subjects using \`t\` (seconds) and \`progress\` (\`0..1\`) with smooth easing, secondary motion, lighting/glow (\`createRadialGradient\`, \`globalCompositeOperation = 'lighter'\`), and lively particles so the video looks like a studio motion-graphics animation.
+3. **TRANSPARENT BACKGROUND BY DEFAULT (CRITICAL — USED AS VIDEO OVERLAY)**:
+   - These generated videos are placed ON TOP of the user's original video!
+   - **Unless the user explicitly asks for a full scene, background, landscape, room, sky, or wallpaper**, you MUST keep the canvas background **100% TRANSPARENT** every frame (\`ctx.clearRect(0, 0, width, height);\`).
+   - Do **NOT** call \`ctx.fillRect(0, 0, width, height)\` and do **NOT** draw a sky, wall, floor, or dark backdrop behind the animated subject!
+   - Draw **ONLY the animated object, character, creature, or effect** centered around \`(width / 2, height / 2)\` at a prominent scale (~55%–75% of \`height\`), animated smoothly with \`t\` (in seconds) and \`progress\` (\`0..1\`), rich multi-stop gradients, secondary motion, and particles.
+   - **ONLY if the user explicitly asks for a full background, landscape, room, sky, or environment** should you fill the entire \`width x height\` canvas background.
 4. Always balance \`ctx.save()\` and \`ctx.restore()\`. Never use external network resources (\`new Image()\`, \`fetch\`).`;
 }
 

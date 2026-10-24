@@ -2569,8 +2569,8 @@ export default function VideoEditorStudio() {
         const prog = targetDurSec > 0 ? clampedT / targetDurSec : 0;
         const frameIdx = Math.round(clampedT * fps);
         ctx.save();
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(0, 0, vidW, vidH);
+        // Start each frame with a 100% transparent canvas so animated objects can be overlaid on top of original videos without a background box
+        ctx.clearRect(0, 0, vidW, vidH);
         try {
           animFn(ctx, {
             width: vidW,
@@ -2595,7 +2595,19 @@ export default function VideoEditorStudio() {
       // Draw frame 0 before starting MediaRecorder
       renderFrameAt(0);
 
-      const { mimeType, extension } = getOptimalVideoMimeType();
+      // Prefer WebM (VP9/VP8) for AI-generated videos so alpha channel transparency is preserved
+      const webmCandidates = [
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm',
+      ];
+      const supportedWebm =
+        typeof MediaRecorder !== 'undefined'
+          ? webmCandidates.find((m) => MediaRecorder.isTypeSupported(m))
+          : undefined;
+      const fallbackMime = getOptimalVideoMimeType();
+      const mimeType = supportedWebm || fallbackMime.mimeType;
+      const extension = supportedWebm ? 'webm' : fallbackMime.extension;
       const stream = canvas.captureStream(fps);
       const chunks: BlobPart[] = [];
       const recorder = new MediaRecorder(stream, {
