@@ -2543,8 +2543,10 @@ export default function VideoEditorStudio() {
     if (!cleanPrompt || isAiCreatingVideo) return;
 
     setIsAiCreatingVideo(true);
-    setAiVideoStatusText('AI coding...');
-    setStatusMessage(`AI creating video animation: "${cleanPrompt}"...`);
+    setAiVideoStatusText('Web Search + AI...');
+    setStatusMessage(
+      `Searching web & creating AI video animation: "${cleanPrompt}"...`
+    );
 
     try {
       const activeKey =

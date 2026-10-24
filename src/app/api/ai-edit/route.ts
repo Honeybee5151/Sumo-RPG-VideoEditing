@@ -82,6 +82,197 @@ function postJsonRequest(
   });
 }
 
+function getHttpText(urlStr: string, timeoutMs = 2600): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const parsedUrl = new URL(urlStr);
+      const isHttps = parsedUrl.protocol === 'https:';
+      const lib = isHttps ? https : http;
+      const req = lib.request(
+        parsedUrl,
+        {
+          method: 'GET',
+          family: 4,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/json;q=0.9,*/*;q=0.8',
+          },
+        },
+        (res) => {
+          // Follow single redirect if 301/302
+          if (
+            res.statusCode &&
+            res.statusCode >= 300 &&
+            res.statusCode < 400 &&
+            res.headers.location
+          ) {
+            const nextUrl = new URL(res.headers.location, parsedUrl).toString();
+            res.resume();
+            getHttpText(nextUrl, timeoutMs).then(resolve);
+            return;
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => {
+            resolve(Buffer.concat(chunks).toString('utf8'));
+          });
+        }
+      );
+      req.on('error', () => resolve(''));
+      req.setTimeout(timeoutMs, () => {
+        req.destroy();
+        resolve('');
+      });
+      req.end();
+    } catch {
+      resolve('');
+    }
+  });
+}
+
+function stripHtmlEntities(raw: string): string {
+  return raw
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Universal Zero-Key Web / Google Reference Searcher.
+ * Works with ANY AI provider or API key (DeepSeek, OpenAI, Claude, Gemini, OpenRouter, Groq, xAI, or Local LLM).
+ * Queries DuckDuckGo Web Search + Instant Answer API + Wikipedia in parallel with a short timeout
+ * and returns factual visual descriptions, colors, proportions, and motion traits.
+ */
+async function fetchUniversalWebSearchContext(
+  rawPrompt: string,
+  mode: 'draw_image' | 'create_video' | 'edit'
+): Promise<string> {
+  const cleanedSubject = rawPrompt
+    .replace(
+      /\b(please|can\s+you|could\s+you|google|search(?:\s+the\s+web)?(?:\s+for)?|look\s+up|find\s+out|check\s+online|what\s+does|how\s+does|look\s+like|create\s+a\s+video\s+of|make\s+a\s+video\s+of|draw\s+an?\s+image\s+of|draw\s+a|draw|generate\s+a|create\s+a|animate\s+a|animate|in\s+a\s+cool\s+way|on\s+the\s+screen|onto\s+the\s+screen|without\s+background|transparent\s+background)\b/gi,
+      ' '
+    )
+    .replace(/\b\d+(?:\.\d+)?\s*(?:s|sec|seconds?)\b/gi, ' ')
+    .replace(/[^\w\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleanedSubject || cleanedSubject.length < 2) {
+    return '';
+  }
+
+  // For 'edit' mode, only run web search if the user asks to google/search/look up or asks to draw/create/add a specific subject
+  const explicitSearchAsk =
+    /\b(google|search|look\s+up|find\s+online|web|internet|what\s+is|who\s+is)\b/i.test(
+      rawPrompt
+    );
+  const creativeVisualEditAsk =
+    /\b(draw|create|spawn|summon|add\s+a|make\s+a|animate|character|logo|meme|dance|pokemon|anime|hero|monster|creature|car|weapon|sword|crown|hat|glasses|fire|lightning)\b/i.test(
+      rawPrompt
+    );
+  if (mode === 'edit' && !explicitSearchAsk && !creativeVisualEditAsk) {
+    return '';
+  }
+
+  const visualQuery =
+    mode === 'create_video'
+      ? `${cleanedSubject} visual appearance colors motion animation`
+      : mode === 'draw_image'
+      ? `${cleanedSubject} visual appearance colors design details`
+      : `${cleanedSubject} visual appearance description`;
+
+  const ddgHtmlUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(
+    visualQuery
+  )}`;
+  const ddgInstantUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(
+    cleanedSubject
+  )}&format=json&no_html=1&skip_disambig=1`;
+  const wikiSearchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(
+    cleanedSubject
+  )}&utf8=1&format=json&srlimit=3`;
+
+  const [ddgHtml, ddgInstantRaw, wikiRaw] = await Promise.all([
+    getHttpText(ddgHtmlUrl, 2600),
+    getHttpText(ddgInstantUrl, 2200),
+    getHttpText(wikiSearchUrl, 2200),
+  ]);
+
+  const snippets: string[] = [];
+
+  // 1. Parse DuckDuckGo Instant Answer
+  if (ddgInstantRaw) {
+    try {
+      const ddgJson = JSON.parse(ddgInstantRaw) as {
+        AbstractText?: string;
+        RelatedTopics?: Array<{ Text?: string }>;
+      };
+      if (ddgJson.AbstractText) {
+        snippets.push(`Summary: ${ddgJson.AbstractText.trim()}`);
+      }
+      if (Array.isArray(ddgJson.RelatedTopics)) {
+        for (const topic of ddgJson.RelatedTopics.slice(0, 2)) {
+          if (topic?.Text) {
+            snippets.push(`Related: ${topic.Text.trim()}`);
+          }
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  // 2. Parse Wikipedia Search Snippets
+  if (wikiRaw) {
+    try {
+      const wikiJson = JSON.parse(wikiRaw) as {
+        query?: {
+          search?: Array<{ title?: string; snippet?: string }>;
+        };
+      };
+      const results = wikiJson?.query?.search || [];
+      for (const item of results.slice(0, 2)) {
+        const cleanSnip = stripHtmlEntities(item.snippet || '');
+        if (cleanSnip) {
+          snippets.push(`Wikipedia (${item.title || cleanedSubject}): ${cleanSnip}`);
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  // 3. Parse DuckDuckGo HTML Search Results
+  if (ddgHtml) {
+    const snippetRegex =
+      /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match: RegExpExecArray | null;
+    let count = 0;
+    while ((match = snippetRegex.exec(ddgHtml)) !== null && count < 4) {
+      const text = stripHtmlEntities(match[1]);
+      if (text.length > 24) {
+        snippets.push(`Web Result: ${text}`);
+        count++;
+      }
+    }
+  }
+
+  if (snippets.length === 0) {
+    return '';
+  }
+
+  return `\n\n[LIVE WEB / GOOGLE SEARCH REFERENCE FOR "${cleanedSubject.toUpperCase()}":\n${snippets
+    .slice(0, 5)
+    .map((s) => `- ${s}`)
+    .join('\n')}\nUse these real-world visual details, colors, proportions, and characteristics accurately in your output!]`;
+}
+
 interface AiEditRequestBody {
   mode?: 'edit' | 'test' | 'draw_image' | 'create_video';
   prompt?: string;
@@ -1139,11 +1330,24 @@ async function tryNativeImageGeneration(params: {
       const effectiveImgKey = separateImgKey || mainKey;
       const imgMode: ImageGenModeId = body.imageGenMode || 'auto';
 
+      // Fetch live Web / Google search reference context so ANY key/provider knows what the subject looks like
+      const webSearchContext = await fetchUniversalWebSearchContext(
+        prompt.trim(),
+        'draw_image'
+      );
+      const cleanDrawPrompt = prompt
+        .trim()
+        .replace(/\b(google|search(?:\s+the\s+web)?(?:\s+for)?|look\s+up)\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
       // A) Try Native Raster Image Generation Model first (OpenAI DALL-E 3, Gemini Imagen 3, xAI Grok Image, HuggingFace FLUX.1, Stability SDXL)
       // Works in both Separate Image Key mode AND Dual Mode (using the main key if blank)
       if (effectiveImgKey && imgMode !== 'code_draw') {
         const nativeRes = await tryNativeImageGeneration({
-          prompt: prompt.trim(),
+          prompt: webSearchContext
+            ? `${cleanDrawPrompt || prompt.trim()}\n${webSearchContext}`
+            : cleanDrawPrompt || prompt.trim(),
           key: effectiveImgKey,
           mode: imgMode,
         });
@@ -1153,6 +1357,7 @@ async function tryNativeImageGeneration(params: {
             title: nativeRes.title,
             imageDataUrl: nativeRes.imageDataUrl,
             provider: nativeRes.providerLabel,
+            webSearched: Boolean(webSearchContext),
             usage: {
               promptTokens: 32,
               completionTokens: 256,
@@ -1185,20 +1390,23 @@ async function tryNativeImageGeneration(params: {
             model: cand.model,
             baseUrl: cand.baseUrl,
             systemPrompt: drawSystemPrompt,
-            userPrompt: prompt.trim(),
+            userPrompt: `${cleanDrawPrompt || prompt.trim()}${webSearchContext}`,
             jsonSuffix:
               'Return ONLY a valid JSON object: {"title": "...", "renderCode": "..."}',
             reasoningEffort: body.reasoningEffort,
           });
 
-          const parsedArt = parseDrawImageResponse(rawText, prompt);
+          const parsedArt = parseDrawImageResponse(rawText, cleanDrawPrompt || prompt);
           if (parsedArt) {
             return NextResponse.json({
               ok: true,
               title: parsedArt.title,
               renderCode: parsedArt.renderCode,
               svg: parsedArt.svg,
-              provider: providerLabel,
+              provider: webSearchContext
+                ? `${providerLabel} + Web Search`
+                : providerLabel,
+              webSearched: Boolean(webSearchContext),
               usage: {
                 ...usage,
                 latencyMs: Date.now() - drawStartMs,
@@ -1245,6 +1453,15 @@ async function tryNativeImageGeneration(params: {
 
       const candidates = resolveActiveProviderAndKey(body);
       const videoSystemPrompt = buildCreateVideoSystemPrompt(requestedDur);
+      const webSearchContext = await fetchUniversalWebSearchContext(
+        prompt.trim(),
+        'create_video'
+      );
+      const cleanVidPrompt = prompt
+        .trim()
+        .replace(/\b(google|search(?:\s+the\s+web)?(?:\s+for)?|look\s+up)\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 
       for (const cand of candidates) {
         try {
@@ -1254,7 +1471,7 @@ async function tryNativeImageGeneration(params: {
             model: cand.model,
             baseUrl: cand.baseUrl,
             systemPrompt: videoSystemPrompt,
-            userPrompt: prompt.trim(),
+            userPrompt: `${cleanVidPrompt || prompt.trim()}${webSearchContext}`,
             jsonSuffix:
               'Return ONLY a valid JSON object: {"title": "...", "durationSec": ' +
               requestedDur +
@@ -1264,7 +1481,7 @@ async function tryNativeImageGeneration(params: {
 
           const parsedVid = parseCreateVideoResponse(
             rawText,
-            prompt,
+            cleanVidPrompt || prompt,
             requestedDur
           );
           if (parsedVid) {
@@ -1273,7 +1490,10 @@ async function tryNativeImageGeneration(params: {
               title: parsedVid.title,
               durationSec: parsedVid.durationSec,
               renderCode: parsedVid.renderCode,
-              provider: providerLabel,
+              provider: webSearchContext
+                ? `${providerLabel} + Web Search`
+                : providerLabel,
+              webSearched: Boolean(webSearchContext),
               usage: {
                 ...usage,
                 latencyMs: Date.now() - vidStartMs,
@@ -1332,6 +1552,10 @@ async function tryNativeImageGeneration(params: {
     const candidates = resolveActiveProviderAndKey(body);
     const systemPrompt = buildAiEditorSystemPrompt(ctxInput);
     const editStartMs = Date.now();
+    const editWebSearchContext = await fetchUniversalWebSearchContext(
+      prompt.trim(),
+      'edit'
+    );
 
     for (const cand of candidates) {
       try {
@@ -1341,7 +1565,7 @@ async function tryNativeImageGeneration(params: {
           model: cand.model,
           baseUrl: cand.baseUrl,
           systemPrompt,
-          userPrompt: prompt.trim(),
+          userPrompt: `${prompt.trim()}${editWebSearchContext}`,
           compositeFrameDataUrl,
           reasoningEffort: body.reasoningEffort || 'medium',
         });
@@ -1362,7 +1586,10 @@ async function tryNativeImageGeneration(params: {
             cutsToAdd: parsed.cutsToAdd,
             splitsToAdd: parsed.splitsToAdd,
             newDuration: parsed.newDuration,
-            provider: providerLabel,
+            provider: editWebSearchContext
+              ? `${providerLabel} + Web Search`
+              : providerLabel,
+            webSearched: Boolean(editWebSearchContext),
             usage: {
               ...usage,
               latencyMs: Date.now() - editStartMs,
