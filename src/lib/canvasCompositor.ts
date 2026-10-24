@@ -178,12 +178,159 @@ export interface CompositorMediaAsset {
   category: 'video' | 'image' | 'audio';
   url: string;
   durationSec?: number;
+  renderCode?: string;
 }
 
 let compositorMediaAssets: CompositorMediaAsset[] = [];
 const compositorImageCache = new Map<string, HTMLImageElement>();
 const compositorIsolatedSubjectCache = new Map<string, HTMLCanvasElement>();
 const compositorVideoCache = new Map<string, HTMLVideoElement>();
+const proceduralVideoCanvasCache = new Map<string, HTMLCanvasElement>();
+const proceduralVideoStateCache = new Map<string, Record<string, unknown>>();
+const proceduralVideoFnCache = new Map<
+  string,
+  ((ctx: CanvasRenderingContext2D, env: Record<string, unknown>) => void) | null
+>();
+
+export function renderProceduralVideoAssetFrame(
+  renderCode: string,
+  assetId: string,
+  width: number,
+  height: number,
+  currentTime: number,
+  durationSec = 5,
+  transparentBackground = true
+): HTMLCanvasElement | null {
+  if (typeof document === 'undefined' || !renderCode) return null;
+  const trimmed = renderCode.trim();
+  let fn = proceduralVideoFnCache.get(trimmed);
+  if (fn === undefined) {
+    try {
+      fn = new Function(
+        'ctx',
+        '__env',
+        `const { cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, state, hash, noise, TAU, clearFrame, createBuffer } = __env;\n{\n${trimmed}\n}`
+      ) as (ctx: CanvasRenderingContext2D, env: Record<string, unknown>) => void;
+      proceduralVideoFnCache.set(trimmed, fn);
+    } catch (err) {
+      console.warn('Failed to compile procedural video asset renderCode:', err);
+      proceduralVideoFnCache.set(trimmed, null);
+      return null;
+    }
+  }
+  if (!fn) return null;
+
+  let canvas = proceduralVideoCanvasCache.get(assetId);
+  if (!canvas || canvas.width !== width || canvas.height !== height) {
+    canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    proceduralVideoCanvasCache.set(assetId, canvas);
+  }
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  let state = proceduralVideoStateCache.get(assetId);
+  if (!state) {
+    state = {};
+    proceduralVideoStateCache.set(assetId, state);
+  }
+
+  const validDur =
+    Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 5;
+  const loopedT = ((currentTime % validDur) + validDur) % validDur;
+  const progress = validDur > 0 ? loopedT / validDur : 0;
+  const totalFrames = Math.max(1, Math.round(validDur * 30));
+  const frame = Math.round(loopedT * 30);
+
+  const hashFn = (n: number) => {
+    const s = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
+    return s - Math.floor(s);
+  };
+  const noiseFn = (nx: number, ny = 0) => {
+    const ix = Math.floor(nx);
+    const iy = Math.floor(ny);
+    const fx = nx - ix;
+    const fy = ny - iy;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uy = fy * fy * (3 - 2 * fy);
+    const a = hashFn(ix + iy * 57);
+    const b = hashFn(ix + 1 + iy * 57);
+    const c = hashFn(ix + (iy + 1) * 57);
+    const d = hashFn(ix + 1 + (iy + 1) * 57);
+    return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
+  };
+
+  const clearFrameFn = (color?: string) => {
+    if (!color || transparentBackground) {
+      ctx.clearRect(0, 0, width, height);
+    } else {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, width, height);
+      ctx.restore();
+    }
+  };
+
+  const createBufferFn = (id = 'default', bw = width, bh = height) => {
+    const key = `__buf_${id}`;
+    const targetW = Math.max(1, Math.round(bw));
+    const targetH = Math.max(1, Math.round(bh));
+    let buf = state![key] as
+      | { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }
+      | undefined;
+    if (
+      !buf ||
+      buf.canvas.width !== targetW ||
+      buf.canvas.height !== targetH
+    ) {
+      const c = document.createElement('canvas');
+      c.width = targetW;
+      c.height = targetH;
+      const cCtx = c.getContext('2d') || ctx;
+      buf = { canvas: c, ctx: cCtx };
+      state![key] = buf;
+    }
+    return buf;
+  };
+
+  ctx.save();
+  ctx.clearRect(0, 0, width, height);
+  if (!transparentBackground) {
+    ctx.fillStyle = '#181614';
+    ctx.fillRect(0, 0, width, height);
+  }
+  try {
+    fn(ctx, {
+      cx: width / 2,
+      cy: height / 2,
+      x: 0,
+      y: 0,
+      w: width,
+      h: height,
+      r: Math.min(width, height) * 0.32,
+      width,
+      height,
+      scale: width / 960,
+      t: loopedT,
+      elapsed: loopedT,
+      duration: validDur,
+      progress,
+      frame,
+      totalFrames,
+      state,
+      hash: hashFn,
+      noise: noiseFn,
+      TAU: Math.PI * 2,
+      clearFrame: clearFrameFn,
+      createBuffer: createBufferFn,
+    });
+  } catch (err) {
+    console.warn('Procedural video asset frame error:', err);
+  }
+  ctx.restore();
+  return canvas;
+}
 
 export function syncCompositorMediaAssets(assets: CompositorMediaAsset[]): void {
   compositorMediaAssets = assets || [];
@@ -2012,6 +2159,18 @@ export function renderCompositedFrame(
               fallbackAssetQuery
             );
             if (matchedVid) {
+              if (matchedVid.renderCode) {
+                const procCanvas = renderProceduralVideoAssetFrame(
+                  matchedVid.renderCode,
+                  matchedVid.id,
+                  width,
+                  height,
+                  currentTime,
+                  matchedVid.durationSec || 5,
+                  true
+                );
+                if (procCanvas) return procCanvas;
+              }
               const vid = compositorVideoCache.get(matchedVid.id);
               if (vid && vid.readyState >= 2) {
                 if (vid.paused) vid.play().catch(() => {});
@@ -2033,6 +2192,18 @@ export function renderCompositedFrame(
               fallbackAssetQuery
             );
             if (!matchedVid) return null;
+            if (matchedVid.renderCode) {
+              const procCanvas = renderProceduralVideoAssetFrame(
+                matchedVid.renderCode,
+                matchedVid.id,
+                width,
+                height,
+                currentTime,
+                matchedVid.durationSec || 5,
+                true
+              );
+              if (procCanvas) return procCanvas;
+            }
             const vid = compositorVideoCache.get(matchedVid.id);
             if (vid && vid.readyState >= 2) {
               if (vid.paused) vid.play().catch(() => {});

@@ -744,13 +744,16 @@ STRICT RULES FOR \`renderCode\`:
 1. Available variables in scope every frame:
    - \`ctx\`: \`CanvasRenderingContext2D\` of the video canvas
    - \`width\`: \`1280\`, \`height\`: \`720\`, \`scale\`: \`width / 960\`
+   - \`cx\`: \`width / 2\`, \`cy\`: \`height / 2\`, \`x\`: \`0\`, \`y\`: \`0\`, \`w\`: \`width\`, \`h\`: \`height\`, \`r\`: \`Math.min(width, height) * 0.32\`
    - \`t\` (and \`elapsed\`): Current timestamp in real seconds (\`0.0\` to \`duration\`)
    - \`duration\`: Total video duration in seconds (default \`${defaultDurationSec}\`, or set \`"durationSec"\` between \`2\` and \`15\` if the user specifies a duration)
    - \`progress\`: \`0.0\` to \`1.0\` progress through the video
-   - \`frame\`: Current frame index (\`0\` to \`totalFrames\`), \`totalFrames\`: \`Math.round(duration * 30)\`
+   - \`frame\`: Current frame index (\`0\` to \`totalFrames\`), \`totalFrames\`: \`Math.round(duration * 30)\`, \`TAU\`: \`Math.PI * 2\`
    - \`state\`: Persistent object (\`Record<string, any>\`) preserved across frames (store particle arrays, physics entities, or trail history here!)
    - \`hash(n)\`: Deterministic float in \`[0, 1)\` for any seed number \`n\`
    - \`noise(nx, ny = 0)\`: Smooth 2D value noise in \`[0, 1]\` for organic motion, waves, fire, or physics
+   - \`clearFrame(color?)\`: Clears canvas (transparent if no color passed, or fills with \`color\`)
+   - \`createBuffer(id, bw, bh)\`: Returns persistent offscreen \`{ canvas, ctx }\`
 2. Do NOT wrap your code in \`function() { ... }\` or markdown fences. Write the JavaScript statements directly inside \`renderCode\`.
 3. **TRANSPARENT BACKGROUND BY DEFAULT (CRITICAL — USED AS VIDEO OVERLAY)**:
    - These generated videos are placed ON TOP of the user's original video!
@@ -795,7 +798,7 @@ function parseCreateVideoResponse(
     new Function(
       'ctx',
       '__env',
-      `const { width, height, scale, t, elapsed, duration, progress, frame, totalFrames, state, hash, noise } = __env;\n{\n${renderCode}\n}`
+      `const { cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, state, hash, noise, TAU, clearFrame, createBuffer } = __env;\n{\n${renderCode}\n}`
     );
 
     const rawDur = Number(parsed.durationSec || parsed.duration || defaultDur);

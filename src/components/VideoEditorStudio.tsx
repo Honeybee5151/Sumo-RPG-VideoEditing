@@ -73,6 +73,7 @@ import {
   getDynamicAiPlaybackRate,
   renderCompositedFrame,
   renderProceduralDemoScene,
+  renderProceduralVideoAssetFrame,
   syncCompositorMediaAssets,
 } from '@/lib/canvasCompositor';
 import {
@@ -502,13 +503,27 @@ export default function VideoEditorStudio() {
           if (session.activeVideoAssetId) {
             const vidAsset = assets.find((a) => a.id === session.activeVideoAssetId);
             if (vidAsset) {
+              const validDur =
+                vidAsset.durationSec &&
+                Number.isFinite(vidAsset.durationSec) &&
+                vidAsset.durationSec > 0
+                  ? vidAsset.durationSec
+                  : session.duration &&
+                    Number.isFinite(session.duration) &&
+                    session.duration > 0
+                  ? session.duration
+                  : 5;
+              setDuration(validDur);
               restoredVideoTimingRef.current = {
                 currentTime: session.currentTime ?? 0,
                 intervalStart: session.intervalStart ?? 0,
-                intervalEnd: session.intervalEnd ?? 5,
+                intervalEnd: Math.min(validDur, session.intervalEnd ?? 5),
               };
               setVideoUrl(vidAsset.url);
               setVideoFileName(vidAsset.name);
+              if (vidAsset.renderCode) {
+                setIsPlaying(true);
+              }
             }
           }
           if (session.activeImageAssetId) {
@@ -582,6 +597,7 @@ export default function VideoEditorStudio() {
         category: m.category,
         url: m.url,
         durationSec: m.durationSec,
+        renderCode: m.renderCode,
       }))
     );
   }, [mediaLibrary]);
@@ -1192,8 +1208,12 @@ export default function VideoEditorStudio() {
       const dt = Math.min(0.1, (now - lastFrameTimeRef.current) / 1000);
       lastFrameTimeRef.current = now;
 
+      const activeVidAsset = videoUrl
+        ? mediaLibrary.find((m) => m.url === videoUrl)
+        : null;
+
       if (isPlaying && !isExporting) {
-        if (videoUrl && videoRef.current) {
+        if (videoUrl && videoRef.current && !activeVidAsset?.renderCode) {
           const vid = videoRef.current;
           const { rate, freeze } = getActivePlaybackRate(vid.currentTime);
           const targetRate = freeze ? 0.0625 : rate;
@@ -1205,12 +1225,14 @@ export default function VideoEditorStudio() {
             vid.currentTime = next;
           }
           if (loopIntervalOnly) {
-            if (next >= intervalEnd || next < intervalStart) {
+            if (next >= intervalEnd || next < intervalStart || vid.ended) {
               vid.currentTime = intervalStart;
+              if (vid.paused) vid.play().catch(() => {});
               next = intervalStart;
             }
-          } else if (next >= duration - 0.05) {
+          } else if (next >= duration - 0.05 || vid.ended) {
             vid.currentTime = 0;
+            if (vid.paused) vid.play().catch(() => {});
             next = 0;
           }
           setCurrentTime(next);
@@ -1250,7 +1272,20 @@ export default function VideoEditorStudio() {
 
         if (srcCtx && mainCtx) {
           if (videoUrl) {
-            if (videoRef.current && videoRef.current.readyState >= 2) {
+            if (activeVidAsset?.renderCode) {
+              const procCanvas = renderProceduralVideoAssetFrame(
+                activeVidAsset.renderCode,
+                activeVidAsset.id,
+                width,
+                height,
+                currentTime,
+                activeVidAsset.durationSec || duration || 5,
+                false
+              );
+              if (procCanvas) {
+                srcCtx.drawImage(procCanvas, 0, 0, width, height);
+              }
+            } else if (videoRef.current && videoRef.current.readyState >= 2) {
               drawMediaContain(
                 srcCtx,
                 videoRef.current,
@@ -1302,6 +1337,7 @@ export default function VideoEditorStudio() {
     loopIntervalOnly,
     videoUrl,
     activeImageUrl,
+    mediaLibrary,
     edits,
     splitCompareEnabled,
     splitCompareX,
@@ -1789,6 +1825,15 @@ export default function VideoEditorStudio() {
           setColorPrompts(savedTl.colorPrompts || {});
           setSelectedEditId(savedTl.edits?.[0]?.id ?? null);
         } else {
+          if (
+            asset.durationSec &&
+            Number.isFinite(asset.durationSec) &&
+            asset.durationSec > 0
+          ) {
+            setDuration(asset.durationSec);
+            setIntervalStart(0);
+            setIntervalEnd(Math.min(5, asset.durationSec));
+          }
           setCurrentTime(0);
           setAnnotations([]);
           setEdits([]);
@@ -1798,6 +1843,9 @@ export default function VideoEditorStudio() {
           setFocusedColor('all');
           setActiveColor('red');
           setColorPrompts({});
+        }
+        if (asset.renderCode) {
+          setIsPlaying(true);
         }
 
         if (asset.blob instanceof File) {
@@ -1998,7 +2046,11 @@ export default function VideoEditorStudio() {
   );
 
   // Universal File Import Handler (Videos, Images, Sound, or .chromacut.json Project Files)
-  const processImportedFile = (file: File, knownDurationSec?: number) => {
+  const processImportedFile = (
+    file: File,
+    knownDurationSec?: number,
+    renderCode?: string
+  ) => {
     if (file.name.endsWith('.json')) {
       const reader = new FileReader();
       reader.onload = () => {
@@ -2031,6 +2083,7 @@ export default function VideoEditorStudio() {
       url,
       blob: file,
       durationSec: knownDurationSec,
+      renderCode,
       isFavorite: addingDirectlyToFavorites,
       inCurrentProject: !addingDirectlyToFavorites,
       createdAt: Date.now(),
@@ -2542,7 +2595,7 @@ export default function VideoEditorStudio() {
       const animFn = new Function(
         'ctx',
         '__env',
-        `const { width, height, scale, t, elapsed, duration, progress, frame, totalFrames, state, hash, noise } = __env;\n{\n${data.renderCode}\n}`
+        `const { cx, cy, x, y, w, h, r, width, height, scale, t, elapsed, duration, progress, frame, totalFrames, state, hash, noise, TAU, clearFrame, createBuffer } = __env;\n{\n${data.renderCode}\n}`
       );
 
       const animState: Record<string, unknown> = {};
@@ -2564,6 +2617,39 @@ export default function VideoEditorStudio() {
         return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
       };
 
+      const clearFrameFn = (color?: string) => {
+        if (!color) {
+          ctx.clearRect(0, 0, vidW, vidH);
+        } else {
+          ctx.save();
+          ctx.fillStyle = color;
+          ctx.fillRect(0, 0, vidW, vidH);
+          ctx.restore();
+        }
+      };
+
+      const createBufferFn = (id = 'default', bw = vidW, bh = vidH) => {
+        const key = `__buf_${id}`;
+        const targetW = Math.max(1, Math.round(bw));
+        const targetH = Math.max(1, Math.round(bh));
+        let buf = animState[key] as
+          | { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D }
+          | undefined;
+        if (
+          !buf ||
+          buf.canvas.width !== targetW ||
+          buf.canvas.height !== targetH
+        ) {
+          const c = document.createElement('canvas');
+          c.width = targetW;
+          c.height = targetH;
+          const cCtx = c.getContext('2d') || ctx;
+          buf = { canvas: c, ctx: cCtx };
+          animState[key] = buf;
+        }
+        return buf;
+      };
+
       const renderFrameAt = (sec: number) => {
         const clampedT = Math.max(0, Math.min(targetDurSec, sec));
         const prog = targetDurSec > 0 ? clampedT / targetDurSec : 0;
@@ -2573,6 +2659,13 @@ export default function VideoEditorStudio() {
         ctx.clearRect(0, 0, vidW, vidH);
         try {
           animFn(ctx, {
+            cx: vidW / 2,
+            cy: vidH / 2,
+            x: 0,
+            y: 0,
+            w: vidW,
+            h: vidH,
+            r: Math.min(vidW, vidH) * 0.32,
             width: vidW,
             height: vidH,
             scale: vidW / 960,
@@ -2585,6 +2678,9 @@ export default function VideoEditorStudio() {
             state: animState,
             hash: hashFn,
             noise: noiseFn,
+            TAU: Math.PI * 2,
+            clearFrame: clearFrameFn,
+            createBuffer: createBufferFn,
           });
         } catch (frameErr) {
           console.warn('AI video frame warning:', frameErr);
@@ -2609,6 +2705,9 @@ export default function VideoEditorStudio() {
       const mimeType = supportedWebm || fallbackMime.mimeType;
       const extension = supportedWebm ? 'webm' : fallbackMime.extension;
       const stream = canvas.captureStream(fps);
+      const videoTrack = stream.getVideoTracks()[0] as
+        | (MediaStreamTrack & { requestFrame?: () => void })
+        | undefined;
       const chunks: BlobPart[] = [];
       const recorder = new MediaRecorder(stream, {
         mimeType,
@@ -2632,12 +2731,14 @@ export default function VideoEditorStudio() {
         };
 
         recorder.start(100);
+        videoTrack?.requestFrame?.();
         const startWall = performance.now();
 
         const tick = (nowWall: number) => {
           const elapsedSec = (nowWall - startWall) / 1000;
           if (elapsedSec >= targetDurSec) {
             renderFrameAt(targetDurSec);
+            videoTrack?.requestFrame?.();
             setAiVideoStatusText('Finalizing...');
             if (recorder.state === 'recording') {
               recorder.stop();
@@ -2645,6 +2746,7 @@ export default function VideoEditorStudio() {
             return;
           }
           renderFrameAt(elapsedSec);
+          videoTrack?.requestFrame?.();
           const pct = Math.min(99, Math.round((elapsedSec / targetDurSec) * 100));
           setAiVideoStatusText(`Rendering ${pct}%`);
           requestAnimationFrame(tick);
@@ -2674,7 +2776,7 @@ export default function VideoEditorStudio() {
         });
       }
 
-      processImportedFile(file);
+      processImportedFile(file, targetDurSec, data.renderCode);
       setAiVideoPrompt('');
       setShowAiVideoPanel(false);
       setStatusMessage(
@@ -3860,9 +3962,26 @@ export default function VideoEditorStudio() {
       }
     }
 
+    const activeExportVidAsset = videoUrl
+      ? mediaLibrary.find((m) => m.url === videoUrl)
+      : null;
+
     // Draw the initial frame onto hdOutCanvas before capturing stream
     const drawSingleExportFrame = (simTime: number) => {
-      if (videoUrl && videoRef.current && videoRef.current.readyState >= 2) {
+      if (videoUrl && activeExportVidAsset?.renderCode) {
+        const procCanvas = renderProceduralVideoAssetFrame(
+          activeExportVidAsset.renderCode,
+          activeExportVidAsset.id,
+          width,
+          height,
+          simTime,
+          activeExportVidAsset.durationSec || duration || 5,
+          false
+        );
+        if (procCanvas) {
+          srcCtx.drawImage(procCanvas, 0, 0, width, height);
+        }
+      } else if (videoUrl && videoRef.current && videoRef.current.readyState >= 2) {
         drawMediaContain(
           srcCtx,
           videoRef.current,
@@ -4276,9 +4395,19 @@ export default function VideoEditorStudio() {
             muted={isMuted}
             onLoadedMetadata={(e) => {
               const v = e.currentTarget;
-              const vidDuration = v.duration || 10;
-              const vw = v.videoWidth || 1920;
-              const vh = v.videoHeight || 1080;
+              const matchingAsset = mediaLibrary.find((m) => m.url === videoUrl);
+              const rawDur = v.duration;
+              // MediaRecorder WebM files in Chromium report v.duration === Infinity; fall back to the asset's known durationSec
+              const vidDuration =
+                Number.isFinite(rawDur) && rawDur > 0 && rawDur < 86400
+                  ? rawDur
+                  : matchingAsset?.durationSec &&
+                    Number.isFinite(matchingAsset.durationSec) &&
+                    matchingAsset.durationSec > 0
+                  ? matchingAsset.durationSec
+                  : 5;
+              const vw = v.videoWidth || 1280;
+              const vh = v.videoHeight || 720;
               const ratio =
                 vw > vh ? '16:9 Widescreen' : vh > vw ? '9:16 Vertical' : '1:1 Square';
 
